@@ -103,6 +103,8 @@ git tag v0.6.0 && git push origin v0.6.0
 ## 현재 상태 & 남은 작업
 현재 v0.6.0 (변수/함수/클래스/리스트/딕셔너리/try-catch/import/copy/파일IO/REPL/CLI/에러 줄표시/문자열 보간/리스트 ==·+/`topython` 파이썬 변환). 저장소: github.com/Vpdrla/Venos
 
+태그 이후 더해진 것 (다음 릴리스에 들어갈 것들): 문자열 반복 `"*" * n`, 리스트의 `has`/`find`, `reverse`, `round(x, 자릿수)`, 리터럴 끝의 쉼표, `--version`/`--help`, 오타 제안과 호출 경로가 붙은 에러, 나머지 연산의 부호 통일, 재귀 8배 속도 개선, `examples/algorithms/` 15개, 윈도우 버그 4종 수정.
+
 **버전 정책 — 임의로 올리지 말 것.** 0.x 는 "아직 안정화 전"이라는 뜻이고, **정식으로 완성됐다고 판단될 때 1.0.0** 을 붙인다 (사용자가 직접 결정). 그 전까지 기능을 추가해도 버전은 그대로 두고, 급한 버그 수정이 필요할 때만 자리수(0.6.1)를 올린다.
 
 - [x] `docs/` 3개 파일 업로드 — **Pages 설정은 사용자가 직접**: Settings→Pages→main `/docs` → https://vpdrla.github.io/Venos/ 확인
