@@ -144,12 +144,13 @@ done
 # 셸에서 실행·변환이 되는지만 본다.
 shell_ok="통과"
 VENOS_ABS=$(cd "$(dirname "$VENOS")" && pwd)/$(basename "$VENOS")
-{
-    mkdir -p "$TMP/shell" && cd "$TMP/shell"
+# 서브셸 — 셸이 파일을 현재 폴더에 만들기 때문에 옮겨 가야 하는데,
+# 여기서 cd 가 새면 뒤 단계들이 조용히 엉뚱한 곳에서 돈다.
+(
+    mkdir -p "$TMP/shell" && cd "$TMP/shell" || exit 0
     printf 'create 셸테스트\ncode\nlet x = 5\nprint "두 배:", x * 2\nprint "이 줄은 지운다"\n:d\nprint "끝"\n:q\nrun\ntopython\nexit\n' \
         | "$VENOS_ABS" > out.txt 2>&1
-    cd "$OLDPWD"
-} || true
+) || true
 if ! grep -q '^print "끝"$' "$TMP/shell/셸테스트.my" 2>/dev/null \
    || grep -q '이 줄은 지운다' "$TMP/shell/셸테스트.my" 2>/dev/null; then
     shell_ok="실패 (저장된 파일이 틀립니다)"

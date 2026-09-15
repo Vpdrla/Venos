@@ -27,10 +27,15 @@ SAN_FLAGS="-std=c++17 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointe
 # 생성 코드는 36벌을 새로 컴파일해야 해서 최적화 단계가 곧 실행 시간이다.
 # 여기서 보는 건 속도가 아니라 메모리 오류라 -O0 으로 충분하다.
 GEN_FLAGS="-std=c++17 -g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer"
-# 일부러 만든 순환 참조(tests/cases/bugfixes.my, listops_errors.my)가 새는 건 정상이다 —
-# 참조 계수 방식에 순환 수집기가 없으면 어쩔 수 없고, 그걸 넣을 언어가 아니다.
-export ASAN_OPTIONS=detect_leaks=0
 export UBSAN_OPTIONS=print_stacktrace=1
+# 누수 검출은 켠다. 예외는 **일부러 순환 참조를 만드는 두 케이스**뿐이다 —
+# 참조 계수 방식에 순환 수집기가 없으면 어쩔 수 없고, 그걸 넣을 언어가 아니다.
+# 전체를 detect_leaks=0 으로 덮으면 진짜 누수도 같이 가려진다.
+CYCLIC="bugfixes listops_errors"
+leaks_for() {   # leaks_for <케이스이름> → ASAN_OPTIONS 값
+    case " $CYCLIC " in *" $1 "*) echo "detect_leaks=0" ;; *) echo "detect_leaks=1" ;; esac
+}
+export ASAN_OPTIONS=detect_leaks=1
 
 echo "== 새니타이저 빌드"
 # shellcheck disable=SC2086
@@ -38,7 +43,7 @@ g++ $SAN_FLAGS -o "$TMP/venos-asan" venos.cpp || { echo "빌드 실패"; exit 1;
 
 bad=0
 report() {   # report <이름> <출력>
-    if printf '%s' "$2" | grep -qE "runtime error:|ERROR: AddressSanitizer"; then
+    if printf '%s' "$2" | grep -qE "runtime error:|ERROR: AddressSanitizer|ERROR: LeakSanitizer"; then
         echo "FAIL  $1"
         printf '%s' "$2" | grep -E "runtime error:|ERROR: |#1 |#2 " | sort -u | head -6
         bad=$((bad+1))
@@ -49,8 +54,9 @@ echo "== 인터프리터로 전체 코퍼스"
 for f in tests/cases/*.my examples/algorithms/*.my tests/diag/*.my; do
     name=$(basename "$f" .my)
     inp="tests/cases/$name.input"
-    if [ -f "$inp" ]; then out=$("$TMP/venos-asan" "$f" < "$inp" 2>&1)
-    else                   out=$("$TMP/venos-asan" "$f" < /dev/null 2>&1); fi
+    ASAN_OPTIONS=$(leaks_for "$name")
+    if [ -f "$inp" ]; then out=$(ASAN_OPTIONS=$ASAN_OPTIONS "$TMP/venos-asan" "$f" < "$inp" 2>&1)
+    else                   out=$(ASAN_OPTIONS=$ASAN_OPTIONS "$TMP/venos-asan" "$f" < /dev/null 2>&1); fi
     report "실행/$name" "$out"
 done
 out=$("$TMP/venos-asan" examples/rpg.my < tests/cases/rpg_path.input 2>&1)
@@ -78,12 +84,14 @@ for f in "$TMP/gen"/*.my; do
     # shellcheck disable=SC2086
     g++ $GEN_FLAGS -o "$TMP/gen/$name.san" "$TMP/gen/$name.cpp" 2>/dev/null \
         || { echo "FAIL  컴파일/$name"; bad=$((bad+1)); continue; }
-    if [ -f "$TMP/gen/$name.input" ]; then out=$("$TMP/gen/$name.san" < "$TMP/gen/$name.input" 2>&1)
-    else                                   out=$("$TMP/gen/$name.san" < /dev/null 2>&1); fi
+    ASAN_OPTIONS=$(leaks_for "$name")
+    if [ -f "$TMP/gen/$name.input" ]; then out=$(ASAN_OPTIONS=$ASAN_OPTIONS "$TMP/gen/$name.san" < "$TMP/gen/$name.input" 2>&1)
+    else                                   out=$(ASAN_OPTIONS=$ASAN_OPTIONS "$TMP/gen/$name.san" < /dev/null 2>&1); fi
     report "생성본/$name" "$out"
 done
 
 echo "== 퍼징 (${FUZZ_MIN}분)"
+# 퍼저의 입력은 파스 도중에 죽는 프로그램이라 누수 보고가 의미 없다 (fuzz.py 가 0 으로 둔다)
 if python3 tools/fuzz.py "$TMP/venos-asan" --rounds 100000 --minutes "$FUZZ_MIN" --out "$TMP/fuzz"; then
     :
 else
