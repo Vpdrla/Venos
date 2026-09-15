@@ -12,6 +12,7 @@ venos build program.my     # transpile to C++, compile with g++ → native execu
 venos build program.my run # build, then run immediately
 venos topython program.my  # write the same program as Python (.my → .py)
 venos                      # interactive shell (create/choose/code/run/build/...)
+venos --help               # usage; venos --version prints the version
 ```
 Inside the shell, `repl` starts a line-by-line REPL — type a bare expression to see its value.
 

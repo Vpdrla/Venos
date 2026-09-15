@@ -12,6 +12,7 @@ venos build 파일.my        # C++ 로 변환 후 g++ 컴파일 → 네이티브
 venos build 파일.my run    # 빌드 후 바로 실행
 venos topython 파일.my     # 같은 프로그램의 파이썬 버전을 만든다 (.my → .py)
 venos                      # 대화형 셸 (create/choose/code/run/build/...)
+venos --help               # 사용법,  venos --version 은 버전
 ```
 셸에서 `repl` 을 입력하면 한 줄씩 실행하는 REPL 시작 — 식만 입력하면 값을 바로 보여줌.
 

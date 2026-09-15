@@ -105,6 +105,7 @@ static const string KW_TRUE     = "true";
 static const string KW_FALSE    = "false";
 static const string FILE_EXT    = ".my";
 
+static const char* VENOS_VERSION = "0.6.0";   // 릴리스 태그를 올릴 때 같이 고칠 것
 static const int MAX_RECURSION = 2000;   // 함수 재귀 깊이 제한
 
 // ============================================================
@@ -156,7 +157,7 @@ static void clearScreen() { std::cout << "\033[2J\033[3J\033[H" << std::flush; }
 
 static void drawBanner() {
     std::cout << "==========================================\n";
-    std::cout << "  Venos Shell v0.6.0  (help 로 도움말)\n";
+    std::cout << "  Venos Shell v" << VENOS_VERSION << "  (help 로 도움말)\n";
     std::cout << "==========================================\n";
 }
 
@@ -5042,6 +5043,29 @@ int main(int argc, char** argv) {
     //   venos build 파일.my run  빌드 후 실행
     if (argc >= 2) {
         string a1 = argv[1];
+        // 다른 도구들이 다 받는 것들 — 이게 없으면 `venos --help` 가 "파일 없음: --help.my" 다
+        if (a1 == "--version" || a1 == "-v" || a1 == "version") {
+            std::cout << "Venos " << VENOS_VERSION << "\n";
+            return 0;
+        }
+        if (a1 == "--help" || a1 == "-h" || a1 == "help") {
+            std::cout <<
+                "Venos " << VENOS_VERSION << " — 실행되는 의사코드, 파이썬으로 나가는 다리\n"
+                "\n"
+                "사용법:\n"
+                "  venos 파일.my              바로 실행 (인터프리터)\n"
+                "  venos run 파일.my          위와 같음\n"
+                "  venos build 파일.my        C++ 로 옮겨 g++ 로 컴파일 → 실행 파일\n"
+                "  venos build 파일.my run    빌드한 뒤 바로 실행\n"
+                "  venos topython 파일.my     같은 프로그램의 파이썬 버전을 만든다 (.my → .py)\n"
+                "  venos                      대화형 셸 (그 안에서 help 로 명령 목록)\n"
+                "  venos --version            버전\n"
+                "\n"
+                "확장자 .my 는 생략해도 된다 (venos 정렬 → 정렬.my).\n"
+                "설치 없이 써 보려면: https://vpdrla.github.io/Venos/\n"
+                "언어 명세: VENOS_SPEC.md\n";
+            return 0;
+        }
         if (a1 == "topython" && argc >= 3) {
             string f = withExt(argv[2]);
             if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }

@@ -42,6 +42,8 @@ jobs:
 
       - name: Smoke test
         run: |
+          ./venos.exe --version
+          ./venos.exe --help
           ./venos.exe examples/algorithms/selection-sort.my
           ./venos.exe examples/algorithms/caesar-cipher.my
 
