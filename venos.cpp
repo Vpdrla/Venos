@@ -446,6 +446,32 @@ static void printError(const LangError& e) {
 //  내용으로 치환하고, 병합 줄번호 → 원본 위치 매핑을 만든다.
 //  같은 파일은 한 번만 로드 (중복/순환 import 자동 방지).
 // ============================================================
+// 파일 열기 — 윈도우에서는 반드시 넓은 경로로 연다.
+// std::ifstream 의 filesystem::path 생성자는 MinGW 빌드에서 기대대로 동작하지 않는다:
+// 트랜스파일 빌드본에서 없는 파일도 "열렸다"고 답해 exists() 와 readfile() 이 전부
+// 참이 됐다 (윈도우 CI 가 잡았다). 그래서 두 백엔드 모두 이 함수 하나만 쓴다.
+// 모드는 바이너리 고정 — 텍스트 모드의 CRLF 변환이 백엔드마다 다르게 걸리지 않도록.
+static std::FILE* openFile(const string& path, const char* mode, const wchar_t* wmode) {
+#ifdef _WIN32
+    (void)mode;
+    return _wfopen(toPath(path).c_str(), wmode);
+#else
+    (void)wmode;
+    return std::fopen(path.c_str(), mode);
+#endif
+}
+static string readAll(std::FILE* fp) {
+    string out;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, fp)) > 0) out.append(buf, n);
+    std::fclose(fp);
+    return out;
+}
+static void writeAll(std::FILE* fp, const string& s) {
+    if (!s.empty()) std::fwrite(s.data(), 1, s.size(), fp);
+    std::fclose(fp);
+}
 static fs::path importToPath(const string& utf8) { return toPath(utf8); }
 static void loadWithImports(const string& rawPath, std::set<string>& loaded,
                             string& out, std::vector<string>& lmap,
@@ -1581,17 +1607,15 @@ struct CallExpr : Expr {
         }
         if (name == "readfile") {  // readfile("data.txt") → 파일 전체를 문자열로
             needArgs(1, "readfile(경로)");
-            std::ifstream f(toPath(needStr(0)));
-            if (!f) throw err("파일을 열 수 없습니다: " + vals[0].str);
-            std::stringstream buf;
-            buf << f.rdbuf();
-            return Value::text(buf.str());
+            std::FILE* fp = openFile(needStr(0), "rb", L"rb");
+            if (!fp) throw err("파일을 열 수 없습니다: " + vals[0].str);
+            return Value::text(readAll(fp));
         }
         if (name == "writefile") { // writefile("out.txt", 내용) → 파일에 저장
             needArgs(2, "writefile(경로, 내용)");
-            std::ofstream f(toPath(needStr(0)));
-            if (!f) throw err("파일을 만들 수 없습니다: " + vals[0].str);
-            f << vals[1].toString();
+            std::FILE* fp = openFile(needStr(0), "wb", L"wb");
+            if (!fp) throw err("파일을 만들 수 없습니다: " + vals[0].str);
+            writeAll(fp, vals[1].toString());
             return Value::number(1);
         }
         if (name == "time") {      // time() → 1970년부터 지난 초 (소수점 포함)
@@ -1607,9 +1631,9 @@ struct CallExpr : Expr {
         }
         if (name == "appendfile") { // appendfile(경로, 내용) → 파일 끝에 이어쓰기
             needArgs(2, "appendfile(경로, 내용)");
-            std::ofstream f(toPath(needStr(0)), std::ios::app);
-            if (!f) throw err("파일을 열 수 없습니다: " + vals[0].str);
-            f << vals[1].toString();
+            std::FILE* fp = openFile(needStr(0), "ab", L"ab");
+            if (!fp) throw err("파일을 열 수 없습니다: " + vals[0].str);
+            writeAll(fp, vals[1].toString());
             return Value::number(1);
         }
         if (name == "error") {     // error("메시지") → 일부러 에러 발생 (try 로 잡기)
@@ -2319,6 +2343,7 @@ static const char* RUNTIME = R"RT(// ---- Venos 런타임 (자동 생성) ----
 #include <sstream>
 #include <stdexcept>
 #include <map>
+#include <cstdio>
 #include <filesystem>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -2778,16 +2803,38 @@ static Value b_substr(const Value& a, const Value& b, const Value& c) {
     return Value(out);
 }
 #include <fstream>
+// 파일 열기 — 인터프리터와 같은 방식(넓은 경로, 바이너리 모드)이어야 한다.
+// std::ifstream 의 filesystem::path 생성자는 MinGW 에서 없는 파일도 열린 것처럼 굴었다.
+static std::FILE* rt_open(const string& path, const char* mode, const wchar_t* wmode) {
+#ifdef _WIN32
+    (void)mode;
+    return _wfopen(rt_path(path).c_str(), wmode);
+#else
+    (void)wmode;
+    return std::fopen(path.c_str(), mode);
+#endif
+}
+static string rt_read_all(std::FILE* fp) {
+    string out;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, fp)) > 0) out.append(buf, n);
+    std::fclose(fp);
+    return out;
+}
+static void rt_write_all(std::FILE* fp, const string& s) {
+    if (!s.empty()) std::fwrite(s.data(), 1, s.size(), fp);
+    std::fclose(fp);
+}
 static Value b_readfile(const Value& a) {
-    std::ifstream f(rt_path(needStrR(a, "readfile")));
-    if (!f) throw RunErr("파일을 열 수 없습니다: " + a.str);
-    std::ostringstream buf; buf << f.rdbuf();
-    return Value(buf.str());
+    std::FILE* fp = rt_open(needStrR(a, "readfile"), "rb", L"rb");
+    if (!fp) throw RunErr("파일을 열 수 없습니다: " + a.str);
+    return Value(rt_read_all(fp));
 }
 static Value b_writefile(const Value& a, const Value& b) {
-    std::ofstream f(rt_path(needStrR(a, "writefile")));
-    if (!f) throw RunErr("파일을 만들 수 없습니다: " + a.str);
-    f << b.toString();
+    std::FILE* fp = rt_open(needStrR(a, "writefile"), "wb", L"wb");
+    if (!fp) throw RunErr("파일을 만들 수 없습니다: " + a.str);
+    rt_write_all(fp, b.toString());
     return Value(1.0);
 }
 #include <chrono>
@@ -2820,9 +2867,9 @@ static Value b_exists(const Value& a) {
     return Value(std::filesystem::is_regular_file(rt_path(needStrR(a, "exists")), ec) ? 1.0 : 0.0);
 }
 static Value b_appendfile(const Value& a, const Value& b) {
-    std::ofstream f(rt_path(needStrR(a, "appendfile")), std::ios::app);
-    if (!f) throw RunErr("파일을 열 수 없습니다: " + a.str);
-    f << b.toString();
+    std::FILE* fp = rt_open(needStrR(a, "appendfile"), "ab", L"ab");
+    if (!fp) throw RunErr("파일을 열 수 없습니다: " + a.str);
+    rt_write_all(fp, b.toString());
     return Value(1.0);
 }
 static Value b_keys(const Value& v) {
