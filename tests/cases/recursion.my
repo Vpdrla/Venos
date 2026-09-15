@@ -1,0 +1,32 @@
+# 재귀 깊이 — Venos 는 2000번까지 허용하고 파이썬 기본값은 1000이다.
+# 여기가 그대로 나가면 Venos 에서 잘 돌던 프로그램이 파이썬에서 RecursionError 로 죽는다.
+
+func 합(n) {
+    if n <= 0 { return 0 }
+    return n + 합(n - 1)
+}
+print 합(1500)
+
+# 상호 재귀도 회로다
+func 짝수(n) { if n == 0 { return 1 }  return 홀수(n - 1) }
+func 홀수(n) { if n == 0 { return 0 }  return 짝수(n - 1) }
+print 짝수(1200), 홀수(1200), 짝수(7), 홀수(7)
+
+# 재귀 안에서 리스트를 쌓기
+func 거꾸로(xs, i) {
+    if i < 1 { return [] }
+    return [xs[i]] + 거꾸로(xs, i - 1)
+}
+print 거꾸로([1, 2, 3, 4, 5], 5)
+
+# 메서드 재귀
+class 계산 {
+    func init() { self.횟수 = 0 }
+    func 팩토리얼(n) {
+        self.횟수 += 1
+        if n <= 1 { return 1 }
+        return n * self.팩토리얼(n - 1)
+    }
+}
+let c = 계산()
+print c.팩토리얼(10), c.횟수

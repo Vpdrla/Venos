@@ -3634,6 +3634,82 @@ struct PyGen {
         }
         return false;
     }
+    // ---- 재귀가 있는가 ----
+    // Venos 는 재귀를 2000번까지 허용하고 파이썬 기본값은 1000이다. 그대로 두면 Venos 에선
+    // 잘 돌던 재귀가 파이썬에서 RecursionError 로 죽는다 — "같은 프로그램"이 아니게 된다.
+    // 호출 그래프에 회로가 있으면(자기 자신 호출 포함) 파이썬 쪽 한도를 올려 준다.
+    std::map<string, std::set<string>> callGraph;
+    void callsIn(Expr* e, std::set<string>& out) {
+        if (!e) return;
+        if (auto* c = dynamic_cast<CallExpr*>(e)) {
+            if (funcs.count(c->name)) out.insert(c->name);
+            for (auto& a : c->args) callsIn(a.get(), out);
+            return;
+        }
+        if (auto* m = dynamic_cast<MethodCallExpr*>(e)) {
+            out.insert("." + m->method);          // 메서드는 이름만 보고 잇는다 (동적 호출이라)
+            callsIn(m->target.get(), out);
+            for (auto& a : m->args) callsIn(a.get(), out);
+            return;
+        }
+        if (auto* b = dynamic_cast<BinExpr*>(e))   { callsIn(b->lhs.get(), out); callsIn(b->rhs.get(), out); return; }
+        if (auto* l = dynamic_cast<LogicalExpr*>(e)){ callsIn(l->lhs.get(), out); callsIn(l->rhs.get(), out); return; }
+        if (auto* n = dynamic_cast<NotExpr*>(e))   { callsIn(n->inner.get(), out); return; }
+        if (auto* g = dynamic_cast<NegExpr*>(e))   { callsIn(g->inner.get(), out); return; }
+        if (auto* i = dynamic_cast<IndexExpr*>(e)) { callsIn(i->target.get(), out); callsIn(i->index.get(), out); return; }
+        if (auto* f = dynamic_cast<FieldExpr*>(e)) { callsIn(f->target.get(), out); return; }
+        if (auto* li = dynamic_cast<ListExpr*>(e)) { for (auto& x : li->items) callsIn(x.get(), out); return; }
+        if (auto* mp = dynamic_cast<MapExpr*>(e))  {
+            for (auto& [k, v] : mp->items) { callsIn(k.get(), out); callsIn(v.get(), out); }
+            return;
+        }
+    }
+    void callsIn(Stmt* s, std::set<string>& out) {
+        if (!s) return;
+        if (auto* l  = dynamic_cast<LetStmt*>(s))          { callsIn(l->val.get(), out); return; }
+        if (auto* a  = dynamic_cast<AssignStmt*>(s))       { callsIn(a->val.get(), out); return; }
+        if (auto* pa = dynamic_cast<PathAssignStmt*>(s))   {
+            for (auto& ac : pa->path) callsIn(ac.index.get(), out);
+            callsIn(pa->val.get(), out); return;
+        }
+        if (auto* pc = dynamic_cast<PathCompoundStmt*>(s)) {
+            for (auto& ac : pc->path) callsIn(ac.index.get(), out);
+            callsIn(pc->rhs.get(), out); return;
+        }
+        if (auto* p  = dynamic_cast<PrintStmt*>(s))        { for (auto& v : p->vals) callsIn(v.get(), out); return; }
+        if (auto* es = dynamic_cast<ExprStmt*>(s))         { callsIn(es->e.get(), out); return; }
+        if (auto* b  = dynamic_cast<BlockStmt*>(s))        { for (auto& c : b->stmts) callsIn(c.get(), out); return; }
+        if (auto* i  = dynamic_cast<IfStmt*>(s))           {
+            callsIn(i->cond.get(), out); callsIn(i->thenB.get(), out); callsIn(i->elseB.get(), out); return;
+        }
+        if (auto* w  = dynamic_cast<WhileStmt*>(s))        { callsIn(w->cond.get(), out); callsIn(w->body.get(), out); return; }
+        if (auto* f  = dynamic_cast<ForStmt*>(s))          {
+            callsIn(f->start.get(), out); callsIn(f->end.get(), out); callsIn(f->step.get(), out);
+            callsIn(f->body.get(), out); return;
+        }
+        if (auto* fe = dynamic_cast<ForEachStmt*>(s))      { callsIn(fe->iter.get(), out); callsIn(fe->body.get(), out); return; }
+        if (auto* t  = dynamic_cast<TryStmt*>(s))          { callsIn(t->tryB.get(), out); callsIn(t->catchB.get(), out); return; }
+        if (auto* r  = dynamic_cast<ReturnStmt*>(s))       { callsIn(r->val.get(), out); return; }
+    }
+    bool hasRecursion() {
+        callGraph.clear();
+        for (auto& [name, fn] : funcs) callsIn(fn->body.get(), callGraph[name]);
+        for (auto& [cname, cls] : classes)
+            for (auto& m : cls->methodList) callsIn(m->body.get(), callGraph["." + m->name]);
+        std::set<string> done, onPath;
+        std::function<bool(const string&)> cyclic = [&](const string& n) -> bool {
+            if (onPath.count(n)) return true;            // 회로
+            if (done.count(n) || !callGraph.count(n)) return false;
+            onPath.insert(n);
+            for (const string& next : callGraph[n]) if (cyclic(next)) return true;
+            onPath.erase(n);
+            done.insert(n);
+            return false;
+        };
+        for (auto& [n, _] : callGraph) if (cyclic(n)) return true;
+        return false;
+    }
+
     void inferStrVars(std::vector<StmtP>& program) {
         strSites.clear(); strBanned.clear(); strVars.clear();
         for (auto& st : program) scanStr(st.get());
@@ -4264,11 +4340,13 @@ struct PyGen {
         helpers.clear();
         imports.clear();
         buildAll(defs, main);
+        bool deepRecursion = hasRecursion();
+        if (deepRecursion) imports.insert("sys");
 
         std::ostringstream out;
         out << "# 이 파일은 Venos 프로그램을 파이썬으로 옮긴 것입니다 (venos topython).\n";
         int noteN = 0;
-        if (sawIndex || sawFloat || !helpers.empty())
+        if (sawIndex || sawFloat || deepRecursion || !helpers.empty())
             out << "#\n# Venos 와 파이썬이 다른 점 — 숨기지 않고 적어 둡니다:\n";
         if (sawIndex)
             out << "#   " << ++noteN << ") 리스트를 Venos 는 1번부터, 파이썬은 0번부터 셉니다."
@@ -4277,6 +4355,10 @@ struct PyGen {
             out << "#   " << ++noteN << ") 소수를 보여주는 방식이 다릅니다. Venos 는 5.0 을 5 로,"
                    " 91.66666...을 91.6667 로\n"
                    "#      줄여서 보여주지만 파이썬은 있는 그대로 보여줍니다.\n";
+        if (deepRecursion)
+            out << "#   " << ++noteN << ") 재귀 깊이 한도가 다릅니다 — Venos 는 "
+                << MAX_RECURSION << "번, 파이썬은 기본 1000번이라\n"
+                   "#      맨 위에서 sys.setrecursionlimit 으로 맞춰 두었습니다.\n";
         if (!helpers.empty())
             out << "#   " << ++noteN << ") 밑줄로 시작하는 _이름 함수들은 Venos 와 똑같이 보이게 하려고"
                    " 붙인 것뿐이니\n"
@@ -4285,6 +4367,9 @@ struct PyGen {
             out << "\n";
             for (auto& m : imports) out << "import " << m << "\n";
         }
+        if (deepRecursion)
+            out << "\nsys.setrecursionlimit(" << (MAX_RECURSION + 1000) << ")"
+                   "   # Venos 는 " << MAX_RECURSION << "번까지 허용, 파이썬 기본값은 1000\n";
         string help = helperSource();
         if (!help.empty()) out << "\n" << help;
         out << "\n";
