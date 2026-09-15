@@ -18,6 +18,7 @@ examples/algorithms/*
 tests/cases/*
 !tests/cases/*.my
 !tests/cases/*.input
+tests/nopython/*.py
 tests/.tmp_*
 
 # 게임 세이브 / 로그

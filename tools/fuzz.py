@@ -117,7 +117,7 @@ def main():
             f.write(src)
         for label, argv in (
             ('실행',   [args.venos, case]),
-            ('topython', [args.venos, 'topython', case, '-o', os.path.join(out_dir, 'case.py')]),
+            ('topython', [args.venos, 'topython', case]),
             ('build',  [args.venos, 'build', case]),
         ):
             kind, out = run(argv, b'1\n2\n3\n' * 50, args.timeout)

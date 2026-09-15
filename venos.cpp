@@ -4012,7 +4012,7 @@ struct PyGen {
             return o + "}";
         }
         if (auto* ix = dynamic_cast<IndexExpr*>(e))
-            return indexGet(ix->target.get(), ix->index.get());
+            return indexGet(ix->target.get(), ix->index.get(), ix->line);
         if (auto* f = dynamic_cast<FieldExpr*>(e))
             return wrap(f->target.get(), P_ATOM) + "." + pyName(f->field);
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
@@ -4082,11 +4082,18 @@ struct PyGen {
 
     // xs[1] 은 첫 번째, d["키"] 는 키 조회 — 리터럴이면 그 자리에서 정하고,
     // 변수라서 알 수 없으면 도우미로 넘긴다.
-    string indexGet(Expr* target, Expr* index) {
+    string indexGet(Expr* target, Expr* index, int line) {
         sawIndex = true;
         string T = wrap(target, P_ATOM);
         if (dynamic_cast<StrExpr*>(index)) return T + "[" + expr(index) + "]";
-        if (auto* n = dynamic_cast<NumExpr*>(index)) return T + "[" + pyNum(n->v - 1) + "]";
+        if (auto* n = dynamic_cast<NumExpr*>(index)) {
+            // 1부터를 0부터로 옮기므로 0 은 파이썬에서 [-1] 이 된다 — 에러가 아니라
+            // "마지막 원소"가 조용히 나온다. 초보자 최빈 실수 1번이라 여기서 막는다.
+            if (n->v < 1)
+                throw err(line, "리스트와 문자열의 인덱스는 1부터입니다 (지금 "
+                                + pyNum(n->v) + ") — 파이썬으로 옮기면 뒤에서 세는 뜻이 되어 버립니다");
+            return T + "[" + pyNum(n->v - 1) + "]";
+        }
         if (!sawMap) return T + "[" + wrap(index, P_MUL) + " - 1]";   // 딕셔너리가 없으면 리스트뿐
         return need("idx") + "(" + expr(target) + ", " + expr(index) + ")";
     }
@@ -4111,10 +4118,23 @@ struct PyGen {
                 throw err(c->line, f + "() 는 인자 " + std::to_string(want)
                                      + "개가 필요합니다 (지금 " + std::to_string(n) + "개)");
         };
+        // 파이썬이 Venos 와 다르게 답하는 인자들. 리터럴로 적혀 있으면 여기서 거절한다 —
+        // 틀린 파이썬을 내느니 줄 번호를 대고 거절하는 게 약속이다.
+        auto noEmptyStr = [&](size_t i, const char* what) {
+            auto* lit = dynamic_cast<StrExpr*>(c->args[i].get());
+            if (lit && lit->s.empty())
+                throw err(c->line, string(what) + josa(what, "은", "는") + " 비어 있을 수 없습니다"
+                                   " (파이썬은 글자 사이마다 끼워 넣어 다른 답을 냅니다)");
+        };
+        auto numbersOnly = [&](size_t i) {
+            if (dynamic_cast<StrExpr*>(c->args[i].get()))
+                throw err(c->line, f + "() 에는 수만 넣을 수 있습니다"
+                                      " (파이썬은 문자열도 비교해 다른 답을 냅니다)");
+        };
         if (f == "len")   { need2(1); return "len(" + A(0) + ")"; }
         if (f == "abs")   { need2(1); return "abs(" + A(0) + ")"; }
-        if (f == "min")   { need2(2); return "min(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "max")   { need2(2); return "max(" + A(0) + ", " + A(1) + ")"; }
+        if (f == "min")   { need2(2); numbersOnly(0); numbersOnly(1); return "min(" + A(0) + ", " + A(1) + ")"; }
+        if (f == "max")   { need2(2); numbersOnly(0); numbersOnly(1); return "max(" + A(0) + ", " + A(1) + ")"; }
         if (f == "floor") { need2(1); imports.insert("math"); return "math.floor(" + A(0) + ")"; }
         if (f == "ceil")  { need2(1); imports.insert("math"); return "math.ceil("  + A(0) + ")"; }
         if (f == "sqrt")  { need2(1); imports.insert("math"); sawFloat = true; return "math.sqrt("  + A(0) + ")"; }
@@ -4144,11 +4164,16 @@ struct PyGen {
         if (f == "upper") { need2(1); return atom(0) + ".upper()"; }
         if (f == "lower") { need2(1); return atom(0) + ".lower()"; }
         // find 는 + 1 이 붙으므로 통째로 괄호를 씌운다 (find(s,x) * 10 이 s.find(x) + 1 * 10 이 되면 안 된다)
-        if (f == "find")  { need2(2);
-                            if (stringish(c->args[0].get()))
+        // 찾을 문자열이 리터럴이면 s.find(x) + 1 이 그대로 읽힌다. 변수면 빈 문자열이
+        // 들어올 수 있고, 그때 파이썬은 0 을 주지만 Venos 는 에러다 — 검사하는 쪽으로 보낸다.
+        if (f == "find")  { need2(2); noEmptyStr(1, "find() 로 찾을 문자열");
+                            if (stringish(c->args[0].get()) && dynamic_cast<StrExpr*>(c->args[1].get()))
                                 return "(" + atom(0) + ".find(" + A(1) + ") + 1)";
                             return need("find") + "(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "replace"){need2(3); return atom(0) + ".replace(" + A(1) + ", " + A(2) + ")"; }
+        if (f == "replace"){need2(3); noEmptyStr(1, "replace() 의 바꿀 문자열");
+                            if (dynamic_cast<StrExpr*>(c->args[1].get()))
+                                return atom(0) + ".replace(" + A(1) + ", " + A(2) + ")";
+                            return need("replace") + "(" + A(0) + ", " + A(1) + ", " + A(2) + ")"; }
         if (f == "substr"){ need2(3); return need("substr") + "(" + A(0) + ", " + A(1) + ", " + A(2) + ")"; }
         if (f == "readfile")  { need2(1); return need("readfile")   + "(" + A(0) + ")"; }
         if (f == "writefile") { need2(2); return need("writefile")  + "(" + A(0) + ", " + A(1) + ")"; }
@@ -4506,7 +4531,9 @@ struct PyGen {
             out << "#\n# Venos 와 파이썬이 다른 점 — 숨기지 않고 적어 둡니다:\n";
         if (sawIndex)
             out << "#   " << ++noteN << ") 리스트를 Venos 는 1번부터, 파이썬은 0번부터 셉니다."
-                   " 그래서 xs[1] 이 xs[0] 이 됩니다.\n";
+                   " 그래서 xs[1] 이 xs[0] 이 됩니다.\n"
+                   "#      번호가 1 아래로 내려가면 Venos 는 에러를 내지만 파이썬은 뒤에서부터 셉니다"
+                   " (xs[0] 이 마지막 원소가 됩니다).\n";
         if (sawFloat)
             out << "#   " << ++noteN << ") 소수를 보여주는 방식이 다릅니다. Venos 는 5.0 을 5 로,"
                    " 91.66666...을 91.6667 로\n"
@@ -4580,16 +4607,24 @@ struct PyGen {
              "        return int(f) if f == int(f) else f\n"
              "    except ValueError:\n"
              "        return s\n"},
-            {"idx",
+            // Venos 는 리스트 인덱스가 1부터다. int(k)-1 을 그대로 쓰면 0 이 파이썬의
+             // 음수 인덱스가 되어 "에러" 가 "마지막 원소" 로 조용히 바뀐다.
+             {"idx",
              "def _idx(c, k):\n"
-             "    return c[k] if isinstance(c, dict) else c[int(k) - 1]\n"},
+             "    if isinstance(c, dict): return c[k]\n"
+             "    i = int(k)\n"
+             "    if i < 1 or i > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(i))\n"
+             "    return c[i - 1]\n"},
             {"k",
              "def _k(c, i):\n"
              "    return i if isinstance(c, dict) else int(i) - 1\n"},
             {"push",  "def _push(xs, v):\n    xs.append(v)\n    return xs\n"},
             {"sort",  "def _sort(xs):\n    xs.sort()\n    return xs\n"},
             {"join",  "def _join(xs, sep):\n    return sep.join(_show(x) for x in xs)\n"},
-            {"substr","def _substr(s, start, n):\n    i = int(start) - 1\n    return s[i:i + int(n)]\n"},
+            {"substr","def _substr(s, start, n):\n"
+                       "    i = int(start) - 1\n"
+                       "    if i < 0: raise Exception(\"substr() 의 시작 위치는 1부터입니다\")\n"
+                       "    return s[i:i + int(n)]\n"},
             {"remove",
              "def _remove(c, k):\n"
              "    if isinstance(c, dict):\n"
@@ -4600,7 +4635,15 @@ struct PyGen {
                       "    return r if n == 0 else r / p\n"},
             {"reverse","def _reverse(x):\n    if isinstance(x, str): return x[::-1]\n"
                        "    x.reverse()\n    return x\n"},
-            {"find",  "def _find(a, b):\n    if isinstance(a, str): return a.find(b) + 1\n"
+            // 바꿀 문자열이 비면 파이썬은 글자 사이마다 끼워 넣는다. Venos 는 에러다.
+            {"replace","def _replace(s, old, new):\n"
+                       "    if old == \"\": raise Exception(\"replace() 의 바꿀 문자열은 비어 있을 수 없습니다\")\n"
+                       "    return s.replace(old, new)\n"},
+            // 빈 문자열을 찾으면 파이썬은 0 을 주지만 Venos 는 에러다
+             {"find",  "def _find(a, b):\n"
+                      "    if isinstance(a, str):\n"
+                      "        if b == \"\": raise Exception(\"find() 로 찾을 문자열은 비어 있을 수 없습니다\")\n"
+                      "        return a.find(b) + 1\n"
                       "    return a.index(b) + 1 if b in a else 0\n"},
             {"random","def _random(a, b):\n    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
             {"rng",
@@ -4656,7 +4699,9 @@ void cmdBuild(const string& arg) {
     string runCmd  = base + ".exe";
 #else
     string exeName = base;
-    string runCmd  = "./" + base;
+    // 폴더가 붙어 있지 않을 때만 ./ 가 필요하다. 절대 경로 앞에 붙이면
+    // ".//home/..." 이 되어 "not found" 로 죽는다 (venos build /경로/파일.my run).
+    string runCmd  = (base.find('/') == string::npos) ? "./" + base : base;
 #endif
 
     std::cout << "=== build: " << fname << " ===\n";
@@ -4699,7 +4744,8 @@ void cmdBuild(const string& arg) {
     std::cout << "build OK: " << exeName << "  (run: " << runCmd << ")\n";
     if (arg == "run") {
         std::cout << "----- run -----\n" << std::flush;
-        int rrc = std::system(runCmd.c_str());
+        // 경로에 공백이 있으면 셸이 두 낱말로 읽는다 ("내 과제/정렬.my")
+        int rrc = std::system(("\"" + runCmd + "\"").c_str());
         if (rrc != 0) std::cout << "(program exited with code " << rrc << ")\n";
     }
 }
@@ -5207,7 +5253,15 @@ int main(int argc, char** argv) {
                 "언어 명세: VENOS_SPEC.md\n";
             return 0;
         }
+        // 남는 인자를 조용히 버리면 "venos topython 정렬.my -o 결과.py" 가 아무 말 없이
+        // 엉뚱한 곳에 파일을 쓴다. 모르는 인자는 쓰는 법과 함께 거절한다.
+        auto extra = [&](int used, const char* usage) {
+            if (argc <= used) return false;
+            std::cout << "모르는 인자: " << argv[used] << "\n   쓰는 법: " << usage << "\n";
+            return true;
+        };
         if (a1 == "topython" && argc >= 3) {
+            if (extra(3, "venos topython 파일.my")) return 1;
             string f = withExt(argv[2]);
             if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
             currentFile = f;
@@ -5215,13 +5269,17 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (a1 == "build" && argc >= 3) {
+            bool wantRun = (argc >= 4 && string(argv[3]) == "run");
+            if (extra(wantRun ? 4 : 3, "venos build 파일.my [run]")) return 1;
             string f = withExt(argv[2]);
             if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
             currentFile = f;
-            cmdBuild((argc >= 4 && string(argv[3]) == "run") ? "run" : "");
+            cmdBuild(wantRun ? "run" : "");
             return 0;
         }
-        string f = withExt((a1 == "run" && argc >= 3) ? argv[2] : a1);
+        bool viaRun = (a1 == "run" && argc >= 3);
+        if (extra(viaRun ? 3 : 2, "venos 파일.my   (또는 venos run 파일.my)")) return 1;
+        string f = withExt(viaRun ? argv[2] : a1);
         if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
         currentFile = f;
         cmdRun();

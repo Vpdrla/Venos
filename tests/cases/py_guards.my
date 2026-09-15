@@ -1,0 +1,19 @@
+# 파이썬이 Venos 와 다르게 답하는 자리들 — 생성된 파이썬 안의 _replace·_find·
+# _substr·_idx 가 같은 규칙으로 막아야 한다. 인자가 리터럴이 아니라서 변환 시점에는
+# 잡을 수 없는 경우들이다 (리터럴로 적힌 경우는 tests/nopython 이 본다).
+#
+# 에러 문구는 백엔드마다 다를 수 있으니 값이 나왔는지 에러가 났는지만 비교한다.
+let 빈 = ""
+let 영 = 0
+let xs = [10, 20]
+let d = {"a": 1}          # 딕셔너리가 있어야 인덱싱이 _idx 경로로 간다
+
+try { print "replace:", replace("abc", 빈, "-") } catch e { print "replace: 에러" }
+try { print "find:", find("abc", 빈) } catch e { print "find: 에러" }
+try { print "substr:", substr("abc", 영, 2) } catch e { print "substr: 에러" }
+try { print "인덱스0:", xs[영] } catch e { print "인덱스0: 에러" }
+try { print "인덱스초과:", xs[9] } catch e { print "인덱스초과: 에러" }
+
+# 막히지 않아야 하는 정상 사용
+print replace("가나가", "가", "다"), find("abcabc", "c"), substr("한글입니다", 2, 3)
+print xs[1], xs[2], has(d, "a"), d["a"]

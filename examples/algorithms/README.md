@@ -47,7 +47,10 @@ install — and press **🐍 Python** to see the Python version.
 **List indices start at 1**, matching the pseudocode in textbooks (`A[1]` is the first
 element). That is the one place where translating to Python changes something, and
 `topython` handles it for you — it writes `A[i-1]` and says so in the generated file's
-header.
+header. One caveat it also states there: Python reads a negative index as counting from
+the end, so if your index ever drops below 1, Venos raises an error where the translated
+Python quietly returns the last element. `topython` refuses outright when the number is
+written in the source (`A[0]`).
 
 ## Two limits worth knowing
 

@@ -105,6 +105,18 @@ the sorting chapter has students write the sort, and everywhere else they can re
 wrote. Arbitrary-precision integers were refused too — the cost is a different numeric tower, and
 the honest answer when the numbers get big is `topython`.
 
+The same judgement came up once inside `topython`. Python reads `xs[-1]` as the last
+element, so translating Venos's 1-based index to `xs[i-1]` means that **when the number
+drops to 0, an error silently becomes a wrong answer.** Routing every index through a
+checking helper closes it, but then insertion sort comes out as `_at(A, j)` instead of
+`A[j-1]` — and emitting Python a student can read is the entire point of the feature.
+So: **refuse the conversion when the number is written there (`xs[0]`), keep `xs[i-1]`
+when it is a variable, and say so in the generated file's header.** The other places
+Python answers differently — an empty needle in `replace` and `find`, strings in
+`min`/`max`, a 0 start in `substr` — can be closed without costing readability, so they
+all are: refused when literal, routed through a checking helper otherwise.
+`tests/nopython/` holds those refusals to their wording.
+
 ## 7. How we would know it is working
 
 Honest, checkable signals, roughly in order of difficulty:

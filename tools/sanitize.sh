@@ -57,8 +57,11 @@ out=$("$TMP/venos-asan" examples/rpg.my < tests/cases/rpg_path.input 2>&1)
 report "실행/rpg" "$out"
 
 echo "== topython"
+# topython 은 .my 옆에 .py 를 쓴다 — 저장소를 더럽히지 않게 임시 폴더로 복사해서 돌린다
+mkdir -p "$TMP/py"
 for f in tests/cases/*.my examples/algorithms/*.my; do
-    out=$("$TMP/venos-asan" topython "$f" -o "$TMP/out.py" 2>&1)
+    cp "$f" "$TMP/py/case.my"
+    out=$("$TMP/venos-asan" topython "$TMP/py/case.my" 2>&1)
     report "topython/$(basename "$f" .my)" "$out"
 done
 

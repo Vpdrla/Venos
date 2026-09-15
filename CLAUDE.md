@@ -50,14 +50,16 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 **자동화됨**: `tests/run_tests.sh` 가 `tests/cases/*.my` 와 `examples/algorithms/*.my` 전체를 **세 방식**(인터프리터 / C++ 빌드본 / topython → python3)으로 실행해 비교하고, CI(`.github/workflows/ci.yml`)가 푸시마다 돌린다. 허용 차이는 러너가 정규화로 흡수: 인터프리터 전용 `=== ===` 배너, catch 메시지의 `[줄 N]` 접두사, 소수 표기(양쪽을 `%g` 로 통일 — 파이썬은 `91.66666666666667`, Venos 는 `91.6667`).
 - 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio/listops_errors). 에러 문구에 기대는 줄만 별도 케이스로 떼어내면 나머지는 파이썬까지 검증할 수 있다 — `listops` 를 그렇게 쪼갰다.
 ```bash
-tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지(tests/diag) + 레슨 트랙
+tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + topython 거절 + 내장함수 대조 + 레슨 트랙
 tools/sanitize.sh    # ASan+UBSan 으로 두 백엔드 훑기 + 퍼징 (약 4분, CI 의 sanitize 잡)
 python3 tools/fuzz.py ./venos --minutes 2   # 퍼징만 따로
 ```
-러너는 세 단계다:
+러너는 다섯 단계다:
 1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교
 2. **에러 메시지 회귀** — `tests/diag/*.my` 는 일부러 틀린 프로그램이고 출력이 `.expected` 와 글자까지 같아야 한다. 문구를 고쳤으면 `./venos tests/diag/X.my > tests/diag/X.expected 2>&1` 로 다시 만들 것
-3. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지)
+3. **topython 거절** — `tests/nopython/*.my` 는 **파이썬이 Venos 와 다르게 답하는** 프로그램이다. `venos topython` 이 줄 번호를 대고 거절해야 하고 출력이 `.expected` 와 같아야 한다. 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다
+4. **내장 함수 대조** — `node tools/check-builtins.js` (BUILTIN_NAMES·인터프리터·CodeGen·PyGen 네 목록이 같은지 소스에서 뽑아 비교)
+5. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지)
 
 ## 릴리스 내는 법
 버전을 올렸으면 태그만 밀면 된다. `.github/workflows/release.yml` 이 세 플랫폼 바이너리를 만들어 GitHub Releases 에 올린다.
@@ -104,6 +106,9 @@ git tag v0.6.0 && git push origin v0.6.0
 - **재귀 하강 파서에는 깊이 제한이 있어야 한다** (`MAX_NEST` 200, `NestGuard`). 없으면 `((((((...` 같은 입력에 그대로 재귀해 세그폴트다. 인터프리터는 128MB 스택 스레드 덕에 버티지만 `topython`·`build` 는 메인 스레드에서 파싱해 5천 단계에 죽었다 — **같은 파일이 실행은 되는데 변환만 죽는** 상태였다. 파서에 새 재귀 지점을 만들면 (`parseUnary`/`parseNot`/`parseBlock` 바깥에) 가드를 같이 넣을 것. 카운터가 전역인 이유는 문자열 보간 `{}` 안이 별도 `Parser` 로 파싱되기 때문.
 - 에러 메시지에 사용자 문자열을 끼워 넣을 때는 `ellipsize()` 로 자를 것. 안 그러면 긴 줄 하나가 정작 읽어야 할 설명을 화면 밖으로 밀어낸다 (`print (((...5천개...` 가 197KB 를 쏟았다).
 - 문자열 보간 안의 식은 **하위 `Parser`** 가 파싱한다 — 토큰의 줄 번호를 바깥 줄로 덮어쓰지 않으면 `"{없는변수}"` 의 에러가 늘 "줄 1" 을 가리킨다.
+- **파이썬이 Venos 와 다르게 답하는 자리**를 조용히 넘기지 말 것. 실제로 다섯 군데가 그랬다: `xs[0]`(파이썬은 마지막 원소), `replace(s,"",r)`·`find(s,"")`(글자 사이마다), `min("a","b")`(사전순), `substr(s,0,n)`. **인자가 리터럴이면 변환을 거절**하고(`noEmptyStr`/`numbersOnly`/`indexGet` 의 숫자 검사), 아니면 검사하는 도우미(`_replace`/`_find`/`_substr`/`_idx`)로 보낸다. 변수 인덱스 `A[i-1]` 만은 예외로 그대로 둔다 — 읽히는 파이썬이 이 기능의 존재 이유라서다 (근거는 `STRATEGY.md` §6, 생성 파일 머리말에 한계를 적어 둔다).
+- CLI 가 **남는 인자를 조용히 버리지 않게 할 것**. `venos topython 정렬.my -o 결과.py` 가 `-o` 를 무시하고 엉뚱한 곳에 쓰고 있었다 (`extra()` 로 거절한다).
+- `venos build` 의 실행 명령에 무조건 `./` 를 붙이지 말 것 — 절대 경로면 `.//home/...` 이 되어 "not found" 다. 경로에 `/` 가 없을 때만 붙이고, 실행할 때는 따옴표로 감싼다(공백 있는 폴더).
 - `docs/index.html` 에 NUL 바이트를 넣지 말 것. `pristine` 센티널로 `'\0'` 을 쓰다가 파일이 grep 에 "binary" 로 잡혔다 (지금은 `null`).
 
 ## 현재 상태 & 남은 작업

@@ -138,6 +138,41 @@ for case_file in tests/diag/*.my; do
     fi
 done
 
+# ---- topython 이 거절해야 하는 것들 (tests/nopython) ----
+# 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다.
+# 파이썬이 Venos 와 다르게 답하는 자리에서 줄 번호를 대고 거절하는지 본다.
+npass=0
+for case_file in tests/nopython/*.my; do
+    [ -e "$case_file" ] || break
+    name=$(basename "$case_file" .my)
+    want="tests/nopython/$name.expected"
+    if [ ! -f "$want" ]; then
+        echo "FAIL  거절/$name  (.expected 가 없습니다)"; dfail=$((dfail+1)); continue
+    fi
+    "$VENOS" topython "$case_file" > "$TMP/nopy.txt" 2>&1
+    rm -f "tests/nopython/$name.py"
+    if diff <(tr -d '\r' < "$want") <(tr -d '\r' < "$TMP/nopy.txt") > "$TMP/diff.txt" 2>&1; then
+        echo "PASS  거절/$name"; npass=$((npass+1))
+    else
+        echo "FAIL  거절/$name  (거절 문구가 바뀌었거나, 거절하지 않았습니다)"
+        cat "$TMP/diff.txt"; dfail=$((dfail+1))
+    fi
+done
+
+# ---- 내장 함수가 네 백엔드에 다 있는가 (tools/check-builtins.js) ----
+# 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —
+# topython 이 거절하면서 다리가 끊긴다. 소스에서 네 목록을 뽑아 대조한다.
+builtins="건너뜀 (node 없음)"
+if command -v node >/dev/null 2>&1; then
+    if node tools/check-builtins.js > "$TMP/builtins.txt" 2>&1; then
+        builtins=$(cat "$TMP/builtins.txt")
+    else
+        builtins="실패"
+        cat "$TMP/builtins.txt"
+        dfail=$((dfail+1))
+    fi
+fi
+
 # ---- 레슨 트랙 (tools/check-lessons.js) ----
 # docs/lessons.js 가 플레이그라운드 레슨과 TUTORIAL 양쪽의 원본이라 여기가 깨지면 둘 다 깨진다.
 lessons="건너뜀 (node 없음)"
@@ -154,6 +189,8 @@ fi
 echo
 echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pytested, 건너뜀 $pyskipped)"
 [ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
+echo "topython 거절: 통과 $npass"
+echo "내장 함수: $builtins"
 echo "레슨 트랙: $lessons"
 echo "에러 메시지: 통과 $dpass / 실패 $dfail"
 [ "$fail" -eq 0 ] && [ "$dfail" -eq 0 ]
