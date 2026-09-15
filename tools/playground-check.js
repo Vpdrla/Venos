@@ -101,7 +101,11 @@ const CHECKS = [
   const exe = process.env.PLAYWRIGHT_CHROMIUM
            || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
   const browser = await chromium.launch(fs.existsSync(exe) ? { executablePath: exe } : {});
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  // 🔗 Share 는 클립보드에 링크를 쓴다 — 왕복을 검사하려면 읽을 수 있어야 한다
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'],
+                                 { origin: `http://127.0.0.1:${PORT}` }).catch(() => {});
+  const page = await context.newPage();
 
   if (FUTURE) {
     await page.addInitScript(() => {
@@ -180,6 +184,46 @@ const CHECKS = [
   const after = (await runAndRead('#runBtn')).out;
   if (after.split('\n')[0].trim() === '첫 줄') console.log('✓ 이전 실행 찌꺼기 없음');
   else { bad++; console.log('✗ 이전 실행 찌꺼기가 첫 줄에 붙음'); console.log('   ' + after.split('\n')[0]); }
+
+  // 🔗 Share — 선생님이 시작 코드를 나눠 주는 통로다. 압축·base64url 을 거쳐 돌아오는
+  // 왕복이 깨지면 링크를 받은 학생이 빈 편집기를 보게 된다.
+  {
+    const 원본 = 'let 점수 = [88, 92, 79]\nfunc 평균(xs) {\n    let s = 0\n    for x in xs { s += x }\n    return s / len(xs)\n}\nprint "평균: {평균(점수)}"\n';
+    await page.fill('#editor', 원본);
+    await page.click('#shareBtn');
+    // 버튼이 반응은 했는지 (클립보드에 복사했거나 주소창에 남겼거나)
+    await page.waitForFunction(() => document.getElementById('shareMsg').textContent !== '',
+                               null, { timeout: 5000 }).catch(() => {});
+    const 안내 = await page.$eval('#shareMsg', e => e.textContent);
+    if (!안내) { bad++; console.log('✗ 🔗 Share 버튼이 아무 말도 안 함'); }
+    // 실제 링크는 클립보드에서 (막혀 있으면 주소창, 그것도 아니면 직접 만들어 본다).
+    // 어느 쪽이든 검사하려는 것은 압축·base64url 왕복이다.
+    let hash = await page.evaluate(async (code) => {
+      if (location.hash.startsWith('#code=')) return location.hash;
+      try {
+        const t = await navigator.clipboard.readText();
+        const i = t.indexOf('#code=');
+        if (i >= 0) return t.slice(i);
+      } catch (e) { /* 클립보드가 막힌 환경 */ }
+      return '#code=' + await encodeCode(code);
+    }, 원본);
+    if (!hash.startsWith('#code=')) {
+      bad++; console.log('✗ 🔗 Share — 링크를 얻지 못함: ' + JSON.stringify(hash));
+    } else {
+      await page.goto(`http://127.0.0.1:${PORT}/${hash}`, { waitUntil: 'networkidle' });
+      await page.waitForSelector('#runBtn:not([disabled])', { timeout: 60000 });
+      const 돌아온것 = await page.$eval('#editor', e => e.value);
+      if (돌아온것.trim() === 원본.trim()) console.log('✓ 🔗 Share 링크 왕복');
+      else {
+        bad++;
+        console.log('✗ 🔗 Share 링크 왕복 — 코드가 달라짐');
+        console.log('   ' + JSON.stringify(돌아온것.slice(0, 120)));
+      }
+      // 뒤 검사들을 위해 깨끗한 페이지로 돌아간다
+      await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+      await page.waitForSelector('#runBtn:not([disabled])', { timeout: 60000 });
+    }
+  }
 
   // 레슨 언어 토글이 코드까지 바꾸는가 (손대지 않은 시작 코드일 때만)
   const lists = LESSONS.find(l => l.id === 'lists').code;
