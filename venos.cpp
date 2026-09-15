@@ -3430,6 +3430,47 @@ struct PyGen {
         return precOf(e) < parentPrec ? "(" + s + ")" : s;
     }
 
+    // ---- 조건 자리 ----
+    // if/while 은 값이 1 인지 0 인지가 아니라 참/거짓만 본다. 그래서 not/and/or 를
+    // int(...) 로 감쌀 이유가 없다 — while int(not q.비었나()) 가 아니라
+    // while not q.비었나() 로 나가야 학생이 알아본다.
+    // (Venos 와 파이썬의 참/거짓 판정은 0·""·빈 리스트·빈 딕셔너리에서 이미 같다)
+    // 파이썬에서 이미 0/1 또는 bool 로 나오는 식인가 (bool() 을 덧씌울 필요가 없다)
+    bool boolish(Expr* e) {
+        if (dynamic_cast<NotExpr*>(e) || dynamic_cast<LogicalExpr*>(e)) return true;
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return false;
+            switch (b->op) {
+                case Tok::EQ: case Tok::NEQ: case Tok::LT:
+                case Tok::GT: case Tok::LE:  case Tok::GE: return true;
+                default: return false;
+            }
+        }
+        if (auto* c = dynamic_cast<CallExpr*>(e))
+            return c->name == "has" && c->args.size() == 2 && !funcs.count("has");
+        return false;
+    }
+    int condPrec(Expr* e) {
+        if (dynamic_cast<NotExpr*>(e)) return P_NOT;
+        if (auto* lg = dynamic_cast<LogicalExpr*>(e)) return lg->op == Tok::AND ? P_AND : P_OR;
+        return precOf(e);
+    }
+    string condWrap(Expr* e, int parentPrec) {
+        string s = cond(e);
+        return condPrec(e) < parentPrec ? "(" + s + ")" : s;
+    }
+    string cond(Expr* e) {
+        if (auto* n = dynamic_cast<NotExpr*>(e))
+            return "not " + condWrap(n->inner.get(), P_NOT + 1);
+        if (auto* lg = dynamic_cast<LogicalExpr*>(e)) {
+            int p = (lg->op == Tok::AND) ? P_AND : P_OR;
+            return condWrap(lg->lhs.get(), p)
+                 + ((lg->op == Tok::AND) ? " and " : " or ")
+                 + condWrap(lg->rhs.get(), p + 1);
+        }
+        return expr(e);
+    }
+
     // 문자열이 확실한 식인가 — Venos 의 "문자열 + 숫자" 자동 변환을 어디서 흉내낼지,
     // 그리고 파이썬에서 s * n / s.find(x) 를 그대로 써도 되는지 판단한다.
     bool stringish(Expr* e) {
@@ -3495,6 +3536,12 @@ struct PyGen {
     static bool stringishLiteral(Expr* e) {
         if (dynamic_cast<StrExpr*>(e)) return true;
         if (auto* b = dynamic_cast<BinExpr*>(e)) return b->interpN > 0;
+        // 문자열만 들어 있는 리스트 리터럴을 돌면 그 변수도 문자열이다
+        if (auto* l = dynamic_cast<ListExpr*>(e)) {
+            if (l->items.empty()) return false;
+            for (auto& it : l->items) if (!stringishLiteral(it.get())) return false;
+            return true;
+        }
         return false;
     }
     void inferStrVars(std::vector<StmtP>& program) {
@@ -3688,13 +3735,20 @@ struct PyGen {
             return L + " " + op + " " + R;
         }
         if (auto* n = dynamic_cast<NegExpr*>(e))  return "-" + wrap(n->inner.get(), P_UNARY);
-        // Venos 의 not/and/or 는 1/0 을 낸다 — 파이썬 bool 이 그대로 찍히지 않도록 int() 로 맞춘다
-        if (auto* n = dynamic_cast<NotExpr*>(e))  return "int(not " + wrap(n->inner.get(), P_NOT + 1) + ")";
+        // Venos 의 not/and/or 는 1/0 을 낸다 — 파이썬 bool 이 그대로 찍히지 않도록 int() 로 맞춘다.
+        // 안쪽은 참/거짓만 보면 되므로 조건 형태로 낸다 (int(not int(not a)) 같은 겹침 방지).
+        if (auto* n = dynamic_cast<NotExpr*>(e))
+            return "int(not " + condWrap(n->inner.get(), P_NOT + 1) + ")";
         if (auto* lg = dynamic_cast<LogicalExpr*>(e)) {
             int p = (lg->op == Tok::AND) ? P_AND : P_OR;   // 내부 자식용 (밖에서는 원자)
-            string op = (lg->op == Tok::AND) ? " and " : " or ";
-            return "int(bool(" + wrap(lg->lhs.get(), p) + ")" + op
-                 + "bool(" + wrap(lg->rhs.get(), p + 1) + "))";
+            // 파이썬의 and/or 는 피연산자를 그대로 돌려준다 — 1 or 2 는 2 다.
+            // Venos 는 1/0 이므로 이미 0/1 인 식이 아니면 bool() 로 눌러 둔다.
+            auto side = [&](Expr* x, int pp) {
+                return boolish(x) ? condWrap(x, pp) : "bool(" + expr(x) + ")";
+            };
+            return "int(" + side(lg->lhs.get(), p)
+                 + ((lg->op == Tok::AND) ? " and " : " or ")
+                 + side(lg->rhs.get(), p + 1) + ")";
         }
         if (auto* in = dynamic_cast<InputExpr*>(e)) {
             sawFloat = true;   // 사용자가 1.5 를 칠 수도 있다
@@ -3871,6 +3925,29 @@ struct PyGen {
             return;
         }
         if (auto* es = dynamic_cast<ExprStmt*>(s)) {
+            // 값을 안 쓰는 자리라면 파이썬이 실제로 쓰는 모양으로 낸다
+            // (_push(xs, v) 가 아니라 xs.append(v))
+            if (auto* c = dynamic_cast<CallExpr*>(es->e.get())) {
+                if (!funcs.count(c->name) && !classes.count(c->name)) {
+                    if (c->name == "push" && c->args.size() == 2) {
+                        sawList = true;
+                        o << pad(d) << wrap(c->args[0].get(), P_ATOM)
+                          << ".append(" << expr(c->args[1].get()) << ")\n";
+                        return;
+                    }
+                    if (c->name == "sort" && c->args.size() == 1) {
+                        sawList = true;
+                        o << pad(d) << wrap(c->args[0].get(), P_ATOM) << ".sort()\n";
+                        return;
+                    }
+                    if (c->name == "reverse" && c->args.size() == 1
+                        && !stringish(c->args[0].get())) {
+                        sawList = true;
+                        o << pad(d) << wrap(c->args[0].get(), P_ATOM) << ".reverse()\n";
+                        return;
+                    }
+                }
+            }
             o << pad(d) << expr(es->e.get()) << "\n";
             return;
         }
@@ -3879,12 +3956,12 @@ struct PyGen {
             return;
         }
         if (auto* i = dynamic_cast<IfStmt*>(s)) {
-            o << pad(d) << "if " << expr(i->cond.get()) << ":\n";
+            o << pad(d) << "if " << cond(i->cond.get()) << ":\n";
             body(i->thenB.get(), o, d + 1);
             Stmt* els = i->elseB.get();
             while (els) {
                 if (auto* chain = dynamic_cast<IfStmt*>(els)) {   // else if → elif
-                    o << pad(d) << "elif " << expr(chain->cond.get()) << ":\n";
+                    o << pad(d) << "elif " << cond(chain->cond.get()) << ":\n";
                     body(chain->thenB.get(), o, d + 1);
                     els = chain->elseB.get();
                 } else {
@@ -3905,7 +3982,7 @@ struct PyGen {
             return;
         }
         if (auto* w = dynamic_cast<WhileStmt*>(s)) {
-            o << pad(d) << "while " << expr(w->cond.get()) << ":\n";
+            o << pad(d) << "while " << cond(w->cond.get()) << ":\n";
             body(w->body.get(), o, d + 1);
             return;
         }
@@ -3952,13 +4029,41 @@ struct PyGen {
             if (ka && kb)                       // 둘 다 상수면 방향이 확정된다
                 return sa <= sb ? "range(" + a + ", " + pyNum(sb + 1) + ")"
                                 : "range(" + a + ", " + pyNum(sb - 1) + ", -1)";
+            // 방향이 실행할 때 정해지므로 range() 로는 못 낸다 (_rng 가 정해 준다)
             lastRangeIsInt = false;             // _rng 는 소수도 내줄 수 있다
             return need("rng") + "(" + a + ", " + b + ")";
         }
-        if (kb && constInt(f->step.get(), st) && st != 0)
+        // range() 는 정수만 받는다 — 시작값이 정수라고 확신할 수 있을 때만 쓴다.
+        // (for i = 어떤소수 to 10 step 2 를 range 로 내면 파이썬이 TypeError 를 낸다)
+        if (kb && (ka || intish(f->start.get())) && constInt(f->step.get(), st) && st != 0)
             return "range(" + a + ", " + pyNum(sb + (st > 0 ? 1 : -1)) + ", " + pyNum(st) + ")";
         lastRangeIsInt = false;
         return need("rng") + "(" + a + ", " + b + ", " + expr(f->step.get()) + ")";
+    }
+    // 파이썬에서 정수로 나오는 게 확실한 식인가 (range() 에 그대로 넣어도 되는가)
+    bool intish(Expr* e) {
+        double k;
+        if (constInt(e, k)) return true;
+        if (auto* v = dynamic_cast<VarExpr*>(e)) return intVars.count(v->name) > 0;
+        if (auto* n = dynamic_cast<NegExpr*>(e)) return intish(n->inner.get());
+        if (auto* c = dynamic_cast<CallExpr*>(e)) {
+            if (funcs.count(c->name) || classes.count(c->name)) return false;
+            if (c->name == "len"    && c->args.size() == 1) return true;
+            if (c->name == "floor"  && c->args.size() == 1) return true;
+            if (c->name == "ceil"   && c->args.size() == 1) return true;
+            if (c->name == "round"  && c->args.size() == 1) return true;
+            if (c->name == "random" && c->args.size() == 2) return true;
+            return false;
+        }
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return false;
+            switch (b->op) {
+                case Tok::PLUS: case Tok::MINUS: case Tok::STAR: case Tok::PERCENT:
+                    return intish(b->lhs.get()) && intish(b->rhs.get());
+                default: return false;     // / 는 소수가 된다
+            }
+        }
+        return false;
     }
 
     // 빈 블록은 파이썬에서 pass 가 필요하다
@@ -4158,7 +4263,11 @@ struct PyGen {
                       "    return a.index(b) + 1 if b in a else 0\n"},
             {"random","def _random(a, b):\n    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
             {"rng",
-             "def _rng(a, b, s=1):\n"
+             // step 을 안 쓴 for 는 Venos 가 실행할 때 방향을 정한다 (for i = 3 to n 에서
+             // n 이 1 이면 내려간다). s=None 이 그 "방향은 그때 정함"을 뜻한다 —
+             // 1 로 두면 내려가야 할 반복이 파이썬에서 조용히 한 번도 안 돈다.
+             "def _rng(a, b, s=None):\n"
+             "    if s is None: s = 1 if a <= b else -1\n"
              "    if a == int(a) and b == int(b) and s == int(s):\n"
              "        a, b, s = int(a), int(b), int(s)\n"
              "        return range(a, b + (1 if s > 0 else -1), s)\n"
