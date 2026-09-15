@@ -47,6 +47,27 @@ jobs:
           ./venos.exe examples/algorithms/selection-sort.my
           ./venos.exe examples/algorithms/caesar-cipher.my
 
+      # 파일 관련 내장함수는 윈도우에서 인터프리터와 빌드본이 갈라진 적이 있다.
+      # 스위트가 어긋났을 때 무엇이 다른지 바로 보이도록 좁은 프로그램 하나를 따로 돌린다.
+      - name: File builtins, interpreter vs compiled
+        run: |
+          rm -f tests/.tmp_probe*
+          cat > tests/.tmp_probe.my <<'EOF'
+          print "없을 때:", exists("tests/.tmp_probe_data.txt")
+          writefile("tests/.tmp_probe_data.txt", "가나")
+          print "만든 뒤:", exists("tests/.tmp_probe_data.txt"), readfile("tests/.tmp_probe_data.txt")
+          print "한글 이름:", exists("tests/.tmp_probe_없는.txt")
+          try { readfile("tests/.tmp_probe_없는.txt")  print "안 잡힘!" } catch e { print "잡음:", e }
+          print "끝"
+          EOF
+          echo "--- 인터프리터"
+          ./venos.exe tests/.tmp_probe.my || echo "(종료 코드 $?)"
+          ./venos.exe build tests/.tmp_probe.my
+          rm -f tests/.tmp_probe_data.txt
+          echo "--- 빌드본"
+          ./tests/.tmp_probe.exe || echo "(종료 코드 $?)"
+          rm -f tests/.tmp_probe*
+
       - name: Differential tests, error messages, lesson track
         run: tests/run_tests.sh
 

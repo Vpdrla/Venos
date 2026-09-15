@@ -74,6 +74,14 @@ const CHECKS = [
   { name: '레슨 3 (input)', code: lesson('input'), answer: '미르', expect: '미르님' },
   { name: '긴 출력 · 보간', code: 'let a = "열여섯 바이트를 훌쩍 넘는 아주 긴 한글 문자열입니다"\nprint "값: {a}"\n',
     expect: '값: 열여섯' },
+  // 아래 셋은 "브라우저가 최신 wasm 을 들고 있는가"를 본다. 소스 해시 검사는 커밋된
+  // 파일이 소스와 맞는지만 보지, 그 안에 기능이 실제로 들어갔는지는 못 본다.
+  { name: '별 찍기 ("*" * n)', code: 'for i = 1 to 3 { print "*" * i }\nprint "-" * 5\n',
+    expect: '***\n-----' },
+  { name: '오타 제안', code: 'let 이름 = "미르"\nprint 이릅\n',
+    expect: "혹시 '이름'?", expectError: true },
+  { name: '에러의 호출 경로', code: 'func 안쪽(xs) { return xs[9] }\nfunc 바깥(xs) { return 안쪽(xs) }\nprint 바깥([1])\n',
+    expect: '부른 순서: 바깥', expectError: true },
   { name: '레슨 10 (classes) 실행', code: lesson('classes'), expect: '멍멍' },
 ];
 
@@ -137,7 +145,7 @@ const CHECKS = [
   for (const c of CHECKS) {
     await page.fill('#editor', c.code);
     const { out, atInput } = await runAndRead('#runBtn', c.answer);
-    let ok = out.includes(c.expect) && !out.includes('!!');
+    let ok = out.includes(c.expect) && (c.expectError || !out.includes('!!'));
     if (ok && c.paintedAtInput && !(atInput || '').includes(c.paintedAtInput)) {
       ok = false;
       console.log(`✗ ${c.name}  — 입력을 기다리는데 출력이 화면에 없음`);
