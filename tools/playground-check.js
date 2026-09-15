@@ -14,7 +14,8 @@
 //   버퍼) 위의 뷰가 들어오면 같은 TypeError 를 던지도록 TextDecoder 를 감싸 그 상황을 재현한다.
 //   EM_JS 에서 힙 문자열을 만질 때는 이걸 꼭 통과시킬 것.
 //
-// CI 에는 넣지 않았다 (러너에 Playwright 가 없다). 플레이그라운드나 WASM 을 건드렸으면 손으로 돌린다.
+// CI 의 playground-wasm 잡이 이걸 돌린다 (Playwright 를 거기서 설치한다).
+// --future 만 CI 에 없다 — 손으로 한 번 돌려 볼 것.
 
 const http = require('http');
 const fs = require('fs');

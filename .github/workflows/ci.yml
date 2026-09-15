@@ -97,3 +97,11 @@ jobs:
 
       - name: WASM builds
         run: tools/build-wasm.sh --check
+
+      # 해시 검사는 커밋된 wasm 이 소스와 같은지만 본다. 그게 브라우저에서 실제로 도는지는
+      # 페이지를 열어 봐야 안다 — input 비동기, 재귀 한도, 공유 링크 왕복 같은 것들.
+      - name: Playwright
+        run: npx --yes playwright@1 install --with-deps chromium
+
+      - name: Playground works in a real browser
+        run: node tools/playground-check.js
