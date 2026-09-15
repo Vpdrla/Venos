@@ -119,6 +119,8 @@ print "The score is {score}"
 
 Use `step` to skip, and a negative step to count down.
 
+`"*" * i` is a string of i stars, so a loop can draw with it.
+
 Change the numbers to print a different multiplication table.
 
 ```
@@ -133,6 +135,10 @@ for i = 5 to 1 step -1 {
     print i
 }
 print "Liftoff!"
+
+print ""
+# a staircase of stars
+for i = 1 to 5 { print "*" * i }
 ```
 
 ▶ **[Open in the playground](https://vpdrla.github.io/Venos/#lesson=for)**

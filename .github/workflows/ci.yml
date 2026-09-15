@@ -17,7 +17,8 @@ jobs:
       - name: Syntax check (C++20)
         run: g++ -std=c++20 -O2 -fsyntax-only venos.cpp
 
-      - name: Differential tests (interpreter vs transpiled binary vs emitted Python)
+      # 러너가 3중 differential + 에러 메시지 회귀 + 레슨 트랙까지 한 번에 돌린다
+      - name: Differential tests, error messages, lesson track
         run: tests/run_tests.sh
 
   playground-wasm:

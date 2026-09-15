@@ -934,7 +934,9 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
          || a.kind == Value::MAP  || b.kind == Value::MAP
          || a.kind == Value::OBJ  || b.kind == Value::OBJ)
             throw err("리스트/딕셔너리/객체는 비교 연산을 지원하지 않습니다");
-        if (a.kind != b.kind) throw err("숫자와 문자열은 비교할 수 없습니다");
+        if (a.kind != b.kind)
+            throw err("숫자와 문자열은 비교할 수 없습니다"
+                      "  (숫자처럼 보이는 문자열이면 num() 으로 바꿔 쓰세요)");
         bool r = (a.kind == Value::NUM) ? f(a.num, b.num) : f(a.str, b.str);
         return Value::number(r ? 1 : 0);
     };
@@ -2484,7 +2486,8 @@ template<class F> static Value vcmp(const Value& a, const Value& b, F f) {
     if (a.kind == Value::LIST || b.kind == Value::LIST || a.kind == Value::MAP || b.kind == Value::MAP
      || a.kind == Value::OBJ  || b.kind == Value::OBJ)
         throw RunErr("리스트/딕셔너리/객체는 비교 연산을 지원하지 않습니다");
-    if (a.kind != b.kind) throw RunErr("숫자와 문자열은 비교할 수 없습니다");
+    if (a.kind != b.kind) throw RunErr("숫자와 문자열은 비교할 수 없습니다"
+                                      "  (숫자처럼 보이는 문자열이면 num() 으로 바꿔 쓰세요)");
     bool r = (a.kind == Value::NUM) ? f(a.num, b.num) : f(a.str, b.str);
     return Value(r ? 1.0 : 0.0);
 }
@@ -4563,7 +4566,7 @@ static int braceDelta(const string& s) {
 // REPL — 한 줄씩 즉시 실행, 변수/함수/클래스는 세션 동안 유지
 void cmdRepl() {
     clearScreen();
-    std::cout << "=== Venos REPL ===  (:q 나가기)\n";
+    std::cout << "=== Venos REPL ===  (:q / quit / 나가기 로 종료)\n";
     std::cout << "한 줄씩 바로 실행됩니다. 값만 입력하면 결과를 출력해요 (예: 3 * 7)\n\n";
     Env env;
     g_funcs.clear();
@@ -4578,7 +4581,8 @@ void cmdRepl() {
         std::cout << ">> " << std::flush;
         if (!readLine(line)) break;
         string t = trim(line);
-        if (t == ":q" || t == "exit") break;
+        // 나가는 말은 여러 가지로 받아 준다 — 못 나가서 창을 닫는 학생이 없도록
+        if (t == ":q" || t == "q" || t == "exit" || t == "quit" || t == "나가기") break;
         if (t.empty()) continue;
 
         // 블록이 열려 있으면 닫힐 때까지 이어서 입력

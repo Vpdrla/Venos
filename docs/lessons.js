@@ -112,8 +112,8 @@ print "The score is {score}"`
     id: 'for',
     title: { ko: '반복 — for', en: 'Repeating with for' },
     desc: {
-      ko: '`for i = 1 to 5` 는 1부터 5까지 **양 끝을 포함해서** 반복합니다.\n\n`step` 으로 건너뛸 수도 있어요. 거꾸로 세려면 `step -1` 처럼 음수를 씁니다.\n\n▶ 숫자를 바꿔 구구단을 다른 단으로 바꿔 보세요.',
-      en: '`for i = 1 to 5` repeats from 1 to 5, **including both ends**.\n\nUse `step` to skip, and a negative step to count down.\n\nChange the numbers to print a different multiplication table.'
+      ko: '`for i = 1 to 5` 는 1부터 5까지 **양 끝을 포함해서** 반복합니다.\n\n`step` 으로 건너뛸 수도 있어요. 거꾸로 세려면 `step -1` 처럼 음수를 씁니다.\n\n`"*" * i` 는 별을 i 개 이어붙인 문자열이라 반복문으로 그림을 그릴 수 있어요.\n\n▶ 숫자를 바꿔 구구단을 다른 단으로 바꿔 보세요.',
+      en: '`for i = 1 to 5` repeats from 1 to 5, **including both ends**.\n\nUse `step` to skip, and a negative step to count down.\n\n`"*" * i` is a string of i stars, so a loop can draw with it.\n\nChange the numbers to print a different multiplication table.'
     },
     code: {
       ko: `# 3단 구구단
@@ -126,7 +126,11 @@ print ""
 for i = 5 to 1 step -1 {
     print i
 }
-print "발사!"`,
+print "발사!"
+
+print ""
+# 별 쌓기
+for i = 1 to 5 { print "*" * i }`,
       en: `# 3 times table
 for i = 1 to 9 {
     print "3 x {i} = {3 * i}"
@@ -137,7 +141,11 @@ print ""
 for i = 5 to 1 step -1 {
     print i
 }
-print "Liftoff!"`
+print "Liftoff!"
+
+print ""
+# a staircase of stars
+for i = 1 to 5 { print "*" * i }`
     }
   },
   {

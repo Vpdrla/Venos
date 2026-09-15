@@ -130,7 +130,21 @@ for case_file in tests/diag/*.my; do
     fi
 done
 
+# ---- 레슨 트랙 (tools/check-lessons.js) ----
+# docs/lessons.js 가 플레이그라운드 레슨과 TUTORIAL 양쪽의 원본이라 여기가 깨지면 둘 다 깨진다.
+lessons="건너뜀 (node 없음)"
+if command -v node >/dev/null 2>&1; then
+    if node tools/check-lessons.js > "$TMP/lessons.txt" 2>&1; then
+        lessons="통과"
+    else
+        lessons="실패"
+        cat "$TMP/lessons.txt"
+        dfail=$((dfail+1))
+    fi
+fi
+
 echo
 echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pytested, 건너뜀 $pyskipped)"
+echo "레슨 트랙: $lessons"
 echo "에러 메시지: 통과 $dpass / 실패 $dfail"
 [ "$fail" -eq 0 ] && [ "$dfail" -eq 0 ]
