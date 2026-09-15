@@ -2323,7 +2323,9 @@ struct Parser {
                 }
                 if (depth != 0)
                     throw LangError(lineTag(line)
-                        + "문자열 보간의 { 에 짝이 되는 } 가 없습니다 (진짜 { 를 쓰려면 {{)");
+                        + "문자열 보간의 { 에 짝이 되는 } 가 없습니다"
+                          " — {} 안에서 따옴표를 쓰면 문자열이 거기서 끝나 버립니다"
+                          " (\\\" 로 쓰거나, 먼저 변수에 담으세요. 진짜 { 를 쓰려면 {{)");
                 string inner = s.substr(i + 1, j - i - 1);
                 if (trim(inner).empty())
                     throw LangError(lineTag(line) + "문자열 보간 {} 안이 비어 있습니다");
