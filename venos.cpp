@@ -380,8 +380,7 @@ static string suggestName(const string& typo, std::vector<string> cands) {
 }
 
 // "abc".upper() 처럼 원시값에 메서드를 부른 경우의 안내. 인터프리터와 생성 코드가
-// 같은 문구를 쓰도록 여기 한 군데에 둔다.
-static string foreignHint(const string& name);
+// 같은 문구를 쓰도록 여기 한 군데에 둔다 (정의는 BUILTIN_NAMES 뒤).
 static string methodHint(const string& method);
 
 // 다른 언어의 이름을 그대로 쓴 것 — 오타가 아니라 "그 언어의 버릇"이다.
@@ -470,9 +469,12 @@ struct CallFrame { const string* name; int line; };   // 이름은 AST 가 들�
 static std::vector<CallFrame> g_frames;
 static string callPath();
 
+// 에러 문구에는 식별자나 문자열이 그대로 들어간다. 이름이 3천 자짜리면 (퍼저가
+// 만들어 낸다) 9KB 짜리 에러 한 줄이 나와 읽을 게 없어진다. 실제로 쓰는 문구 중
+// 가장 긴 것이 100자 남짓이라, 한 군데서 넉넉히 잘라 두면 모든 자리가 같이 안전하다.
 struct LangError : std::runtime_error {
     string path;                       // "바깥(줄 10) → 가운데(줄 8)" — 없으면 빈 문자열
-    LangError(const string& msg) : std::runtime_error(msg), path(callPath()) {}
+    LangError(const string& msg) : std::runtime_error(ellipsize(msg, 300)), path(callPath()) {}
 };
 
 // import 로 파일이 병합되면, 병합된 줄번호 → "원본파일 줄 N" 매핑을 채운다.
@@ -2592,7 +2594,14 @@ struct Value {
     string toString(int depth = 0) const;
 };
 using Map = std::map<string, Value>;
-struct RunErr : std::runtime_error { RunErr(const string& m) : std::runtime_error(m) {} };
+// 본체의 LangError 와 같은 이유로 문구를 넉넉히 잘라 둔다 (3천 자짜리 이름이 들어와도
+// 에러 한 줄이 화면을 덮지 않게). 글자 경계에서 자른다.
+static string rt_cut(const string& s, size_t limit) {
+    size_t i = 0, n = 0;
+    while (i < s.size() && n < limit) { i++; while (i < s.size() && (s[i] & 0xC0) == 0x80) i++; n++; }
+    return i >= s.size() ? s : s.substr(0, i) + " \u2026";
+}
+struct RunErr : std::runtime_error { RunErr(const string& m) : std::runtime_error(rt_cut(m, 300)) {} };
 string Value::toString(int depth) const {
     if (kind == STR) return str;
     if (depth > 1000)

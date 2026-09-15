@@ -28,3 +28,10 @@ for i = 1 to 3 {
     try { if i == 2 { continue } } catch e { print "잡히면 안 됨" }
     print "14:", i
 }
+
+# 에러 문구에 아주 긴 이름이 들어가도 한 줄이 화면을 덮지 않아야 한다.
+# (퍼저가 2만 자짜리 이름을 만들어 낸다. 양쪽 백엔드가 같은 길이로 자른다.)
+let 긴키 = "키"
+for i = 1 to 12 { 긴키 = 긴키 + 긴키 }
+let 빈딕 = {}
+try { print 빈딕[긴키] } catch e { print "잘린 길이:", len(e) }
