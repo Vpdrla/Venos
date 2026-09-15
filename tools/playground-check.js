@@ -186,6 +186,32 @@ const CHECKS = [
     if (ok) console.log(`✓ ${c.name}`); else bad++;
   }
 
+  // 입력을 기다리는 동안 빠져나갈 길. 숫자 맞히기 예제부터가 while true 라,
+  // 이게 없으면 그만두는 방법이 새로고침뿐이다. 중단한 뒤 다음 실행도 멀쩡해야 한다.
+  {
+    const loop = 'let n = 0\nwhile true {\n    let x = input "숫자: "\n    n += 1\n    print "받음", n\n}\n';
+    for (const [name, stop] of [
+      ['⏹ Stop 버튼', async () => page.click('#stopBtn')],
+      ['Esc 로 중단',  async () => page.press('#inputBox', 'Escape')],
+    ]) {
+      await page.fill('#editor', loop);
+      await page.click('#runBtn');
+      await page.waitForFunction(() => !document.getElementById('inputLine').hidden, { timeout: 20000 });
+      await stop();
+      await page.waitForSelector('#runBtn:not([disabled])', { timeout: 20000 });
+      const out = await page.$eval('#output', e => e.textContent);
+      const hidden = await page.evaluate(() => document.getElementById('inputLine').hidden);
+      if (out.includes('중단했습니다') && hidden) console.log(`✓ ${name}`);
+      else { bad++; console.log(`✗ ${name}`); console.log('   ' + out.split('\n').slice(-3).join(' / ')); }
+    }
+    // 중단한 다음 실행이 깨끗한가 (Asyncify 가 반쯤 풀린 채 남지 않는지)
+    await page.fill('#editor', 'print "다음 실행"\nfor i = 1 to 3 { print i }\n');
+    const after = (await runAndRead('#runBtn')).out;
+    if (after.includes('다음 실행') && after.includes('=== done ===') && !after.includes('!!'))
+      console.log('✓ 중단한 다음 실행도 멀쩡');
+    else { bad++; console.log('✗ 중단한 다음 실행'); console.log('   ' + after.split('\n').join(' / ')); }
+  }
+
   // 손가락으로 쓰는 화면 — 교실 태블릿이 실제 대상 기기다.
   // 버튼이 44px 보다 작으면 손끝으로 놓치고, 입력 칸 글꼴이 16px 미만이면
   // iOS 사파리가 포커스 때 화면을 확대해 버린다.

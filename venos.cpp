@@ -122,6 +122,14 @@ static const int MAX_RECURSION = 200;
 static const int MAX_RECURSION = RECURSION_DESKTOP;
 #endif
 
+struct ExitSignal {};   // exit() — 프로그램 전체를 즉시 끝내므로 예외 그대로
+
+#ifdef VENOS_WASM
+// 페이지의 "⏹ 중단" 이 입력 대신 돌려주는 값. 제어문자로 시작해 학생이 칠 수 없다.
+static const char* VENOS_STOP = "\x01venos-stop";
+static bool g_stopped = false;        // 중단으로 끝났는가 (끝맺음 문구를 바꾸려고)
+#endif
+
 // ============================================================
 //  플랫폼 헬퍼 — Windows 한글 입력/파일명 깨짐 방지
 // ============================================================
@@ -131,6 +139,10 @@ static bool readLine(string& out) {
     out = r;
     free(r);
     g_pendingPrompt.clear();
+    // 입력을 기다리는 동안 학생이 빠져나갈 길이 필요하다 — 숫자 맞히기처럼
+    // while true 로 도는 프로그램은 그러지 않으면 새로고침 말고는 방법이 없다.
+    // exit() 와 같은 길(ExitSignal)로 끝내야 출력 버퍼와 호출 프레임이 정리된다.
+    if (out == VENOS_STOP) { g_stopped = true; throw ExitSignal{}; }
     std::cout << out << "\n";   // 입력값을 출력창에도 기록
     return true;
 #endif
@@ -899,7 +911,7 @@ struct Env {
 // try/catch(LangError) 를 그대로 통과하는 성질도 유지된다 — 애초에 예외가 아니므로.
 enum class Flow : unsigned char { NORMAL = 0, BREAK, CONTINUE, RETURN };
 static Value g_retVal;  // Flow::RETURN 일 때 돌려줄 값
-struct ExitSignal {};   // exit() — 프로그램 전체를 즉시 끝내므로 예외 그대로
+// ExitSignal 은 readLine 에서도 쓰므로 위쪽(플랫폼 헬퍼 앞)에 정의돼 있다.
 
 // ============================================================
 //  3. AST 노드
@@ -4952,9 +4964,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_run(const char* code) {
         std::cout << std::flush;
         return;
     }
+    g_stopped = false;
     try {
         runSource(src);
-        std::cout << "=== done ===\n";
+        std::cout << (g_stopped ? "=== 중단했습니다 / stopped ===\n" : "=== done ===\n");
     } catch (const LangError& e) {
         printError(e);
     } catch (const std::exception& e) {

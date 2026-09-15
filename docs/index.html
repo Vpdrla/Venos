@@ -75,6 +75,7 @@
     color: inherit; font: inherit; padding: 2px 0;
   }
   #inputLine .hint { font-size: 11px; opacity: .55; }
+  #stopBtn { padding: 3px 10px; font-size: 12px; color: var(--err); border-color: var(--border); }
   #output .err { color: var(--err); }
   #output .ok { color: var(--accent2); }
   #clearBtn { font-size: 11px; padding: 2px 10px; }
@@ -146,7 +147,7 @@
   </select>
   <button id="shareBtn" title="Copy a link that contains this program">🔗 Share</button>
   <span id="shareMsg"></span>
-  <span class="hint">🐍 Python shows the same program in Python · input asks below the output · import is not available on the web · writefile is in-memory only (resets on reload)</span>
+  <span class="hint">🐍 Python shows the same program in Python · input asks below the output (⏹ Stop or Esc to quit a running program) · import is not available on the web · writefile is in-memory only (resets on reload)</span>
 </div>
 
 <div id="lessonBar">
@@ -177,6 +178,7 @@
     <div id="inputLine" hidden>
       <span id="inputPrompt"></span>
       <input id="inputBox" type="text" autocomplete="off" spellcheck="false">
+      <button id="stopBtn" title="Stop the running program (Esc)">⏹ Stop</button>
       <span class="hint">Enter</span>
     </div>
   </div>
@@ -751,10 +753,18 @@ function askInput(promptText) {
   });
 }
 function endInput() { pendingInput = null; inputLine.hidden = true; }
+
+// 입력을 기다리는 동안 빠져나갈 길. 숫자 맞히기 예제부터가 while true 라,
+// 이게 없으면 학생이 그만두는 방법은 새로고침뿐이다. wasm 쪽은 이 값을 받으면
+// exit() 와 같은 길로 프로그램을 끝낸다 (제어문자라 손으로는 칠 수 없다).
+const VENOS_STOP = '\u0001venos-stop';
+function stopRun() { if (pendingInput) pendingInput(VENOS_STOP); }
+document.getElementById('stopBtn').onclick = stopRun;
+
 inputBox.addEventListener('keydown', e => {
   if (!pendingInput) return;
   if (e.key === 'Enter')       { e.preventDefault(); pendingInput(inputBox.value); }
-  else if (e.key === 'Escape') { e.preventDefault(); pendingInput(''); }
+  else if (e.key === 'Escape') { e.preventDefault(); stopRun(); }
 });
 
 createVenos({
