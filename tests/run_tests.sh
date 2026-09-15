@@ -37,7 +37,8 @@ PY=$(command -v python3 || true)
 
 # 배너·줄표시 제거 + 소수를 %g 로 통일
 normalize() {
-    grep -v '^=== ' "$1" | grep -v '^    부른 순서: ' | sed 's/\[[^]]*줄 [0-9]\{1,\}\] //g' | {
+    # 윈도우는 리디렉션된 stdout 에 CRLF 를 쓴다 — 비교 전에 걷어낸다
+    tr -d '\r' < "$1" | grep -v '^=== ' | grep -v '^    부른 순서: ' | sed 's/\[[^]]*줄 [0-9]\{1,\}\] //g' | {
         if [ -n "$PY" ]; then
             "$PY" -c 'import re,sys
 for line in sys.stdin:
@@ -125,7 +126,7 @@ for case_file in tests/diag/*.my; do
         dfail=$((dfail+1)); continue
     fi
     "$VENOS" "$case_file" > "$TMP/diag.txt" 2>&1
-    if diff "$want" "$TMP/diag.txt" > "$TMP/diff.txt" 2>&1; then
+    if diff <(tr -d '\r' < "$want") <(tr -d '\r' < "$TMP/diag.txt") > "$TMP/diff.txt" 2>&1; then
         echo "PASS  진단/$name"
         dpass=$((dpass+1))
     else

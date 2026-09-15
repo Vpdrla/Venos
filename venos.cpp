@@ -2317,6 +2317,7 @@ static const char* RUNTIME = R"RT(// ---- Venos 런타임 (자동 생성) ----
 #include <sstream>
 #include <stdexcept>
 #include <map>
+#include <filesystem>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -2604,6 +2605,18 @@ static void my_print(std::initializer_list<string> vs) {
     for (auto& v : vs) { if (!first) o += " "; first = false; o += v; }
     std::cout << o << "\n";
 }
+// 파일 경로 — 윈도우는 좁은 문자열 경로를 ANSI 코드페이지로 읽는다.
+// 그대로 두면 readfile("자료.txt") 가 한글 이름을 못 찾는다 (인터프리터는 이미 이렇게 한다).
+static std::filesystem::path rt_path(const string& utf8) {
+#ifdef _WIN32
+    int len = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), (int)utf8.size(), nullptr, 0);
+    std::wstring w(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), (int)utf8.size(), &w[0], len);
+    return std::filesystem::path(w);
+#else
+    return std::filesystem::path(utf8);
+#endif
+}
 static string trimS(const string& s) {
     size_t a = s.find_first_not_of(" \t\r");
     if (a == string::npos) return "";
@@ -2764,13 +2777,13 @@ static Value b_substr(const Value& a, const Value& b, const Value& c) {
 }
 #include <fstream>
 static Value b_readfile(const Value& a) {
-    std::ifstream f(needStrR(a, "readfile"));
+    std::ifstream f(rt_path(needStrR(a, "readfile")));
     if (!f) throw RunErr("파일을 열 수 없습니다: " + a.str);
     std::ostringstream buf; buf << f.rdbuf();
     return Value(buf.str());
 }
 static Value b_writefile(const Value& a, const Value& b) {
-    std::ofstream f(needStrR(a, "writefile"));
+    std::ofstream f(rt_path(needStrR(a, "writefile")));
     if (!f) throw RunErr("파일을 만들 수 없습니다: " + a.str);
     f << b.toString();
     return Value(1.0);
@@ -2801,11 +2814,11 @@ static Value rt_deepcopy(const Value& v, int depth) {
 }
 static Value b_copy(const Value& v) { return rt_deepcopy(v, 0); }
 static Value b_exists(const Value& a) {
-    std::ifstream f(needStrR(a, "exists"));
+    std::ifstream f(rt_path(needStrR(a, "exists")));
     return Value(f.good() ? 1.0 : 0.0);
 }
 static Value b_appendfile(const Value& a, const Value& b) {
-    std::ofstream f(needStrR(a, "appendfile"), std::ios::app);
+    std::ofstream f(rt_path(needStrR(a, "appendfile")), std::ios::app);
     if (!f) throw RunErr("파일을 열 수 없습니다: " + a.str);
     f << b.toString();
     return Value(1.0);

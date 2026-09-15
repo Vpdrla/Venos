@@ -6,4 +6,11 @@ print exists(경로)
 print readfile(경로)
 appendfile(경로, "\n셋째 줄")
 print readfile(경로)
+# 한글 이름의 파일 — 윈도우는 좁은 경로를 ANSI 코드페이지로 읽어서 여기서 갈라진다
+let 한글경로 = "tests/.tmp_자료 모음.txt"
+writefile(한글경로, "가나다")
+print exists(한글경로), readfile(한글경로)
+appendfile(한글경로, "라마")
+print readfile(한글경로), len(readfile(한글경로))
+
 try { readfile("tests/.없는파일.txt") } catch e { print "없는 파일:", e }
