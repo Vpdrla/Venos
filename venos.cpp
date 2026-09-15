@@ -686,11 +686,13 @@ struct Env {
     }
 };
 
-// 제어 흐름 시그널 — break/continue/return 을 예외로 전달
-struct BreakSignal {};
-struct ContinueSignal {};
-struct ReturnSignal { Value v; };
-struct ExitSignal {};   // exit() — 프로그램 정상 종료
+// 제어 흐름 — break/continue/return 은 exec() 의 반환값으로 올라간다.
+// 예전에는 C++ 예외였는데, 예외 하나를 던지는 데 마이크로초가 들어 재귀 함수가
+// CPython 보다 50배 느렸다 (fib(27): 2.0초 vs 0.04초). 반환값이면 공짜다.
+// try/catch(LangError) 를 그대로 통과하는 성질도 유지된다 — 애초에 예외가 아니므로.
+enum class Flow : unsigned char { NORMAL = 0, BREAK, CONTINUE, RETURN };
+static Value g_retVal;  // Flow::RETURN 일 때 돌려줄 값
+struct ExitSignal {};   // exit() — 프로그램 전체를 즉시 끝내므로 예외 그대로
 
 // ============================================================
 //  3. AST 노드
@@ -703,7 +705,7 @@ using ExprP = std::unique_ptr<Expr>;
 
 struct Stmt {
     virtual ~Stmt() = default;
-    virtual void exec(Env& env) = 0;
+    virtual Flow exec(Env& env) = 0;
 };
 using StmtP = std::unique_ptr<Stmt>;
 
@@ -995,12 +997,12 @@ struct LogicalExpr : Expr {
 struct LetStmt : Stmt {
     string name; ExprP val;
     LetStmt(string n, ExprP v) : name(std::move(n)), val(std::move(v)) {}
-    void exec(Env& env) override { env.define(name, val->eval(env)); }
+    Flow exec(Env& env) override { env.define(name, val->eval(env)); return Flow::NORMAL; }
 };
 struct AssignStmt : Stmt {
     string name; ExprP val; int line;
     AssignStmt(string n, ExprP v, int l) : name(std::move(n)), val(std::move(v)), line(l) {}
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value* slot = env.find(name);
         if (!slot) {
             std::vector<string> names; env.collectNames(names);
@@ -1009,6 +1011,7 @@ struct AssignStmt : Stmt {
             throw LangError(lineTag(line) + "선언되지 않은 변수에 대입: " + name + hint);
         }
         *slot = val->eval(env);
+        return Flow::NORMAL;
     }
 };
 // 경로 접근자: xs[i] 같은 인덱스이거나 obj.필드
@@ -1080,55 +1083,67 @@ static Value* putSlot(Value* cur, Accessor& a, Env& env) {
 // 경로 대입: x[1] = v,  obj.필드 = v,  obj.점수[2] = v ...
 struct PathAssignStmt : Stmt {
     string name; std::vector<Accessor> path; ExprP val; int line = 0;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value* cur = env.find(name);
-        if (!cur)
-            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name);
+        if (!cur) {
+            std::vector<string> names; env.collectNames(names);
+            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + suggestName(name, names));
+        }
         for (size_t k = 0; k + 1 < path.size(); k++)
             cur = stepIntoAcc(cur, path[k], env);
         cur = putSlot(cur, path.back(), env);
         *cur = val->eval(env);
+        return Flow::NORMAL;
     }
 };
 // 경로 복합 대입: xs[i] += 1,  obj.나이 += 1  (기존 값이 있어야 함)
 struct PathCompoundStmt : Stmt {
     string name; std::vector<Accessor> path; Tok op; ExprP rhs; int line = 0;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value* cur = env.find(name);
-        if (!cur)
-            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name);
+        if (!cur) {
+            std::vector<string> names; env.collectNames(names);
+            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + suggestName(name, names));
+        }
         for (auto& a : path)
             cur = stepIntoAcc(cur, a, env);
         *cur = applyBin(op, *cur, rhs->eval(env), line);
+        return Flow::NORMAL;
     }
 };
 struct PrintStmt : Stmt {
     std::vector<ExprP> vals;   // print a, b, c → 공백으로 이어서 출력
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         string out;
         for (size_t i = 0; i < vals.size(); i++) {
             if (i) out += " ";
             out += vals[i]->eval(env).toString();
         }
         std::cout << out << "\n";
+        return Flow::NORMAL;
     }
 };
 struct ExprStmt : Stmt {
     ExprP e;
     ExprStmt(ExprP e) : e(std::move(e)) {}
-    void exec(Env& env) override { e->eval(env); }
+    Flow exec(Env& env) override { e->eval(env); return Flow::NORMAL; }
 };
 struct BlockStmt : Stmt {
     std::vector<StmtP> stmts;
-    void exec(Env& env) override {
-        for (auto& s : stmts) s->exec(env);
+    Flow exec(Env& env) override {
+        for (auto& s : stmts) {
+            Flow f = s->exec(env);
+            if (f != Flow::NORMAL) return f;     // break/continue/return 은 위로
+        }
+        return Flow::NORMAL;
     }
 };
 struct IfStmt : Stmt {
     ExprP cond; StmtP thenB, elseB;   // elseB 는 블록이거나 또 다른 IfStmt (else if 체인)
-    void exec(Env& env) override {
-        if (cond->eval(env).truthy()) thenB->exec(env);
-        else if (elseB) elseB->exec(env);
+    Flow exec(Env& env) override {
+        if (cond->eval(env).truthy()) return thenB->exec(env);
+        if (elseB) return elseB->exec(env);
+        return Flow::NORMAL;
     }
 };
 // try { ... } catch 오류 { ... } — 런타임 에러를 잡아 메시지를 변수에 담음.
@@ -1136,38 +1151,39 @@ struct IfStmt : Stmt {
 struct TryStmt : Stmt {
     StmtP tryB, catchB;
     string var;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         try {
-            tryB->exec(env);
+            return tryB->exec(env);                  // break/continue/return 은 그대로 통과
         } catch (LangError& e) {
             env.vars[var] = Value::text(e.what());   // 현재 스코프의 지역 변수로
-            catchB->exec(env);
+            return catchB->exec(env);
         }
     }
 };
 
 struct WhileStmt : Stmt {
     ExprP cond; StmtP body;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
 #ifdef VENOS_WASM
         // 웹에선 무한 루프가 탭을 얼리므로 상한 유지. 네이티브는 상한 없음 (빌드본과 동작 일치)
         long long guard = 0;
 #endif
         while (cond->eval(env).truthy()) {
-            try { body->exec(env); }
-            catch (ContinueSignal&) {}
-            catch (BreakSignal&)    { break; }
+            Flow f = body->exec(env);
+            if (f == Flow::BREAK)  break;
+            if (f == Flow::RETURN) return f;
 #ifdef VENOS_WASM
             if (++guard > 10'000'000)
                 throw LangError("반복 횟수가 너무 많습니다 (무한 루프?)");
 #endif
         }
+        return Flow::NORMAL;
     }
 };
 // for i = 1 to 10 (step 2) { ... }  — 양끝 포함, step 생략 시 방향 자동
 struct ForStmt : Stmt {
     string var; ExprP start, end, step; StmtP body; int line;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         auto err = [&](const string& m) {
             return LangError(lineTag(line) + "" + m);
         };
@@ -1189,16 +1205,17 @@ struct ForStmt : Stmt {
         Value* slot = &env.vars[var];
         for (double i = s.num; stepv > 0 ? i <= e.num : i >= e.num; i += stepv) {
             *slot = Value::number(i);
-            try { body->exec(env); }
-            catch (ContinueSignal&) {}
-            catch (BreakSignal&)    { return; }
+            Flow f = body->exec(env);
+            if (f == Flow::BREAK)  break;
+            if (f == Flow::RETURN) return f;
         }
+        return Flow::NORMAL;
     }
 };
 // for x in xs { ... } — 리스트/문자열 순회 (스냅샷 방식: 순회 중 수정해도 안전)
 struct ForEachStmt : Stmt {
     string var; ExprP iter; StmtP body; int line;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value it = iter->eval(env);
         std::vector<Value> items;
         if (it.kind == Value::LIST) items = *it.list;
@@ -1214,30 +1231,32 @@ struct ForEachStmt : Stmt {
         Value* slot = &env.vars[var];
         for (auto& e : items) {
             *slot = e;
-            try { body->exec(env); }
-            catch (ContinueSignal&) {}
-            catch (BreakSignal&)    { return; }
+            Flow f = body->exec(env);
+            if (f == Flow::BREAK)  break;
+            if (f == Flow::RETURN) return f;
         }
+        return Flow::NORMAL;
     }
 };
 
 struct BreakStmt : Stmt {
-    void exec(Env&) override { throw BreakSignal{}; }
+    Flow exec(Env&) override { return Flow::BREAK; }
 };
 struct ContinueStmt : Stmt {
-    void exec(Env&) override { throw ContinueSignal{}; }
+    Flow exec(Env&) override { return Flow::CONTINUE; }
 };
 struct ReturnStmt : Stmt {
     ExprP val;
-    void exec(Env& env) override {
-        throw ReturnSignal{ val ? val->eval(env) : Value::number(0) };
+    Flow exec(Env& env) override {
+        g_retVal = val ? val->eval(env) : Value::number(0);
+        return Flow::RETURN;
     }
 };
 struct FuncStmt : Stmt {
     string name;
     std::vector<string> params;
     StmtP body;
-    void exec(Env&) override { g_funcs[name] = this; }
+    Flow exec(Env&) override { g_funcs[name] = this; return Flow::NORMAL; }
 };
 
 // class 이름 { func ... }  — 메서드 묶음. init 이 생성자.
@@ -1245,7 +1264,7 @@ struct ClassStmt : Stmt {
     string name;
     std::vector<std::unique_ptr<FuncStmt>> methodList;   // 소유권
     std::map<string, FuncStmt*> methods;                  // 이름 → 메서드
-    void exec(Env&) override { g_classes[name] = this; }
+    Flow exec(Env&) override { g_classes[name] = this; return Flow::NORMAL; }
 };
 
 // 메서드 실행 공통부: self + 인자를 지역 스코프에 바인딩하고 본문 실행
@@ -1624,11 +1643,7 @@ struct CallExpr : Expr {
         local.parent = g_global;
         for (size_t i = 0; i < vals.size(); i++)
             local.define(fn->params[i], vals[i]);
-        try {
-            fn->body->exec(local);
-        } catch (ReturnSignal& r) {
-            return r.v;
-        }
+        if (fn->body->exec(local) == Flow::RETURN) return g_retVal;
         return Value::number(0);
     }
 };
@@ -1642,11 +1657,7 @@ Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
     local.define("self", self);   // self 는 같은 필드 맵을 공유 → 수정이 원본에 반영
     for (size_t i = 0; i < args.size(); i++)
         local.define(fn->params[i], args[i]);
-    try {
-        fn->body->exec(local);
-    } catch (ReturnSignal& r) {
-        return r.v;
-    }
+    if (fn->body->exec(local) == Flow::RETURN) return g_retVal;
     return Value::number(0);
 }
 
@@ -2143,19 +2154,17 @@ void runSource(const string& src) {
     Env global;
     g_global = &global;
     try {
-        for (auto& stmt : program) stmt->exec(global);
+        for (auto& stmt : program) {
+            Flow f = stmt->exec(global);
+            if (f == Flow::NORMAL) continue;
+            g_global = nullptr;
+            throw LangError(f == Flow::BREAK    ? KW_BREAK + " 는 반복문 안에서만 쓸 수 있습니다"
+                          : f == Flow::CONTINUE ? KW_CONTINUE + " 는 반복문 안에서만 쓸 수 있습니다"
+                                                : KW_RETURN + " 은 함수 안에서만 쓸 수 있습니다");
+        }
     } catch (ExitSignal&) {
         g_global = nullptr;
         return;                       // exit() = 정상 종료
-    } catch (BreakSignal&) {
-        g_global = nullptr;
-        throw LangError(KW_BREAK + " 는 반복문 안에서만 쓸 수 있습니다");
-    } catch (ContinueSignal&) {
-        g_global = nullptr;
-        throw LangError(KW_CONTINUE + " 는 반복문 안에서만 쓸 수 있습니다");
-    } catch (ReturnSignal&) {
-        g_global = nullptr;
-        throw LangError(KW_RETURN + " 은 함수 안에서만 쓸 수 있습니다");
     } catch (...) {
         g_global = nullptr;
         throw;
@@ -4412,7 +4421,13 @@ void cmdRepl() {
                         return;
                     }
                 }
-                for (auto& s : prog) s->exec(env);
+                for (auto& s : prog) {
+                    Flow f = s->exec(env);
+                    if (f == Flow::NORMAL) continue;
+                    throw LangError(f == Flow::BREAK    ? KW_BREAK + " 는 반복문 안에서만 쓸 수 있습니다"
+                                  : f == Flow::CONTINUE ? KW_CONTINUE + " 는 반복문 안에서만 쓸 수 있습니다"
+                                                        : KW_RETURN + " 은 함수 안에서만 쓸 수 있습니다");
+                }
             });
         } catch (ExitSignal&) {
             break;

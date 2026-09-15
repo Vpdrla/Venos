@@ -68,7 +68,7 @@ git tag v0.6.0 && git push origin v0.6.0
 
 ## 아키텍처 요점
 - `Value`: NUM/STR/LIST/MAP/OBJ. 리스트/딕셔너리/객체는 shared_ptr 참조 방식, `copy()`가 깊은 복사(순환 감지). 문자열 불변, UTF-8 글자 단위 인덱싱. **리스트 인덱스는 1부터.**
-- 제어 흐름 = C++ 예외 (BreakSignal/ContinueSignal/ReturnSignal/ExitSignal) — try/catch(LangError)를 **통과**해야 함.
+- 제어 흐름 = `Stmt::exec()` 의 반환값 `Flow{NORMAL,BREAK,CONTINUE,RETURN}` (반환값은 전역 `g_retVal`). **새 Stmt 를 만들면 반드시 Flow 를 올바로 전파할 것** — 블록/조건/try 는 자식 것을 그대로 올리고, 반복문만 BREAK/CONTINUE 를 소비한다. try/catch(LangError)를 **통과**하는 성질은 그대로 (애초에 예외가 아니므로 저절로). 예전엔 예외였는데 `throw` 한 번에 마이크로초가 들어 재귀가 CPython 의 50배 느렸다 (fib(27) 2.0초 → 0.24초로 개선). `exit()` 만 예외(`ExitSignal`) — 프로그램 전체를 끊는 거라 그게 맞다.
 - 에러 메시지는 `lineTag(line)` 사용 (직접 "[줄 N]" 문자열 만들지 말 것) — import 병합 시 원본 파일 좌표(`[utils.my 줄 3]`)로 자동 변환됨 (`g_lineMap`). 에러 밑에 해당 코드 줄 표시는 `printError()` + `g_srcLines`.
 - 실행은 `runOnBigStack`(128MB 전용 스택 스레드) 경유 — 재귀 한도(2000) 전에 세그폴트 방지. WASM에선 스레드 없이 직접 실행(링크 시 TOTAL_STACK 32MB).
 - 트랜스파일러: 메서드는 클래스별 정적 함수 `m_클래스_메서드` + (이름,인자수)별 디스패처(수제 vtable). 식별자 맹글링 u_/f_ + non-ASCII hex. 대입 좌변은 접근자 체인(idx_mid/idx_put/fld_mid/fld_put).
