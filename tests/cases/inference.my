@@ -1,0 +1,36 @@
+# 새 추론들이 겹치는 자리 — 같은 이름의 함수와 메서드, 문자열 변수 추론,
+# 조건 자리의 not/and/or, 보간 안의 식. 하나라도 어긋나면 백엔드가 갈라진다.
+
+# 같은 이름의 함수와 메서드, 서로 부르기
+func 값(n) { if n <= 0 { return 0 }  return n + 값(n - 1) }
+class 상자 {
+    func init() { self.n = 0 }
+    func 값(k) { if k <= 0 { return 0 }  return k + self.값(k - 1) }
+    func 바깥(k) { return 값(k) + self.값(k) }
+}
+let b = 상자()
+print 값(5), b.값(5), b.바깥(5)
+
+# 문자열 추론이 꼬일 만한 자리
+let s = ""
+for i = 1 to 3 { s = s + str(i) }
+print s, len(s)
+let t = s
+t = t + "!"
+print t
+let 섞임 = "a"
+섞임 = 섞임 * 3
+print 섞임, 섞임 == "aaa"
+func 만들기(n) { let r = ""  for i = 1 to n { r = r + "*" }  return r }
+print 만들기(4), len(만들기(4))
+
+# 조건 자리의 not/and/or 중첩
+let a = 1
+let z = 0
+if not (a and not z) { print "A" } else { print "B" }
+while not z { z = 1  if a or z { print "C" } }
+print not not (a or z), (not a) or (not z)
+
+# 보간 안의 복잡한 식
+let 목록 = [1, 2, 3]
+print "합: {목록[1] + 목록[2] + 목록[3]}, 길이: {len(목록)}, 참: {not 0}"
