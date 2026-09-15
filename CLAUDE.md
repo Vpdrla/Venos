@@ -63,7 +63,8 @@ tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지(te
 git tag v0.6.0 && git push origin v0.6.0
 ```
 - Linux/Windows 는 ubuntu 러너 한 곳에서 (Windows 는 MinGW 크로스 컴파일), macOS 는 전용 러너에서 유니버설(arm64+x86_64)로 빌드.
-- 전부 정적 링크 → 받는 사람은 설치할 게 없음. 릴리스로 나가는 바로 그 바이너리로 differential 스위트를 돌려 검증한다 (Linux·macOS 는 스위트까지, Windows exe 는 아직 빌드만).
+- 전부 정적 링크 → 받는 사람은 설치할 게 없음. 릴리스로 나가는 바로 그 바이너리로 differential 스위트를 돌려 검증한다 (Linux·macOS 는 스위트까지, Windows exe 는 여기서 크로스 컴파일이라 빌드만 — 대신 `ci.yml` 의 `windows` 잡이 `windows-latest` 에서 같은 소스를 MinGW 로 빌드해 스위트를 돌린다).
+- **태그 없이 시험 실행**: Actions → Release → Run workflow 에서 `tag` 를 비우면 세 플랫폼 빌드 + macOS 스위트까지만 돌고 릴리스는 안 만든다. macOS(Apple clang, 유니버설)는 평소 CI 에 없으므로, venos.cpp 를 크게 건드렸으면 이걸 한 번 돌려 보는 게 싸다.
 - **태그를 못 밀 때는 Actions → Release → Run workflow 에서 `tag` 칸에 `v0.6.0` 을 넣으면** 그 이름으로 태그를 만들고 릴리스까지 낸다. `tag` 를 비우면 빌드·테스트만 하고 릴리스는 안 만든다 (시험 실행).
 - `release` 잡은 게시 직전에 **업로드되는 Linux 바이너리를 실제로 한 번 실행**해 본다 (빌드 잡의 스위트는 스테이징 전에 돌기 때문에 아티팩트 왕복 이후는 여기서만 검증된다).
 - MinGW 는 메타패키지(`g++-mingw-w64-x86-64`) 말고 **`g++-mingw-w64-x86-64-posix` 하나만** 설치한다 — 메타패키지가 posix/win32 스레딩 변종을 둘 다 끌어와 144MB 를 받기 때문. venos.cpp 는 `_beginthreadex`(Win32 API)만 쓰고 `std::thread` 는 안 써서 변종은 무관하다. 빌드도 `x86_64-w64-mingw32-g++-posix` 로 이름을 명시해 부른다.
