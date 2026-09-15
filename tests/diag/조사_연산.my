@@ -1,0 +1,2 @@
+let s = "안녕"
+print s - 1

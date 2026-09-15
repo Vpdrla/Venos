@@ -287,6 +287,23 @@ static std::vector<string> utf8Chars(const string& s) {
     return out;
 }
 
+// ---- 한국어 조사 ----
+// 앞 글자에 받침이 있으면 첫 번째, 없으면 두 번째를 쓴다.
+// "문자열와(과) 숫자는" 처럼 나가면 교육용 언어의 에러 메시지로는 어색하다.
+// 한글이 아니면 (기호·영어 이름) 고를 근거가 없으니 지금처럼 둘 다 보여 준다.
+static string josa(const string& word, const char* withJong, const char* without) {
+    auto cs = utf8Chars(word);
+    if (!cs.empty() && cs.back().size() == 3) {
+        const string& last = cs.back();
+        unsigned cp = ((unsigned char)last[0] & 0x0Fu) << 12
+                    | ((unsigned char)last[1] & 0x3Fu) << 6
+                    | ((unsigned char)last[2] & 0x3Fu);
+        if (cp >= 0xAC00 && cp <= 0xD7A3)        // 한글 음절
+            return ((cp - 0xAC00) % 28) ? withJong : without;
+    }
+    return " " + string(withJong) + "(" + without + ")";   // 기호·영어는 띄어서 둘 다
+}
+
 // ---- 오타 제안 ----
 // "정의되지 않은 변수: 이릅" 만 던지고 끝내면 초보자는 뭐가 틀렸는지 못 찾는다.
 // 편집 거리를 글자 단위로 재서 (바이트로 재면 한글이 전부 거리 3 이 된다) 가까운 이름을 붙여 준다.
@@ -800,7 +817,8 @@ struct IndexExpr : Expr {
             return it->second;
         }
         if (t.kind != Value::LIST)
-            throw LangError(lineTag(line) + "" + t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+            throw LangError(lineTag(line) + "" + t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                            + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
         size_t idx = checkIndex(index->eval(env), t.list->size(), line);
         return (*t.list)[idx];
     }
@@ -893,7 +911,8 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
         default: break;
     }
     if (a.kind != Value::NUM || b.kind != Value::NUM)
-        throw err(a.kindName() + "와(과) " + b.kindName() + "는 이 연산이 안 됩니다");
+        throw err(a.kindName() + josa(a.kindName(), "과", "와") + " " + b.kindName()
+                  + josa(b.kindName(), "은", "는") + " 이 연산이 안 됩니다");
     switch (op) {
         case Tok::PLUS:  return Value::number(a.num + b.num);
         case Tok::MINUS: return Value::number(a.num - b.num);
@@ -1052,7 +1071,8 @@ static Value* stepIntoAcc(Value* cur, Accessor& a, Env& env) {
     }
     if (cur->kind == Value::STR)
         throw err("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다"
+              + (cur->kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
 }
 
 // 마지막 단계 대입용 슬롯 (딕셔너리 키/객체 필드는 새로 생성 가능)
@@ -1077,7 +1097,8 @@ static Value* putSlot(Value* cur, Accessor& a, Env& env) {
     }
     if (cur->kind == Value::STR)
         throw err("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다"
+              + (cur->kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
 }
 
 // 경로 대입: x[1] = v,  obj.필드 = v,  obj.점수[2] = v ...
@@ -1316,8 +1337,8 @@ Value MethodCallExpr::eval(Env& env) {
     if (mit == cit->second->methods.end()) {
         std::vector<string> names;
         for (auto& [k, v] : cit->second->methods) names.push_back(k);
-        throw err("클래스 '" + obj.className + "' 에 메서드 '" + method + "' 이(가) 없습니다"
-                  + suggestName(method, names));
+        throw err("클래스 '" + obj.className + "' 에 메서드 '" + method + "'"
+                  + josa(method, "이", "가") + " 없습니다" + suggestName(method, names));
     }
     FuncStmt* fn = mit->second;
     if (args.size() != fn->params.size())
@@ -1701,7 +1722,8 @@ struct Parser {
     bool match(Tok t) { if (check(t)) { pos++; return true; } return false; }
     Token expect(Tok t, const string& what) {
         if (!check(t))
-            throw LangError(lineTag(peek().line) + "문법 오류: " + what + " 이(가) 필요합니다");
+            throw LangError(lineTag(peek().line) + "문법 오류: " + what
+                            + josa(what, "이", "가") + " 필요합니다");
         return advance();
     }
     // 다음 토큰이 표현식의 시작이 될 수 있는가? (값 없는 return 판별용)
@@ -2332,6 +2354,19 @@ static std::vector<string> u8chars(const string& s) {
     }
     return out;
 }
+// 한국어 조사 (인터프리터와 같은 문구를 내기 위해 그대로 옮겨 온다)
+static string josa(const string& word, const char* withJong, const char* without) {
+    auto cs = u8chars(word);
+    if (!cs.empty() && cs.back().size() == 3) {
+        const string& last = cs.back();
+        unsigned cp = ((unsigned char)last[0] & 0x0Fu) << 12
+                    | ((unsigned char)last[1] & 0x3Fu) << 6
+                    | ((unsigned char)last[2] & 0x3Fu);
+        if (cp >= 0xAC00 && cp <= 0xD7A3)
+            return ((cp - 0xAC00) % 28) ? withJong : without;
+    }
+    return " " + string(withJong) + "(" + without + ")";   // 기호·영어는 띄어서 둘 다
+}
 static List iter_items(const Value& v) {
     if (v.kind == Value::LIST) return *v.list;
     if (v.kind == Value::STR) { List o; for (auto& c : u8chars(v.str)) o.push_back(Value(c)); return o; }
@@ -2357,7 +2392,8 @@ static double needNum(const Value& v, const char* what) {
 // 산술 이항 연산의 타입 검사 — 인터프리터와 동일한 에러 문구
 static void needNums(const Value& a, const Value& b) {
     if (a.kind != Value::NUM || b.kind != Value::NUM)
-        throw RunErr(a.kindName() + "와(과) " + b.kindName() + "는 이 연산이 안 됩니다");
+        throw RunErr(a.kindName() + josa(a.kindName(), "과", "와") + " " + b.kindName()
+                     + josa(b.kindName(), "은", "는") + " 이 연산이 안 됩니다");
 }
 static Value vadd(const Value& a, const Value& b) {
     if (a.kind == Value::STR || b.kind == Value::STR) return Value(a.toString() + b.toString());
@@ -2468,7 +2504,8 @@ static Value idx_get(const Value& t, const Value& i) {
             throw RunErr("키가 없습니다: \"" + i.str + "\"  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)");
         return it->second;
     }
-    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                                           + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
 // 인덱스 체인 중간 (반드시 존재해야 함) — 복합 대입의 마지막에도 사용
@@ -2479,7 +2516,8 @@ static Value& idx_mid(Value& t, const Value& i) {
         return it->second;
     }
     if (t.kind == Value::STR) throw RunErr("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                                           + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
 static Value fld_get(const Value& t, const string& f) {
@@ -2505,7 +2543,8 @@ static Value& fld_put(Value& t, const string& f) {
 static Value& idx_put(Value& t, const Value& i) {
     if (t.kind == Value::MAP) return (*t.map)[mapKey(i)];
     if (t.kind == Value::STR) throw RunErr("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                                           + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
 static void my_print(std::initializer_list<string> vs) {
@@ -3287,7 +3326,7 @@ struct CodeGen {
                 dispDefs << "    }\n";
             }
             dispDefs << "    throw RunErr(\"클래스 '\" + __self.className + \"' 에 메서드 '"
-                     << mname << "' 이(가) 없습니다\");\n}\n\n";
+                     << mname << "'" << josa(mname, "이", "가") << " 없습니다\");\n}\n\n";
         }
 
         // ---- 최종 조립 ----
