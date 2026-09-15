@@ -19,3 +19,30 @@ jobs:
 
       - name: Differential tests (interpreter vs transpiled binary vs emitted Python)
         run: tests/run_tests.sh
+
+  playground-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # docs/venos.wasm 은 저장소에 커밋된 수동 빌드본이다. 소스만 고치고 다시 빌드하지
+      # 않으면 플레이그라운드가 조용히 낡은 채로 배포된다 — 그 상태를 여기서 잡는다.
+      - name: Committed WASM matches venos.cpp
+        run: |
+          want=$(sha256sum venos.cpp | cut -d' ' -f1)
+          have=$(cat docs/venos.wasm.source-sha256 2>/dev/null || echo "(없음)")
+          if [ "$want" != "$have" ]; then
+            echo "::error::venos.cpp 가 바뀌었는데 플레이그라운드 WASM 을 다시 빌드하지 않았습니다."
+            echo "  venos.cpp          $want"
+            echo "  docs/ 가 기억하는 것 $have"
+            echo "  고치는 법: emsdk 를 source 한 뒤 tools/build-wasm.sh 를 돌리고 docs/ 를 함께 커밋하세요."
+            exit 1
+          fi
+          echo "일치: $want"
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.9
+
+      - name: WASM builds
+        run: tools/build-wasm.sh --check

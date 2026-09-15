@@ -32,7 +32,8 @@ g++ -std=c++20 -O2 -fsyntax-only venos.cpp
 ./venos build 파일.my run    # 트랜스파일 → g++ → 실행
 ./venos topython 파일.my     # 파이썬으로 변환 (.my → .py)
 
-# WASM (플레이그라운드 갱신 시) — emcc 가 아니라 **em++** 로 부를 것.
+# WASM (플레이그라운드 갱신 시) — 아래 명령을 그대로 담은 **`tools/build-wasm.sh`** 를 쓰면 된다
+# (소스 해시까지 같이 남겨 CI 의 드리프트 검사를 통과시킨다). 직접 부를 때는 emcc 가 아니라 **em++**.
 # 요즘 emsdk(6.0.8 확인)는 emcc 로 C++ 를 링크하면 operator delete 미정의로 죽는다.
 em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
   -s EXPORTED_FUNCTIONS=_venos_run,_venos_topython,_venos_flush,_malloc,_free -s EXPORTED_RUNTIME_METHODS=ccall \
@@ -103,7 +104,7 @@ git tag v0.6.0 && git push origin v0.6.0
 - [x] 릴리스 자동화 (`.github/workflows/release.yml`) — Linux/Windows/macOS 정적 바이너리 → GitHub Releases. **첫 릴리스 v0.6.0 게시됨** (https://github.com/Vpdrla/Venos/releases/tag/v0.6.0, 태그는 `1ca77d3`, 자산 4개, 전체 런 69초)
 - [x] `input` 의 `window.prompt()` 모달 제거 — **Asyncify** 로 해결. 출력창 아래 입력줄이 뜨고, 기다리는 동안 화면이 정상적으로 칠해진다. wasm 471KB → 839KB(1.78배), 브라우저 fib(24) 0.33초(네이티브 0.51초)라 속도는 문제 없음. (Worker+SharedArrayBuffer 는 GitHub Pages 가 COOP/COEP 헤더를 못 줘서 불가)
 - [x] 에러 메시지에 오타 제안 (글자 단위 편집 거리 — 변수/대입/함수/내장함수/필드/메서드, 인터프리터와 트랜스파일러 양쪽). 닫히지 않은 `{` 는 파일 끝이 아니라 여는 줄을 가리키고, `if x = 5` 는 `==` 를 안내한다. 회귀 테스트는 `tests/diag/*.my` + `.expected` (러너 2단계)
-- [ ] `docs/venos.js`·`venos.wasm` 을 CI에서 빌드 (현재 커밋된 수동 빌드본이라 소스와 어긋날 수 있음. 마지막 수동 빌드: emsdk 6.0.8, `em++`)
+- [x] `docs/venos.js`·`venos.wasm` 드리프트 방지 — 빌드는 `tools/build-wasm.sh` 로 통일했고, 스크립트가 `docs/venos.wasm.source-sha256` 에 소스 해시를 남긴다. CI 의 `playground-wasm` 잡이 `venos.cpp` 해시와 대조해 **소스만 고치고 WASM 을 안 올린 상태를 실패로 잡는다** + emsdk 로 빌드 자체도 확인. (마지막 수동 빌드: emsdk 6.0.9)
 - [ ] Windows 네이티브 CI 잡 — macOS 는 release.yml 에서 유니버설 빌드 + 스위트까지 돌지만, Windows exe 는 크로스 컴파일로 **빌드만** 되고 한 번도 실행되지 않는다 (ReadConsoleW·`IN`/`OUT` 매크로 회피·`_beginthreadex` 가 런타임 미검증). `windows-latest` 에서 스위트를 돌리려면 Git Bash·CRLF·콘솔 한글 인코딩부터 확인해야 함
 - [x] 문자열 보간 `"이름: {x}"`, 리스트 `==`(깊은 비교)/`+`(연결) — v0.6.0
 - [x] **포지셔닝 확정 + `topython`** — 조사(Portugol/HAGGIS/Pascal/2022 개정 교육과정) → `STRATEGY.md`, `PyGen`, 플레이그라운드 🐍 Python 버튼, 3중 differential
