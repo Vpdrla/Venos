@@ -11,9 +11,13 @@
 set -u
 cd "$(dirname "$0")/.."   # 저장소 루트에서 실행
 
+# Windows 에서는 g++ 가 확장자 없는 -o 에 .exe 를 붙인다 — 양쪽 이름을 다 받아 준다
 VENOS=./venos
+[ -x "$VENOS" ] || [ ! -x ./venos.exe ] || VENOS=./venos.exe
+EXE=""
+case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe" ;; esac
 TMP=$(mktemp -d)
-cleanup() { rm -rf "$TMP" tests/.tmp_* tests/cases/*.py examples/algorithms/*.py examples/algorithms/*.cpp ; }
+cleanup() { rm -rf "$TMP" tests/.tmp_* tests/cases/*.py tests/cases/*.exe examples/algorithms/*.py examples/algorithms/*.cpp examples/algorithms/*.exe ; }
 trap cleanup EXIT
 
 # 파이썬 변환을 건너뛰는 케이스와 그 이유.
@@ -24,7 +28,8 @@ PY_SKIP="errors bugfixes fileio listops_errors"
 
 if [ ! -x "$VENOS" ] || [ venos.cpp -nt "$VENOS" ]; then
     echo "venos 빌드 중..."
-    g++ -std=c++17 -O2 -o venos venos.cpp || { echo "빌드 실패"; exit 1; }
+    g++ -std=c++17 -O2 -o "venos$EXE" venos.cpp || { echo "빌드 실패"; exit 1; }
+    VENOS="./venos$EXE"
 fi
 
 PY=$(command -v python3 || true)
@@ -64,7 +69,7 @@ for case_file in tests/cases/*.my examples/algorithms/*.my; do
         echo "FAIL  $label  (빌드 명령 실패)"; cat "$TMP/build.txt"
         fail=$((fail+1)); continue
     fi
-    bin="$dir/$name"
+    bin="$dir/$name$EXE"
     if [ ! -x "$bin" ]; then
         echo "FAIL  $label  (실행 파일이 생성되지 않음)"; cat "$TMP/build.txt"
         fail=$((fail+1)); continue

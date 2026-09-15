@@ -21,6 +21,29 @@ jobs:
       - name: Differential tests, error messages, lesson track
         run: tests/run_tests.sh
 
+  # Windows 는 릴리스로 exe 를 내보내면서도 한 번도 실행해 본 적이 없었다.
+  # ReadConsoleW·windows.h 의 IN/OUT 매크로 회피·_beginthreadex 가 전부 런타임 미검증이었다.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # tests/diag 의 .expected 는 LF 로 커밋돼 있다 — 체크아웃이 CRLF 로 바꾸면 전부 어긋난다
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - name: Build (MinGW g++)
+        run: g++ -std=c++17 -O2 -Wall -Werror -o venos.exe venos.cpp
+
+      - name: Smoke test
+        run: ./venos.exe examples/algorithms/selection-sort.my
+
+      - name: Differential tests, error messages, lesson track
+        run: tests/run_tests.sh
+
   playground-wasm:
     runs-on: ubuntu-latest
     steps:
