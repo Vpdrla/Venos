@@ -138,6 +138,32 @@ for case_file in tests/diag/*.my; do
     fi
 done
 
+# ---- 셸 편집 모드 (create / code / :d / :q / run) ----
+# 에디터가 없는 학생이 코드를 치는 유일한 자리인데 아무 테스트도 없었다.
+# 화면 모양은 보지 않는다 (사소한 문구 변경에 깨지므로) — 파일이 제대로 저장되고
+# 셸에서 실행·변환이 되는지만 본다.
+shell_ok="통과"
+VENOS_ABS=$(cd "$(dirname "$VENOS")" && pwd)/$(basename "$VENOS")
+{
+    mkdir -p "$TMP/shell" && cd "$TMP/shell"
+    printf 'create 셸테스트\ncode\nlet x = 5\nprint "두 배:", x * 2\nprint "이 줄은 지운다"\n:d\nprint "끝"\n:q\nrun\ntopython\nexit\n' \
+        | "$VENOS_ABS" > out.txt 2>&1
+    cd "$OLDPWD"
+} || true
+if ! grep -q '^print "끝"$' "$TMP/shell/셸테스트.my" 2>/dev/null \
+   || grep -q '이 줄은 지운다' "$TMP/shell/셸테스트.my" 2>/dev/null; then
+    shell_ok="실패 (저장된 파일이 틀립니다)"
+    cat "$TMP/shell/셸테스트.my" 2>/dev/null
+    dfail=$((dfail+1))
+elif ! grep -q '두 배: 10' "$TMP/shell/out.txt" 2>/dev/null; then
+    shell_ok="실패 (셸의 run 이 안 됩니다)"
+    tail -20 "$TMP/shell/out.txt" 2>/dev/null
+    dfail=$((dfail+1))
+elif [ ! -f "$TMP/shell/셸테스트.py" ]; then
+    shell_ok="실패 (셸의 topython 이 .py 를 안 만들었습니다)"
+    dfail=$((dfail+1))
+fi
+
 # ---- topython 이 거절해야 하는 것들 (tests/nopython) ----
 # 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다.
 # 파이썬이 Venos 와 다르게 답하는 자리에서 줄 번호를 대고 거절하는지 본다.
@@ -189,6 +215,7 @@ fi
 echo
 echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pytested, 건너뜀 $pyskipped)"
 [ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
+echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
 echo "이름 대조: $builtins"
 echo "레슨 트랙: $lessons"
