@@ -24,6 +24,9 @@ tests/.tmp_*
 save.txt
 *.log
 
+# 퍼저가 죽인 입력을 남기는 곳 (tools/sanitize.sh)
+fuzz-crashes/
+
 # CI 가 playground-check 를 돌리려고 설치하는 것
 node_modules/
 package-lock.json

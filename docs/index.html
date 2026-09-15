@@ -523,6 +523,7 @@ async function decodeCode(token) {
 // ============================================================
 const SAVE_KEY = 'venos.playground.v1';
 let pristine = '';        // 마지막으로 프로그램이 넣어준 코드 (수정 여부 판단용)
+                          // null = 기준이 없음 → 무엇이 들어 있든 "고쳐진 것"으로 본다
 let currentLesson = -1;   // -1 = 레슨 모드 아님
 
 const store = {
@@ -544,12 +545,12 @@ editor.addEventListener('input', () => {
   saveTimer = setTimeout(store.write, 400);
 });
 
-const isDirty = () => editor.value.trim() !== pristine.trim();
+const isDirty = () => pristine === null || editor.value.trim() !== pristine.trim();
 // isTemplate=true  : 예제/레슨 시작 코드처럼 "아직 사용자 것이 아닌" 코드 → 덮어써도 안전
 // isTemplate=false : 복원된 사용자 작업 → 처음부터 '수정됨'으로 보고 덮어쓰기 전에 물어본다
 function setCode(code, isTemplate) {
   editor.value = code;
-  pristine = (isTemplate === false) ? ' ' : code;
+  pristine = (isTemplate === false) ? null : code;
   store.write();
 }
 // 사용자가 고쳐놓은 코드를 날리기 전엔 반드시 물어본다
@@ -784,7 +785,12 @@ async function run() {
     // async: true — venos_run 은 input 에서 멈췄다 이어질 수 있다 (ASYNCIFY)
     await M.ccall('venos_run', null, ['string'], [editor.value], { async: true });
   } catch (e) {
-    append('!! runtime error: ' + e, 'err');
+    // Venos 자신의 에러는 print 로 나오므로 여기까지 오는 건 wasm 이 도중에 끊긴 것이다.
+    // 그 상태의 모듈은 Asyncify 가 반쯤 풀린 채라 다음 실행이 조용히 이상해진다 —
+    // 새로고침이 확실한 답이다. (한도 검사들이 제 몫을 하면 여기까지 오지 않는다.)
+    append('!! 실행이 도중에 끊겼습니다 / the run was cut short: ' + e, 'err');
+    append('   새로고침한 뒤 다시 실행해 주세요. 코드는 저장돼 있습니다.', 'err');
+    append('   Please reload and run again — your code is saved.', 'err');
   }
   endInput();
   runBtn.disabled = false;

@@ -71,6 +71,26 @@ jobs:
       - name: Differential tests, error messages, lesson track
         run: tests/run_tests.sh
 
+  # 보통 테스트는 "출력이 맞는가"를 본다. 여기서는 "메모리를 잘못 건드리는가"와
+  # "망가진 입력에 깔끔하게 죽는가"를 본다 — 출력이 맞아도 틀릴 수 있는 종류다.
+  # 퍼저가 실제로 잡은 것: 파서에 깊이 제한이 없어 "((((((..." 가 세그폴트였다.
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ASan + UBSan, 두 백엔드 + 퍼징
+        run: tools/sanitize.sh --fuzz 1
+
+      # 퍼저가 무언가 찾았으면 그 입력을 받아 볼 수 있어야 재현이 된다
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: fuzz-crashes/
+          if-no-files-found: ignore
+
   playground-wasm:
     runs-on: ubuntu-latest
     steps:

@@ -51,6 +51,8 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 - 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio/listops_errors). 에러 문구에 기대는 줄만 별도 케이스로 떼어내면 나머지는 파이썬까지 검증할 수 있다 — `listops` 를 그렇게 쪼갰다.
 ```bash
 tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지(tests/diag) + 레슨 트랙
+tools/sanitize.sh    # ASan+UBSan 으로 두 백엔드 훑기 + 퍼징 (약 4분, CI 의 sanitize 잡)
+python3 tools/fuzz.py ./venos --minutes 2   # 퍼징만 따로
 ```
 러너는 세 단계다:
 1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교
@@ -99,6 +101,10 @@ git tag v0.6.0 && git push origin v0.6.0
 - `desc.en` 이 식별자를 이름으로 언급하면(`` `factorial` below ``, `` use `self.name` ``) 영어 코드와 **반드시 같이 고칠 것**. 안 맞으면 설명이 거짓말이 된다.
 - 화면 클리어는 `\033[2J\033[3J\033[H` (3J = 스크롤백까지).
 - u8string은 C++17/20 타입이 달라서 바이트 복사로 처리 중.
+- **재귀 하강 파서에는 깊이 제한이 있어야 한다** (`MAX_NEST` 200, `NestGuard`). 없으면 `((((((...` 같은 입력에 그대로 재귀해 세그폴트다. 인터프리터는 128MB 스택 스레드 덕에 버티지만 `topython`·`build` 는 메인 스레드에서 파싱해 5천 단계에 죽었다 — **같은 파일이 실행은 되는데 변환만 죽는** 상태였다. 파서에 새 재귀 지점을 만들면 (`parseUnary`/`parseNot`/`parseBlock` 바깥에) 가드를 같이 넣을 것. 카운터가 전역인 이유는 문자열 보간 `{}` 안이 별도 `Parser` 로 파싱되기 때문.
+- 에러 메시지에 사용자 문자열을 끼워 넣을 때는 `ellipsize()` 로 자를 것. 안 그러면 긴 줄 하나가 정작 읽어야 할 설명을 화면 밖으로 밀어낸다 (`print (((...5천개...` 가 197KB 를 쏟았다).
+- 문자열 보간 안의 식은 **하위 `Parser`** 가 파싱한다 — 토큰의 줄 번호를 바깥 줄로 덮어쓰지 않으면 `"{없는변수}"` 의 에러가 늘 "줄 1" 을 가리킨다.
+- `docs/index.html` 에 NUL 바이트를 넣지 말 것. `pristine` 센티널로 `'\0'` 을 쓰다가 파일이 grep 에 "binary" 로 잡혔다 (지금은 `null`).
 
 ## 현재 상태 & 남은 작업
 현재 v0.6.0 (변수/함수/클래스/리스트/딕셔너리/try-catch/import/copy/파일IO/REPL/CLI/에러 줄표시/문자열 보간/리스트 ==·+/`topython` 파이썬 변환). 저장소: github.com/Vpdrla/Venos

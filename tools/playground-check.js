@@ -75,7 +75,8 @@ const CHECKS = [
   { name: '레슨 3 (input)', code: lesson('input'), answer: '미르', expect: '미르님' },
   { name: '긴 출력 · 보간', code: 'let a = "열여섯 바이트를 훌쩍 넘는 아주 긴 한글 문자열입니다"\nprint "값: {a}"\n',
     expect: '값: 열여섯' },
-  // 브라우저 호출 스택은 네이티브보다 얕다. 한도(웹 400) 안쪽은 돌아야 하고, 넘어가면
+  // 브라우저 호출 스택은 네이티브보다 얕다 (TOTAL_STACK 은 선형 메모리의 그림자
+  // 스택이지 V8 의 호출 스택이 아니다). 한도(웹 200) 안쪽은 돌아야 하고, 넘어가면
   // V8 의 RangeError 가 아니라 Venos 의 한국어 메시지가 나와야 한다.
   { name: '한도 안쪽 재귀 (190)',
     code: 'func 합(n) { if n <= 0 { return 0 }  return n + 합(n - 1) }\nprint 합(190)\n',
@@ -95,9 +96,18 @@ const CHECKS = [
     expect: "혹시 '이름'?", expectError: true },
   { name: '에러의 호출 경로', code: 'func 안쪽(xs) { return xs[9] }\nfunc 바깥(xs) { return 안쪽(xs) }\nprint 바깥([1])\n',
     expect: '부른 순서: 바깥', expectError: true },
-  // 브라우저 스택은 32MB(링크 시 TOTAL_STACK), 네이티브는 128MB 다. 재귀 한도 2000 에
-  // 닿기 전에 스택이 먼저 터지면 학생에게는 탭이 멈춘 것으로 보인다 — 한도 직전까지 가 본다.
   { name: '레슨 10 (classes) 실행', code: lesson('classes'), expect: '멍멍' },
+  // 깊게 중첩된 입력은 파서를 그대로 재귀시킨다 — 네이티브에서는 세그폴트였고
+  // 브라우저에서는 RangeError 가 된다. 한도 안쪽은 돌고, 넘으면 한국어로 말해야 한다.
+  { name: '괄호 중첩 한도 안쪽 (199)',
+    code: 'print ' + '('.repeat(199) + '42' + ')'.repeat(199) + '\n', expect: '42' },
+  { name: '괄호 중첩 한도 초과 (400)',
+    code: 'print ' + '('.repeat(400) + '42' + ')'.repeat(400) + '\n',
+    expect: '너무 깊게 중첩', expectError: true },
+  // 실행 중에 쌓은 깊은 구조 — 출력할 때 toStr 이 그만큼 재귀한다
+  { name: '깊은 리스트 출력',
+    code: 'let a = []\nfor i = 1 to 2000 { let b = [a]  a = b }\nprint "쌓음"\nprint a\n',
+    expect: '출력할 수 없습니다', expectError: true },
 ];
 
 (async () => {

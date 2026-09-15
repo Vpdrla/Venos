@@ -303,6 +303,16 @@ static std::vector<string> utf8Chars(const string& s) {
     return out;
 }
 
+// 아주 긴 문자열을 에러 메시지에 그대로 끼워 넣으면 정작 읽어야 할 설명이
+// 화면 밖으로 밀려난다 (괄호를 수천 개 친 입력을 퍼저가 만들어 냈다).
+static string ellipsize(const string& s, size_t limit) {
+    if (utf8Length(s) <= limit) return s;
+    auto chars = utf8Chars(s);
+    string out;
+    for (size_t i = 0; i < limit; i++) out += chars[i];
+    return out + " …";
+}
+
 // ---- 한국어 조사 ----
 // 앞 글자에 받침이 있으면 첫 번째, 없으면 두 번째를 쓴다.
 // "문자열와(과) 숫자는" 처럼 나가면 교육용 언어의 에러 메시지로는 어색하다.
@@ -446,8 +456,13 @@ static void printError(const string& msg, const string& prefix = "!! 에러: ") 
     } else if (tag.rfind("줄 ", 0) == 0) {
         merged = atoi(tag.c_str() + string("줄 ").size());
     }
-    if (merged >= 1 && merged <= (int)g_srcLines.size())
-        std::cout << "    " << tag << " | " << trim(g_srcLines[merged - 1]) << "\n";
+    if (merged >= 1 && merged <= (int)g_srcLines.size()) {
+        string src = trim(g_srcLines[merged - 1]);
+        const size_t LIMIT = 120;
+        string shown = ellipsize(src, LIMIT);
+        if (shown != src) shown += " (" + std::to_string(utf8Length(src)) + "글자)";
+        std::cout << "    " << tag << " | " << shown << "\n";
+    }
 }
 // 에러 + 그 에러가 난 자리까지 오게 된 호출 경로
 static void printError(const LangError& e) {
@@ -1797,6 +1812,32 @@ Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
 //  primary   = NUMBER | STRING | IDENT | IDENT "(" args ")"
 //            | "[" (expr ("," expr)*)? "]" | "input" STRING? | "(" expr ")"
 // ============================================================
+
+// 재귀 하강 파서의 중첩 깊이 제한.
+//
+// 이게 없으면 "((((((...1...))))))" 같은 입력에 파서가 그대로 재귀해 스택을 넘기고
+// 세그폴트로 죽는다 (퍼저가 찾았다). 인터프리터는 128MB 스택 스레드 위에서 돌아
+// 수만 단계까지 버티지만 topython·build 는 메인 스레드에서 파싱하므로 5천 단계에
+// 이미 죽었다 — 같은 파일이 실행은 되는데 변환만 죽는 상태였다.
+//
+// 깊이를 여기서 막으면 AST 깊이가 같이 묶여서 eval·CodeGen·PyGen·소멸자 재귀까지
+// 한 번에 안전해진다. 교과서 코드는 10단계도 안 쓴다.
+//
+// 보간 "{...}" 안은 별도 Parser 로 파싱되므로 카운터는 전역이어야 한다.
+static const int MAX_NEST = 200;
+static int g_parseNest = 0;
+struct NestGuard {
+    explicit NestGuard(int line) {
+        if (++g_parseNest > MAX_NEST) {
+            --g_parseNest;
+            throw LangError(lineTag(line) + "식이나 블록이 너무 깊게 중첩되었습니다 ("
+                            + std::to_string(MAX_NEST) + "단계 초과)"
+                            + " — 괄호가 제대로 닫혔는지 확인하세요");
+        }
+    }
+    ~NestGuard() { --g_parseNest; }
+};
+
 struct Parser {
     std::vector<Token> toks;
     size_t pos = 0;
@@ -1827,6 +1868,7 @@ struct Parser {
     }
 
     std::vector<StmtP> parseProgram() {
+        g_parseNest = 0;
         std::vector<StmtP> out;
         while (!check(Tok::END)) out.push_back(parseStatement());
         return out;
@@ -2027,6 +2069,7 @@ struct Parser {
 
     StmtP parseBlock() {
         int openLine = peek().line;
+        NestGuard g(openLine);          // if 안에 if 안에 if ... 로 깊어지는 쪽
         expect(Tok::LBRACE, "{");
         auto block = std::make_unique<BlockStmt>();
         while (!check(Tok::RBRACE) && !check(Tok::END))
@@ -2059,8 +2102,11 @@ struct Parser {
         return left;
     }
     ExprP parseNot() {
-        if (match(Tok::NOT))
+        if (check(Tok::NOT)) {
+            NestGuard g(peek().line);   // not not not ... 은 여기서만 깊어진다
+            advance();
             return std::make_unique<NotExpr>(parseNot());
+        }
         return parseComparison();
     }
     ExprP parseComparison() {
@@ -2093,7 +2139,10 @@ struct Parser {
         }
         return left;
     }
+    // 괄호·리스트·딕셔너리·인덱스·호출 인자 — 식이 한 겹 깊어지는 길은 모두
+    // 여기를 한 번씩 지난다. 단항 빼기(-)의 자기 재귀도 같이 막힌다.
     ExprP parseUnary() {
+        NestGuard g(peek().line);
         if (check(Tok::MINUS)) {
             int line = peek().line;
             advance();
@@ -2168,13 +2217,24 @@ struct Parser {
                     throw LangError(lineTag(line) + "문자열 보간 {} 안이 비어 있습니다");
                 if (!lit.empty()) { parts.push_back(std::make_unique<StrExpr>(lit)); lit.clear(); }
                 try {
-                    Parser sub(lex(inner));
+                    // 하위 파서는 {} 안쪽 조각만 보므로 줄 번호가 1부터 다시 시작한다.
+                    // 그대로 두면 "{없는변수}" 의 실행 에러가 엉뚱한 줄을 가리킨다.
+                    auto innerToks = lex(inner);
+                    for (auto& t : innerToks) t.line = line;
+                    Parser sub(innerToks);
                     ExprP e = sub.parseExpr();
-                    if (!sub.check(Tok::END)) throw LangError("남는 토큰");
+                    if (!sub.check(Tok::END))
+                        throw LangError("{} 안에는 식 하나만 들어갈 수 있습니다");
                     parts.push_back(std::move(e));
-                } catch (LangError&) {
-                    throw LangError(lineTag(line)
-                        + "문자열 보간 {" + inner + "} 안의 식이 잘못되었습니다");
+                } catch (LangError& inErr) {
+                    // 왜 잘못됐는지까지 말해 준다. 하위 파서는 {} 안쪽 조각만 보므로
+                    // 그쪽 [줄 1] 은 바깥 줄 번호와 어긋난다 — 떼어 내고 바깥 것을 쓴다.
+                    string why = inErr.what();
+                    size_t close = why.find("] ");
+                    if (!why.empty() && why[0] == '[' && close != string::npos)
+                        why = why.substr(close + 2);
+                    throw LangError(lineTag(line) + "문자열 보간 {" + ellipsize(inner, 40)
+                                    + "} 안의 식이 잘못되었습니다: " + why);
                 }
                 interpolated = true;
                 i = j + 1;
