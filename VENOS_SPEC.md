@@ -44,6 +44,7 @@ let 답 = input "질문: "          # 숫자를 입력하면 자동으로 숫자
 - (음수)  →  * / %  →  + -  →  == != < > <= >=  →  not  →  and  →  or
 ```
 - `+` 는 문자열이 섞이면 이어붙이기 (`"나이: " + 15` → "나이: 15"), 리스트끼리면 연결 (`[1] + [2]` → [1, 2])
+- `*` 는 문자열 × 숫자면 반복 (`"*" * 5` → `"*****"`) — 별 찍기, 막대그래프, 구분선에 쓴다. 횟수는 정수, 0 이하면 빈 문자열
 - `==`/`!=` 는 모든 타입 가능 — 타입이 다르면 그냥 false/true, 리스트/딕셔너리/객체는 **내용으로 깊은 비교**. `< > <= >=` 는 숫자/문자열만
 - 비교 연산은 연결 불가 — `a < b < c` 대신 `a < b and b < c`
 - `%` 의 결과는 **나누는 수의 부호**를 따른다 (수학·파이썬 관례) — `-7 % 3` 은 `2`, `-1 % 26` 은 `25`. 시저 암호처럼 음수를 되감을 때 그대로 쓸 수 있다
@@ -115,10 +116,10 @@ print p                       # 사람{"나이": 15, "이름": "미르"}
 
 ## 내장 함수
 ```
-수학:    random(a,b) round(x) floor(x) ceil(x) abs(x) sqrt(x) min(a,b) max(a,b)
+수학:    random(a,b) round(x) round(x,자릿수) floor(x) ceil(x) abs(x) sqrt(x) min(a,b) max(a,b)
 변환:    num("15")  str(3)
-공통:    len(리스트/문자열/딕셔너리)
-리스트:  push(xs,값) pop(xs) sort(xs) remove(xs,위치)
+공통:    len(리스트/문자열/딕셔너리)  reverse(리스트/문자열)
+리스트:  push(xs,값) pop(xs) sort(xs) remove(xs,위치)  has(xs,값)  find(xs,값)→위치(없으면 0)
 딕셔너리: keys(d) has(d,키) remove(d,키)
 문자열:  split(s,구분자) join(xs,구분자) upper(s) lower(s)
         find(s,찾을것)→위치(없으면 0)  replace(s,바꿀것,새것)  substr(s,시작,개수)
@@ -126,6 +127,9 @@ print p                       # 사람{"나이": 15, "이름": "미르"}
 파일:    readfile(경로) writefile(경로,내용) appendfile(경로,내용) exists(경로)
 기타:    time()→초  exit()→즉시 종료  copy(값)→깊은 복사  error("메시지")→에러 발생
 ```
+- `reverse(리스트)` 는 리스트를 **제자리에서** 뒤집는다 (`sort` 와 같음). `reverse("안녕")` 은 뒤집은 **새 문자열**을 준다 — 문자열은 못 바꾸므로.
+- 내림차순 정렬은 `sort(xs)` 한 뒤 `reverse(xs)`.
+- `round(x, 2)` 는 소수 둘째 자리까지 반올림 (자릿수는 0~15).
 
 ## 여러 파일로 나누기 (import)
 ```

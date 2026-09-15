@@ -73,7 +73,7 @@
     },
     "builtin": {
       "name": "support.function.builtin.venos",
-      "match": "\\b(random|round|floor|ceil|abs|sqrt|min|max|num|str|len|push|pop|sort|remove|keys|has|split|join|upper|lower|find|replace|substr|readfile|writefile|appendfile|exists|time|exit|copy|error)(?=\\s*\\()"
+      "match": "\\b(random|round|floor|ceil|abs|sqrt|min|max|num|str|len|push|pop|sort|reverse|remove|keys|has|split|join|upper|lower|find|replace|substr|readfile|writefile|appendfile|exists|time|exit|copy|error)(?=\\s*\\()"
     },
     "definition": {
       "patterns": [

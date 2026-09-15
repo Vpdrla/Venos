@@ -1,0 +1,73 @@
+# 교과서에서 자주 나오는 표현들. 세 백엔드(인터프리터/C++/파이썬)가 모두 같은 출력을 내야 한다.
+
+# --- 문자열 반복: 별 찍기, 막대그래프, 구분선 ---
+for i = 1 to 5 { print "*" * i }
+print "-" * 20
+print 3 * "ab", "ab" * 1, "ab" * 0, "ab" * -2
+let 칸 = "■"
+let 점수 = [8, 5, 10]
+for i = 1 to len(점수) { print i, 칸 * 점수[i] }
+print "가나" * 3
+print ("a" + "b") * 2, "x" * (1 + 2)
+
+# --- 리스트 멤버십과 위치 ---
+let xs = [3, 1, 4, 1, 5]
+print has(xs, 4), has(xs, 9), has(xs, 3)
+print find(xs, 1), find(xs, 5), find(xs, 9)
+let 이름들 = ["가", "나", "다"]
+print has(이름들, "나"), find(이름들, "다"), find(이름들, "라")
+print has([[1, 2], [3]], [3]), find([[1, 2], [3]], [1, 2])
+print has([], 1), find([], 1)
+# 딕셔너리 쪽은 그대로
+let d = {"a": 1}
+print has(d, "a"), has(d, "b")
+# 문자열 쪽도 그대로
+print find("바나나", "나"), find("바나나", "감")
+
+# --- 뒤집기: 내림차순 정렬과 회문 ---
+let ys = [3, 1, 4, 1, 5]
+sort(ys)
+print ys
+reverse(ys)
+print ys
+print reverse("안녕하세요"), reverse("abc"), reverse("")
+let 말 = "기러기"
+print 말 == reverse(말), "사과" == reverse("사과")
+let zs = ["다", "가", "나"]
+sort(zs)
+reverse(zs)
+print zs
+print reverse([1])
+# reverse 는 리스트를 제자리에서 뒤집고 같은 리스트를 돌려준다
+let ws = [1, 2, 3]
+let 같은것 = reverse(ws)
+같은것[1] = 99
+print ws
+
+# --- 반올림 자릿수 ---
+print round(3.14159, 2), round(3.14159, 0), round(3.14159, 4)
+print round(2.5), round(-2.5), round(-2.567, 1), round(10, 2)
+print round(1.005, 2), round(0.1 + 0.2, 1)
+let 합 = 0
+let 성적 = [88, 92, 79, 95, 61]
+for x in 성적 { 합 += x }
+print "평균: {round(합 / len(성적), 2)}"
+print "비율: {round(합 / 500 * 100, 1)}%"
+
+# --- 합쳐서: 성적표 (교과서 통계 단원의 모양) ---
+func 등급(점) {
+    if 점 >= 90 { return "A" }
+    else if 점 >= 80 { return "B" }
+    else if 점 >= 70 { return "C" }
+    return "F"
+}
+let 학생 = ["가람", "나래", "다솜"]
+let 점 = [95, 82, 68]
+for i = 1 to len(학생) {
+    print 학생[i], 점[i], 등급(점[i]), "|" + "#" * round(점[i] / 10)
+}
+let 정렬점 = copy(점)
+sort(정렬점)
+reverse(정렬점)
+print "높은 순:", 정렬점, "1등 점수:", 정렬점[1]
+print "80점 이상 있나:", has(정렬점, 82), "82점은 몇 번째:", find(정렬점, 82)

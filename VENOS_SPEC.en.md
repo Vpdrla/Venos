@@ -44,6 +44,7 @@ Interpolation rules: literal braces are `{{` / `}}`. Double-quoted strings can't
 - (negation)  →  * / %  →  + -  →  == != < > <= >=  →  not  →  and  →  or
 ```
 - `+` concatenates when a string is involved (`"age: " + 15` → "age: 15") and joins two lists (`[1] + [2]` → [1, 2])
+- `*` repeats a string by a number (`"*" * 5` → `"*****"`) — for star patterns, bar charts, separator lines. The count must be a whole number; 0 or less gives ""
 - `==`/`!=` work on every type — different types are simply not equal, and lists/dicts/objects compare **by content (deep equality)**. `< > <= >=` are numbers/strings only
 - Comparisons don't chain — write `a < b and b < c`, not `a < b < c`
 - `%` takes the sign of the **right** operand (the maths and Python convention) — `-7 % 3` is `2`, `-1 % 26` is `25`, so wrapping negatives around (a Caesar cipher, say) just works
@@ -115,10 +116,10 @@ No inheritance. For dictionaries use `["key"]`, not `.`.
 
 ## Built-in functions
 ```
-math:    random(a,b) round(x) floor(x) ceil(x) abs(x) sqrt(x) min(a,b) max(a,b)
+math:    random(a,b) round(x) round(x,digits) floor(x) ceil(x) abs(x) sqrt(x) min(a,b) max(a,b)
 convert: num("15")  str(3)
-common:  len(list/string/dict)
-list:    push(xs,value) pop(xs) sort(xs) remove(xs,index)
+common:  len(list/string/dict)  reverse(list/string)
+list:    push(xs,value) pop(xs) sort(xs) remove(xs,index)  has(xs,value)  find(xs,value)→position (0 if absent)
 dict:    keys(d) has(d,key) remove(d,key)
 string:  split(s,sep) join(xs,sep) upper(s) lower(s)
          find(s,needle)→position (0 if absent)  replace(s,old,new)  substr(s,start,count)
@@ -126,6 +127,9 @@ string:  split(s,sep) join(xs,sep) upper(s) lower(s)
 file:    readfile(path) writefile(path,content) appendfile(path,content) exists(path)
 misc:    time()→seconds  exit()→quit immediately  copy(v)→deep copy  error("msg")→raise error
 ```
+- `reverse(list)` reverses **in place** (like `sort`). `reverse("hi")` returns a **new string**, since strings can't be modified.
+- To sort descending: `sort(xs)`, then `reverse(xs)`.
+- `round(x, 2)` rounds to two decimal places (digits may be 0–15).
 
 ## Multiple files (import)
 ```

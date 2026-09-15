@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <set>
 #include <cstdio>
+#include <cstdlib>   // strtod (파이썬 숫자 리터럴을 최단 표기로 낼 때)
 #include <chrono>
 #include <functional>
 #include <stdexcept>
@@ -787,6 +788,15 @@ static double floorMod(double a, double b) {
     if (r != 0 && ((r < 0) != (b < 0))) r += b;
     return r;
 }
+// 문자열 반복 횟수 검사 — "*" * 5 의 5 자리. 음수는 파이썬처럼 빈 문자열이 된다.
+static const size_t REPEAT_CAP = 10000000;   // 폭주한 반복이 브라우저를 먹지 않게
+static size_t repeatCount(double n, size_t unit, const std::function<LangError(const string&)>& err) {
+    if (n != std::floor(n)) throw err("문자열을 소수 번 반복할 수는 없습니다 (지금: " + Value::number(n).toString() + ")");
+    if (n <= 0) return 0;
+    if (n > (double)REPEAT_CAP || unit * (size_t)n > REPEAT_CAP)
+        throw err("문자열 반복이 너무 깁니다 (최대 " + std::to_string(REPEAT_CAP) + "자)");
+    return (size_t)n;
+}
 // 이항 연산의 실제 처리 — BinExpr 와 원소 복합 대입(xs[i] += ...)이 공유
 static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
     auto err = [&](const string& m) {
@@ -794,6 +804,18 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
     };
     if (op == Tok::PLUS && (a.kind == Value::STR || b.kind == Value::STR))
         return Value::text(a.toString() + b.toString());
+    // 문자열 * 숫자 = 그만큼 반복 — 별 찍기, 막대그래프, 구분선
+    if (op == Tok::STAR && ((a.kind == Value::STR) != (b.kind == Value::STR))) {
+        const Value& s = (a.kind == Value::STR) ? a : b;
+        const Value& n = (a.kind == Value::STR) ? b : a;
+        if (n.kind != Value::NUM)
+            throw err("문자열은 숫자만큼만 반복할 수 있습니다 (지금: " + n.kindName() + ")");
+        size_t k = repeatCount(n.num, s.str.size(), err);
+        string out;
+        out.reserve(s.str.size() * k);
+        for (size_t i = 0; i < k; i++) out += s.str;
+        return Value::text(out);
+    }
     // 리스트 + 리스트 = 이어붙인 새 리스트
     if (op == Tok::PLUS && a.kind == Value::LIST && b.kind == Value::LIST) {
         std::vector<Value> xs = *a.list;
@@ -1252,7 +1274,17 @@ struct CallExpr : Expr {
             std::uniform_int_distribution<long long> dist(a, b);
             return Value::number((double)dist(rng));
         }
-        if (name == "round") { needArgs(1, "round(숫자)"); return Value::number(std::round(needNum(0))); }
+        if (name == "round") {     // round(3.7) → 4 / round(3.14159, 2) → 3.14
+            if (vals.size() != 1 && vals.size() != 2)
+                throw err("round(숫자) 또는 round(숫자, 자릿수) 로 써야 합니다");
+            double x = needNum(0);
+            if (vals.size() == 1) return Value::number(std::round(x));
+            double d = needNum(1);
+            if (d != std::floor(d) || d < 0 || d > 15)
+                throw err("round() 의 자릿수는 0 이상 15 이하의 정수여야 합니다");
+            double p = std::pow(10.0, d);
+            return Value::number(std::round(x * p) / p);
+        }
         if (name == "floor") { needArgs(1, "floor(숫자)"); return Value::number(std::floor(needNum(0))); }
         if (name == "ceil")  { needArgs(1, "ceil(숫자)");  return Value::number(std::ceil(needNum(0)));  }
         if (name == "abs")   { needArgs(1, "abs(숫자)");   return Value::number(std::fabs(needNum(0)));  }
@@ -1354,7 +1386,13 @@ struct CallExpr : Expr {
             return Value::text(s);
         }
         if (name == "find") {      // find("안녕하세요", "하세") → 3 (글자 위치, 없으면 0)
-            needArgs(2, "find(문자열, 찾을것)");
+            needArgs(2, "find(문자열, 찾을것) 또는 find(리스트, 값)");
+            if (vals[0].kind == Value::LIST) {    // 리스트에서 값의 위치 (순차 탐색)
+                auto& xs = *vals[0].list;
+                for (size_t i = 0; i < xs.size(); i++)
+                    if (deepEquals(xs[i], vals[1], 0, line)) return Value::number((double)(i + 1));
+                return Value::number(0);
+            }
             auto hay = utf8Chars(needStr(0));
             auto nee = utf8Chars(needStr(1));
             if (nee.empty()) throw err("find() 로 빈 문자열은 찾을 수 없습니다");
@@ -1449,10 +1487,30 @@ struct CallExpr : Expr {
             for (auto& [k, v] : *vals[0].map) out.push_back(Value::text(k));
             return Value::makeList(std::move(out));
         }
-        if (name == "has") {       // has(d, "키") → true/false
-            needArgs(2, "has(딕셔너리, 키)");
-            if (vals[0].kind != Value::MAP) throw err("has() 의 1번째 인자는 딕셔너리여야 합니다");
+        if (name == "has") {       // has(d, "키") / has(리스트, 값) → true/false
+            needArgs(2, "has(딕셔너리, 키) 또는 has(리스트, 값)");
+            if (vals[0].kind == Value::LIST) {
+                for (auto& x : *vals[0].list)
+                    if (deepEquals(x, vals[1], 0, line)) return Value::number(1);
+                return Value::number(0);
+            }
+            if (vals[0].kind != Value::MAP)
+                throw err("has() 의 1번째 인자는 딕셔너리나 리스트여야 합니다");
             return Value::number(vals[0].map->count(needStr(1)) ? 1 : 0);
+        }
+        if (name == "reverse") {   // reverse(리스트) → 제자리 뒤집기 / reverse("문자열") → 뒤집은 새 문자열
+            needArgs(1, "reverse(리스트) 또는 reverse(문자열)");
+            if (vals[0].kind == Value::LIST) {
+                std::reverse(vals[0].list->begin(), vals[0].list->end());
+                return vals[0];
+            }
+            if (vals[0].kind == Value::STR) {
+                auto cs = utf8Chars(vals[0].str);
+                string out;
+                for (size_t i = cs.size(); i > 0; i--) out += cs[i - 1];
+                return Value::text(out);
+            }
+            throw err("reverse() 의 인자는 리스트나 문자열이어야 합니다");
         }
         if (name == "remove") {    // remove(d, "키") → 있었으면 1 / remove(xs, i) → 빠진 원소
             needArgs(2, "remove(딕셔너리, 키) 또는 remove(리스트, 위치)");
@@ -2224,7 +2282,26 @@ static Value vadd(const Value& a, const Value& b) {
     return Value(a.num + b.num);
 }
 static Value vsub(const Value& a, const Value& b) { needNums(a, b); return Value(a.num - b.num); }
-static Value vmul(const Value& a, const Value& b) { needNums(a, b); return Value(a.num * b.num); }
+static const size_t RT_REPEAT_CAP = 10000000;
+static Value vmul(const Value& a, const Value& b) {
+    // 문자열 * 숫자 = 그만큼 반복 — 별 찍기, 막대그래프, 구분선
+    if ((a.kind == Value::STR) != (b.kind == Value::STR)) {
+        const Value& s = (a.kind == Value::STR) ? a : b;
+        const Value& n = (a.kind == Value::STR) ? b : a;
+        if (n.kind != Value::NUM)
+            throw RunErr("문자열은 숫자만큼만 반복할 수 있습니다 (지금: " + n.kindName() + ")");
+        if (n.num != std::floor(n.num))
+            throw RunErr("문자열을 소수 번 반복할 수는 없습니다 (지금: " + Value(n.num).toString() + ")");
+        size_t k = n.num <= 0 ? 0 : (size_t)n.num;
+        if (n.num > (double)RT_REPEAT_CAP || s.str.size() * k > RT_REPEAT_CAP)
+            throw RunErr("문자열 반복이 너무 깁니다 (최대 10000000자)");
+        string out; out.reserve(s.str.size() * k);
+        for (size_t i = 0; i < k; i++) out += s.str;
+        return Value(out);
+    }
+    needNums(a, b);
+    return Value(a.num * b.num);
+}
 static Value vdiv(const Value& a, const Value& b) {
     needNums(a, b);
     if (b.num == 0) throw RunErr("0으로 나눌 수 없습니다");
@@ -2389,6 +2466,13 @@ static Value b_random(const Value& a, const Value& b) {
     return Value((double)d(rng));
 }
 static Value b_round(const Value& a) { return Value(std::round(needNum(a, "round"))); }
+static Value b_round(const Value& a, const Value& b) {
+    double x = needNum(a, "round"), d = needNum(b, "round");
+    if (d != std::floor(d) || d < 0 || d > 15)
+        throw RunErr("round() 의 자릿수는 0 이상 15 이하의 정수여야 합니다");
+    double p = std::pow(10.0, d);
+    return Value(std::round(x * p) / p);
+}
 static Value b_floor(const Value& a) { return Value(std::floor(needNum(a, "floor"))); }
 static Value b_ceil (const Value& a) { return Value(std::ceil (needNum(a, "ceil" ))); }
 static Value b_abs  (const Value& a) { return Value(std::fabs (needNum(a, "abs"  ))); }
@@ -2463,6 +2547,12 @@ static Value b_join(const Value& a, const Value& b) {
 static Value b_upper(const Value& a) { string s = needStrR(a, "upper"); for (auto& c : s) c = toupper((unsigned char)c); return Value(s); }
 static Value b_lower(const Value& a) { string s = needStrR(a, "lower"); for (auto& c : s) c = tolower((unsigned char)c); return Value(s); }
 static Value b_find(const Value& a, const Value& b) {
+    if (a.kind == Value::LIST) {              // 리스트에서 값의 위치 (순차 탐색)
+        auto& xs = *a.list;
+        for (size_t i = 0; i < xs.size(); i++)
+            if (veqDeep(xs[i], b, 0)) return Value((double)(i + 1));
+        return Value(0.0);
+    }
     auto hay = u8chars(needStrR(a, "find")), nee = u8chars(needStrR(b, "find"));
     if (nee.empty()) throw RunErr("find() 로 빈 문자열은 찾을 수 없습니다");
     if (nee.size() <= hay.size())
@@ -2547,8 +2637,20 @@ static Value b_keys(const Value& v) {
     return out;
 }
 static Value b_has(const Value& v, const Value& k) {
-    if (v.kind != Value::MAP) throw RunErr("has() 의 1번째 인자는 딕셔너리여야 합니다");
+    if (v.kind == Value::LIST) {
+        for (auto& x : *v.list) if (veqDeep(x, k, 0)) return Value(1.0);
+        return Value(0.0);
+    }
+    if (v.kind != Value::MAP) throw RunErr("has() 의 1번째 인자는 딕셔너리나 리스트여야 합니다");
     return Value(v.map->count(mapKey(k)) ? 1.0 : 0.0);
+}
+static Value b_reverse(Value v) {
+    if (v.kind == Value::LIST) { std::reverse(v.list->begin(), v.list->end()); return v; }
+    if (v.kind != Value::STR)  throw RunErr("reverse() 의 인자는 리스트나 문자열이어야 합니다");
+    auto cs = u8chars(v.str);
+    string out;
+    for (size_t i = cs.size(); i > 0; i--) out += cs[i - 1];
+    return Value(out);
 }
 static Value b_remove(Value v, const Value& k) {
     if (v.kind == Value::MAP) return Value(v.map->erase(mapKey(k)) ? 1.0 : 0.0);
@@ -2596,8 +2698,10 @@ struct CodeGen {
         {"exit", {0, "b_exit"}},     {"error", {1, "b_error"}},
         {"copy", {1, "b_copy"}},
         {"keys", {1, "b_keys"}},     {"has", {2, "b_has"}},
-        {"remove", {2, "b_remove"}},
+        {"remove", {2, "b_remove"}}, {"reverse", {1, "b_reverse"}},
     };
+    // 인자를 하나 더 받을 수 있는 내장 함수: 이름 → 최대 인자 수
+    std::map<string, int> builtinMaxArgs = { {"round", 2} };
 
     static LangError err(int line, const string& m) {
         return LangError(lineTag(line) + "" + m);
@@ -2767,9 +2871,13 @@ struct CodeGen {
             }
             auto bi = builtins.find(c->name);
             if (bi != builtins.end()) {
-                if ((int)c->args.size() != bi->second.first)
-                    throw err(c->line, c->name + "() 는 인자 " + std::to_string(bi->second.first)
-                              + "개가 필요합니다 (지금 " + std::to_string(c->args.size()) + "개)");
+                int lo = bi->second.first, n = (int)c->args.size();
+                auto mx = builtinMaxArgs.find(c->name);
+                int hi = (mx != builtinMaxArgs.end()) ? mx->second : lo;
+                if (n < lo || n > hi)
+                    throw err(c->line, c->name + "() 는 인자 "
+                              + (lo == hi ? std::to_string(lo) : std::to_string(lo) + "~" + std::to_string(hi))
+                              + "개가 필요합니다 (지금 " + std::to_string(n) + "개)");
                 return bi->second.second + "(" + argsCode + ")";
             }
             auto cc = classes.find(c->name);
@@ -3133,6 +3241,7 @@ struct PyGen {
     std::set<string> localSet;               // 현재 함수의 지역 (인자 + let)
     std::set<string> touchedGlobals;         // 현재 함수가 대입한 전역 → global 선언
     std::set<string> intVars;                // for i = a to b 로 묶인 변수 (range 라 항상 정수)
+    std::set<string> strVars;                // 대입이 전부 문자열인 변수 (inferStrVars 가 채운다)
     bool inFunc = false;
     bool sawMap = false;                     // 딕셔너리가 존재할 수 있는가 (1차 통과에서 알아낸다)
     bool sawList = false;                    // 리스트가 존재할 수 있는가
@@ -3181,8 +3290,12 @@ struct PyGen {
     // 숫자 리터럴 — 정수는 정수로 낸다 (그래야 파이썬에서도 5 가 5 로 찍힌다)
     static string pyNum(double v) {
         char b[64];
-        if (std::fabs(v) < 9.0e18 && v == (long long)v) snprintf(b, sizeof b, "%lld", (long long)v);
-        else                                            snprintf(b, sizeof b, "%.17g", v);
+        if (std::fabs(v) < 9.0e18 && v == (long long)v) { snprintf(b, sizeof b, "%lld", (long long)v); return b; }
+        // 되돌려 읽어 같은 값이 되는 가장 짧은 표기 — 3.14159 를 3.1415899999999999 로 쓰지 않는다
+        for (int prec = 15; prec <= 17; prec++) {
+            snprintf(b, sizeof b, "%.*g", prec, v);
+            if (std::strtod(b, nullptr) == v) break;
+        }
         return b;
     }
     string need(const string& h) { helpers.insert(h); return "_" + h; }
@@ -3209,17 +3322,87 @@ struct PyGen {
         return precOf(e) < parentPrec ? "(" + s + ")" : s;
     }
 
-    // 문자열이 확실한 식인가 — Venos 의 "문자열 + 숫자" 자동 변환을 어디서 흉내낼지 판단
-    static bool stringish(Expr* e) {
+    // 문자열이 확실한 식인가 — Venos 의 "문자열 + 숫자" 자동 변환을 어디서 흉내낼지,
+    // 그리고 파이썬에서 s * n / s.find(x) 를 그대로 써도 되는지 판단한다.
+    bool stringish(Expr* e) {
         if (dynamic_cast<StrExpr*>(e)) return true;
-        if (auto* b = dynamic_cast<BinExpr*>(e))
-            return b->interpN > 0
-                || (b->op == Tok::PLUS && (stringish(b->lhs.get()) || stringish(b->rhs.get())));
+        if (auto* v = dynamic_cast<VarExpr*>(e)) return strVars.count(v->name) > 0;
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return true;
+            if (b->op == Tok::PLUS)  return stringish(b->lhs.get()) || stringish(b->rhs.get());
+            if (b->op == Tok::STAR)  return stringish(b->lhs.get()) || stringish(b->rhs.get());
+            return false;
+        }
         if (auto* c = dynamic_cast<CallExpr*>(e)) {
             static const std::set<string> S = {"str","upper","lower","join","replace","substr","readfile"};
-            return S.count(c->name) > 0;
+            if (c->name == "reverse" && c->args.size() == 1) return stringish(c->args[0].get());
+            return S.count(c->name) > 0 && !funcs.count(c->name);
         }
         return false;
+    }
+
+    // ---- 어떤 변수가 확실히 문자열인가 (최대 고정점) ----
+    // 낙관적으로 전부 후보로 두고, 문자열이 아닌 대입이 하나라도 있으면 뺀다.
+    // 그래야 결과 = 결과 + 글자 처럼 자기 자신을 쓰는 누적도 문자열로 인정된다.
+    // 함수 인자·for 범위 변수처럼 값을 알 수 없는 이름은 아예 후보에서 뺀다 (안전한 쪽).
+    std::map<string, std::vector<Expr*>> strSites;   // nullptr = 무조건 문자열인 자리
+    std::set<string> strBanned;
+    void scanStr(Stmt* s) {
+        if (!s) return;
+        if (auto* l = dynamic_cast<LetStmt*>(s)) {
+            if (l->val) strSites[l->name].push_back(l->val.get());
+            else        strBanned.insert(l->name);          // let x  → 0
+            return;
+        }
+        if (auto* a = dynamic_cast<AssignStmt*>(s)) { strSites[a->name].push_back(a->val.get()); return; }
+        if (auto* f = dynamic_cast<ForStmt*>(s))   { strBanned.insert(f->var); scanStr(f->body.get()); return; }
+        if (auto* fe = dynamic_cast<ForEachStmt*>(s)) {
+            if (stringishLiteral(fe->iter.get())) strSites[fe->var].push_back(nullptr);
+            else                                  strBanned.insert(fe->var);
+            scanStr(fe->body.get());
+            return;
+        }
+        if (auto* t = dynamic_cast<TryStmt*>(s)) {
+            strSites[t->var].push_back(nullptr);            // catch 변수는 항상 에러 메시지(문자열)
+            scanStr(t->tryB.get()); scanStr(t->catchB.get());
+            return;
+        }
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) { for (auto& c : b->stmts) scanStr(c.get()); return; }
+        if (auto* i = dynamic_cast<IfStmt*>(s))    { scanStr(i->thenB.get()); scanStr(i->elseB.get()); return; }
+        if (auto* w = dynamic_cast<WhileStmt*>(s)) { scanStr(w->body.get()); return; }
+        if (auto* fn = dynamic_cast<FuncStmt*>(s)) {
+            for (auto& p : fn->params) strBanned.insert(p);
+            scanStr(fn->body.get());
+            return;
+        }
+        if (auto* cl = dynamic_cast<ClassStmt*>(s)) {
+            for (auto& m : cl->methodList) {
+                for (auto& p : m->params) strBanned.insert(p);
+                scanStr(m->body.get());
+            }
+            return;
+        }
+    }
+    // for ... in 의 대상이 글자 단위로 도는 문자열인가 (strVars 를 아직 모르는 단계라 리터럴만 본다)
+    static bool stringishLiteral(Expr* e) {
+        if (dynamic_cast<StrExpr*>(e)) return true;
+        if (auto* b = dynamic_cast<BinExpr*>(e)) return b->interpN > 0;
+        return false;
+    }
+    void inferStrVars(std::vector<StmtP>& program) {
+        strSites.clear(); strBanned.clear(); strVars.clear();
+        for (auto& st : program) scanStr(st.get());
+        for (auto& [n, sites] : strSites)
+            if (!strBanned.count(n)) strVars.insert(n);
+        for (bool changed = true; changed; ) {      // 아닌 것부터 걷어낸다
+            changed = false;
+            for (auto it = strVars.begin(); it != strVars.end(); ) {
+                bool ok = true;
+                for (Expr* e : strSites[*it]) if (e && !stringish(e)) { ok = false; break; }
+                if (ok) ++it;
+                else { it = strVars.erase(it); changed = true; }
+            }
+        }
     }
 
     // 컴파일 시점에 값이 정해지는 정수인가. -1 은 NegExpr(NumExpr) 로 파싱되므로 같이 본다.
@@ -3240,10 +3423,14 @@ struct PyGen {
     // 아니면 _show() 로 감싼다 (딕셔너리 따옴표, 참/거짓, 5.0 표기 때문).
     bool plainSafe(Expr* e) {
         if (stringish(e)) return true;
+        // not/and/or 는 int(...) 로 감싸 내보내므로 파이썬에서도 정수다
+        if (dynamic_cast<NotExpr*>(e) || dynamic_cast<LogicalExpr*>(e)) return true;
         double k;
         if (constInt(e, k)) return true;
         if (auto* v = dynamic_cast<VarExpr*>(e)) return intVars.count(v->name) > 0;
-        if (auto* c = dynamic_cast<CallExpr*>(e)) return c->name == "len" && !funcs.count("len");
+        // len() 은 정수, has() 는 int(... in ...) 라 둘 다 파이썬에서도 정수로 찍힌다
+        if (auto* c = dynamic_cast<CallExpr*>(e))
+            return (c->name == "len" || c->name == "has") && !funcs.count(c->name);
         // 정수끼리의 + - * % 는 파이썬에서도 정수라 그대로 찍어도 된다 (/ 는 소수가 되므로 제외)
         if (auto* b = dynamic_cast<BinExpr*>(e)) {
             if (b->interpN > 0) return true;
@@ -3347,6 +3534,12 @@ struct PyGen {
                 if (!stringish(b->lhs.get())) L = need("show") + "(" + expr(b->lhs.get()) + ")";
                 if (!stringish(b->rhs.get())) R = need("show") + "(" + expr(b->rhs.get()) + ")";
             }
+            // "*" * 5 — 파이썬은 반복 횟수가 정수여야 한다 (Venos 의 수는 소수일 수 있다)
+            if (b->op == Tok::STAR) {
+                double k;
+                if (stringish(b->lhs.get()) && !constInt(b->rhs.get(), k)) R = "int(" + expr(b->rhs.get()) + ")";
+                if (stringish(b->rhs.get()) && !constInt(b->lhs.get(), k)) L = "int(" + expr(b->lhs.get()) + ")";
+            }
             const char* op = "+";
             switch (b->op) {
                 case Tok::PLUS: op = "+";  break;
@@ -3419,7 +3612,15 @@ struct PyGen {
         if (f == "floor") { need2(1); imports.insert("math"); return "math.floor(" + A(0) + ")"; }
         if (f == "ceil")  { need2(1); imports.insert("math"); return "math.ceil("  + A(0) + ")"; }
         if (f == "sqrt")  { need2(1); imports.insert("math"); sawFloat = true; return "math.sqrt("  + A(0) + ")"; }
-        if (f == "round") { need2(1); imports.insert("math"); return need("round") + "(" + A(0) + ")"; }
+        if (f == "round") {
+            if (n != 1 && n != 2)
+                throw err(c->line, "round() 는 인자 1~2개가 필요합니다 (지금 " + std::to_string(n) + "개)");
+            imports.insert("math");
+            if (n == 2) sawFloat = true;
+            return need("round") + "(" + A(0) + (n == 2 ? ", " + A(1) : "") + ")";
+        }
+        if (f == "reverse") { need2(1); if (!stringish(c->args[0].get())) sawList = true;
+                              return need("reverse") + "(" + A(0) + ")"; }
         if (f == "random"){ need2(2); imports.insert("random"); return need("random") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "time")  { need2(0); imports.insert("time"); sawFloat = true; return "time.time()"; }
         if (f == "num")   { need2(1); sawFloat = true; return need("num")  + "(" + A(0) + ")"; }
@@ -3437,7 +3638,10 @@ struct PyGen {
         if (f == "upper") { need2(1); return atom(0) + ".upper()"; }
         if (f == "lower") { need2(1); return atom(0) + ".lower()"; }
         // find 는 + 1 이 붙으므로 통째로 괄호를 씌운다 (find(s,x) * 10 이 s.find(x) + 1 * 10 이 되면 안 된다)
-        if (f == "find")  { need2(2); return "(" + atom(0) + ".find(" + A(1) + ") + 1)"; }
+        if (f == "find")  { need2(2);
+                            if (stringish(c->args[0].get()))
+                                return "(" + atom(0) + ".find(" + A(1) + ") + 1)";
+                            return need("find") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "replace"){need2(3); return atom(0) + ".replace(" + A(1) + ", " + A(2) + ")"; }
         if (f == "substr"){ need2(3); return need("substr") + "(" + A(0) + ", " + A(1) + ", " + A(2) + ")"; }
         if (f == "readfile")  { need2(1); return need("readfile")   + "(" + A(0) + ")"; }
@@ -3708,6 +3912,7 @@ struct PyGen {
     string generate(std::vector<StmtP>& program) {
         for (auto& s : program) collect(s.get());
         for (auto& s : program) collectVars(s.get(), globalSet);
+        inferStrVars(program);
 
         // 본문을 두 번 만든다. 1차는 딕셔너리가 등장하는지(sawMap)와 필요한 도우미를 알아내는 용도 —
         // 딕셔너리가 아예 없는 프로그램이면 _idx/_iter 같은 도우미 없이 훨씬 읽기 좋은 코드가 나온다.
@@ -3814,7 +4019,13 @@ struct PyGen {
              "    if isinstance(c, dict):\n"
              "        return int(c.pop(k, None) is not None)\n"
              "    return c.pop(int(k) - 1)\n"},
-            {"round", "def _round(x):\n    return math.floor(x + 0.5) if x >= 0 else math.ceil(x - 0.5)\n"},
+            {"round", "def _round(x, n=0):\n    p = 10 ** int(n)\n"
+                      "    r = math.floor(x * p + 0.5) if x >= 0 else math.ceil(x * p - 0.5)\n"
+                      "    return r if n == 0 else r / p\n"},
+            {"reverse","def _reverse(x):\n    if isinstance(x, str): return x[::-1]\n"
+                       "    x.reverse()\n    return x\n"},
+            {"find",  "def _find(a, b):\n    if isinstance(a, str): return a.find(b) + 1\n"
+                      "    return a.index(b) + 1 if b in a else 0\n"},
             {"random","def _random(a, b):\n    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
             {"rng",
              "def _rng(a, b, s=1):\n"
