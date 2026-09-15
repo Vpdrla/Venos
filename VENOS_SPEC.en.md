@@ -91,6 +91,10 @@ let ys = xs + [40, 50]     # + joins lists (new list, originals untouched)
 print xs == [10, 99, 30]   # == compares by content (deep equality)
 ```
 
+`for x in xs` walks **the value as it was when the loop started** — pushing to or
+removing from the list inside the loop does not change that pass. (Python's `for` walks
+the live list and would loop forever, so `topython` takes a copy where it needs one.)
+
 ## Dictionaries (keys are strings only)
 ```
 let d = {"name": "Mir", "age": 15}

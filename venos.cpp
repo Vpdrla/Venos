@@ -4360,6 +4360,18 @@ struct PyGen {
         intVars.erase(name);
     }
 
+    // 생성된 파이썬 조각 안에 그 이름이 **낱말로** 나오는가 (부분 문자열 오탐 방지)
+    static bool mentionsName(const string& text, const string& name) {
+        auto idChar = [](unsigned char c) { return isalnum(c) || c == '_' || c >= 0x80; };
+        for (size_t i = text.find(name); i != string::npos; i = text.find(name, i + 1)) {
+            bool lOK = (i == 0) || !idChar(text[i - 1]);
+            size_t e = i + name.size();
+            bool rOK = (e >= text.size()) || !idChar(text[e]);
+            if (lOK && rOK) return true;
+        }
+        return false;
+    }
+
     std::vector<string> visibleNames() const {
         std::vector<string> out(globalSet.begin(), globalSet.end());
         if (inFunc) out.insert(out.end(), localSet.begin(), localSet.end());
@@ -4518,12 +4530,23 @@ struct PyGen {
         if (auto* fe = dynamic_cast<ForEachStmt*>(s)) {
             if (inFunc) localSet.insert(fe->var);
             Expr* it = fe->iter.get();
+            // 몸통을 먼저 만들어 둔다 — 그 안에서 도는 리스트를 건드리는지 봐야 하기 때문.
+            std::ostringstream fb;
+            body(fe->body.get(), fb, d + 1);
             // 리터럴이면 그대로 돈다. 변수면 딕셔너리일 수 있어 도우미를 거친다
             // (Venos 는 딕셔너리를 키 정렬 순서로 순회한다).
-            string src = (!sawMap || dynamic_cast<ListExpr*>(it) || dynamic_cast<StrExpr*>(it))
-                       ? expr(it) : need("iter") + "(" + expr(it) + ")";
+            bool viaIter = sawMap && !dynamic_cast<ListExpr*>(it) && !dynamic_cast<StrExpr*>(it);
+            string src = viaIter ? need("iter") + "(" + expr(it) + ")" : expr(it);
+            // Venos 의 for..in 은 **루프에 들어갈 때의 리스트**를 돈다. 파이썬의 for 는
+            // 살아 있는 리스트를 돌기 때문에, 몸통에서 push 하면 무한 루프가 된다
+            // (생성 퍼저가 찾았다 — 에러 하나 없이 답만 달라진다).
+            // _iter 를 거치면 거기서 이미 사본을 주므로 덧씌우지 않는다. 그 밖에는
+            // 몸통이 그 이름을 건드릴 때만 감싼다 — 읽기 좋은 쪽을 지킨다.
+            if (!viaIter)
+                if (auto* v = dynamic_cast<VarExpr*>(it))
+                    if (mentionsName(fb.str(), pyName(v->name))) src = "list(" + src + ")";
             o << pad(d) << "for " << pyName(fe->var) << " in " << src << ":\n";
-            body(fe->body.get(), o, d + 1);
+            o << fb.str();
             return;
         }
         if (dynamic_cast<BreakStmt*>(s))    { o << pad(d) << "break\n";    return; }
@@ -4836,7 +4859,10 @@ struct PyGen {
              "        out.append(x)\n"
              "        x += s\n"
              "    return out\n"},
-            {"iter",  "def _iter(v):\n    return sorted(v) if isinstance(v, dict) else v\n"},
+            // 리스트는 사본을 준다 — Venos 는 루프 시작 시점의 리스트를 돌기 때문
+            {"iter",  "def _iter(v):\n"
+                      "    if isinstance(v, dict): return sorted(v)\n"
+                      "    return list(v) if isinstance(v, list) else v\n"},
             {"error", "def _error(m):\n    raise Exception(m)\n"},
             {"exit",  "def _exit():\n    sys.exit(0)\n"},
             {"readfile",

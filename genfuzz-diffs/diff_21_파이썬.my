@@ -1,0 +1,99 @@
+# genfuzz 가 만든 프로그램 (seed 로 재현)
+func 더하기(p, q) { return p + q }
+func 두배(p, q) { return (p + q) * 2 }
+func 큰쪽(p, q) { if p > q { return p }  return q }
+let a = 9
+let b = 5
+let c = 3
+let 수 = -7
+let 값 = 1
+let s = "한글"
+let t = "abc"
+let 글 = "abc"
+let xs = [5, 4, 7]
+let ys = [9, 8, 3]
+let 목록 = [5, 9, 2, 7]
+let d = {"k1": 4}
+let 딕 = {"k1": 3}
+xs[((abs(-3) % len(xs)) + 1)] = t
+print -19, len(t), 두배(min(두배(-16, b), a), abs(abs(값)))
+a = (더하기(abs(-1), 수) % 3)
+d["k2"] = 큰쪽(13, abs(14))
+if not (더하기(min(-10, a), 4) != b) {
+    let m = 1
+    while m > 0 {
+        딕["키"] = 글
+        print (str(값) + str(-14)), (8 - (max(16, 9) % 5))
+        for j = 3 to 1 step -1 {
+            수 = len(목록)
+        }
+        m -= 1
+    }
+    for i = 3 to 5 {
+        let m = 4
+        while m > 0 {
+            글 = str(max(len(글), c))
+            값 = 7
+            t = str(abs(10))
+            m -= 1
+        }
+    }
+    print ys[((abs(abs(b)) % len(ys)) + 1)]
+} else {
+    let m = 4
+    while m > 0 {
+        try {
+            t = (upper("-") + join(xs, "-"))
+        } catch 오류 {
+            print "잡음"
+        }
+        d["k1"] = upper(("x" + ("abc" + "abc")))
+        s = upper(join(목록, "-"))
+        m -= 1
+    }
+    t = str(abs((16 % 5)))
+    for e in 목록 {
+        print "나", str(max((-11 % 5), 더하기(c, b)))
+        for e in ys {
+            push(ys, len(글))
+            if 15 >= abs(-19) { continue }
+        }
+    }
+}
+목록[((abs(len(목록)) % len(목록)) + 1)] = (7 % 2)
+for 항목 in 딕 {
+    for j = 2 to 1 step -1 {
+        for 항목 in 목록 {
+            a = abs(abs(3))
+            print -10, join(xs, ",")
+        }
+        push(ys, len(목록))
+        ys[((abs((-17 * -16)) % len(ys)) + 1)] = abs(c)
+        if not (19 <= (min(값, c) % 2)) { break }
+    }
+    let m = 4
+    while m > 0 {
+        let n = 2
+        while n > 0 {
+            글 = reverse(join(xs, ","))
+            n -= 1
+        }
+        if (abs(b) * (-13 % 2)) < (두배(수, b) % 3) { continue }
+        m -= 1
+    }
+    print ys[((abs(큰쪽(3, b)) % len(ys)) + 1)]
+}
+print "--- 끝 ---"
+print "a =", a
+print "b =", b
+print "c =", c
+print "수 =", 수
+print "값 =", 값
+print "s =", s
+print "t =", t
+print "글 =", 글
+print "xs =", xs
+print "ys =", ys
+print "목록 =", 목록
+print "d =", keys(d)
+print "딕 =", keys(딕)

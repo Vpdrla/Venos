@@ -1,0 +1,78 @@
+# genfuzz 가 만든 프로그램 (seed 로 재현)
+func 더하기(p, q) { return p + q }
+func 두배(p, q) { return (p + q) * 2 }
+func 큰쪽(p, q) { if p > q { return p }  return q }
+let a = 9
+let b = -2
+let c = -6
+let 수 = 4
+let 값 = -1
+let s = "-"
+let t = "-"
+let 글 = "가"
+let xs = [5, 0, 6, 0]
+let ys = [5, 9, 5, 6]
+let 목록 = [7, 6, 2]
+let d = {"k1": 2}
+let 딕 = {"k1": 1}
+for j = 1 to 3 {
+    t = join(xs, "-")
+    for x in d {
+        for 항목 in xs {
+            수 = 큰쪽(a, len(t))
+            if 더하기(abs(b), 5) > 7 { continue }
+        }
+        let m = 2
+        while m > 0 {
+            push(ys, "한글")
+            m -= 1
+        }
+        수 = 13
+    }
+}
+for 번 = 2 to 1 step -1 {
+    push(ys, len(글))
+    if (((b % 3) % 3) == a) and ("x" == (s * (abs((-16 % 7)) % 4))) { continue }
+}
+for x in xs {
+    push(xs, lower("나"))
+}
+for e in 목록 {
+    for j = 3 to 1 step -1 {
+        for x in 딕 {
+            t = t
+            값 = 수
+        }
+    }
+    b = -5
+}
+if min((1 % 5), abs(값)) <= abs(min(-20, 수)) {
+    목록[((abs((c % 7)) % len(목록)) + 1)] = -9
+    for 번 = 3 to 1 step 2 {
+        for i = 1 to 1 {
+            s = (lower(("" * (abs(a) % 4))) + lower("가"))
+            print 더하기(c, len(글))
+        }
+        let m = 3
+        while m > 0 {
+            s = upper((str(-10) + "가"))
+            글 = str(큰쪽(값, (값 - 수)))
+            print 16, 4
+            m -= 1
+        }
+    }
+}
+print "--- 끝 ---"
+print "a =", a
+print "b =", b
+print "c =", c
+print "수 =", 수
+print "값 =", 값
+print "s =", s
+print "t =", t
+print "글 =", 글
+print "xs =", xs
+print "ys =", ys
+print "목록 =", 목록
+print "d =", keys(d)
+print "딕 =", keys(딕)
