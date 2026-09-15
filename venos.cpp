@@ -346,7 +346,10 @@ static size_t editDistance(const std::vector<string>& a, const std::vector<strin
     return prev[b.size()];
 }
 // 후보 중 가장 가까운 이름을 "  (혹시 'X'?)" 로. 마땅한 게 없으면 빈 문자열.
+static string foreignHint(const string& name);
 static string suggestName(const string& typo, std::vector<string> cands) {
+    string foreign = foreignHint(typo);
+    if (!foreign.empty()) return foreign;            // 오타가 아니라 다른 언어의 이름이다
     auto t = utf8Chars(typo);
     if (t.size() < 2) return "";                       // 한 글자짜리는 아무거나 다 가까워진다
     size_t maxD = t.size() <= 4 ? 1 : 2;
@@ -363,6 +366,55 @@ static string suggestName(const string& typo, std::vector<string> cands) {
     }
     return best.empty() ? "" : "  (혹시 '" + best + "'?)";
 }
+
+// "abc".upper() 처럼 원시값에 메서드를 부른 경우의 안내. 인터프리터와 생성 코드가
+// 같은 문구를 쓰도록 여기 한 군데에 둔다.
+static string foreignHint(const string& name);
+static string methodHint(const string& method);
+
+// 다른 언어의 이름을 그대로 쓴 것 — 오타가 아니라 "그 언어의 버릇"이다.
+// Venos 의 학생은 블록 코딩에서 오고 파이썬으로 가므로, 파이썬 습관이 가장 흔하다.
+// "정의되지 않은 변수: True" 로 끝내면 소문자 true 가 있다는 걸 알 길이 없다.
+static const std::map<string, string>& foreignNames() {
+    static const std::map<string, string> M = {
+        {"True",    "참은 소문자 true 입니다"},
+        {"False",   "거짓은 소문자 false 입니다"},
+        {"None",    "Venos 에는 None 이 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"null",    "Venos 에는 null 이 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"nil",     "Venos 에는 nil 이 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"undefined","Venos 에는 undefined 가 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"this",    "객체 자신은 self 입니다"},
+        {"elif",    "elif 는 없습니다 — else if 로 쓰세요"},
+        {"elseif",  "elseif 는 없습니다 — else if 로 쓰세요"},
+        {"elsif",   "elsif 는 없습니다 — else if 로 쓰세요"},
+        {"def",     "함수는 def 가 아니라 func 로 만듭니다"},
+        {"function","함수는 function 이 아니라 func 로 만듭니다"},
+        {"lambda",  "Venos 에는 이름 없는 함수가 없습니다 — func 로 이름을 붙이세요"},
+        {"var",     "변수는 var 가 아니라 let 으로 만듭니다"},
+        {"const",   "변수는 const 가 아니라 let 으로 만듭니다"},
+        {"println", "출력은 print 입니다"},
+        {"printf",  "출력은 print 입니다 (자리표시자 대신 \"값: {x}\" 처럼 씁니다)"},
+        {"echo",    "출력은 print 입니다"},
+        {"cout",    "출력은 print 입니다"},
+        {"length",  "길이는 length 가 아니라 len(x) 입니다"},
+        {"size",    "길이는 size 가 아니라 len(x) 입니다"},
+        {"strlen",  "길이는 strlen 이 아니라 len(x) 입니다"},
+        {"append",  "리스트에 붙일 때는 push(리스트, 값) 입니다"},
+        {"range",   "Venos 에는 range 가 없습니다 — for i = 1 to n 으로 씁니다"},
+        {"pass",    "Venos 에는 pass 가 없습니다 — 아무것도 안 하려면 { } 를 비워 두세요"},
+        {"raise",   "에러를 일으키려면 error(\"메시지\") 입니다"},
+        {"throw",   "에러를 일으키려면 error(\"메시지\") 입니다"},
+        {"except",  "try 뒤에는 except 가 아니라 catch 를 씁니다"},
+        {"end",     "블록은 end 가 아니라 } 로 닫습니다"},
+        {"new",     "객체는 new 없이 클래스이름(...) 으로 만듭니다"},
+    };
+    return M;
+}
+// 위 목록에 있으면 "  (설명)" 을, 없으면 빈 문자열을 준다.
+static string foreignHint(const string& name) {
+    auto it = foreignNames().find(name);
+    return it == foreignNames().end() ? "" : "  (" + it->second + ")";
+}
 // 내장 함수 이름 — 오타 제안 후보로 쓴다 (인터프리터·트랜스파일러가 같이 본다)
 static const std::vector<string> BUILTIN_NAMES = {
     "random", "round", "floor", "ceil", "abs", "sqrt", "min", "max", "num", "str",
@@ -370,6 +422,11 @@ static const std::vector<string> BUILTIN_NAMES = {
     "split", "join", "upper", "lower", "find", "replace", "substr",
     "readfile", "writefile", "appendfile", "exists", "time", "exit", "copy", "error",
 };
+static string methodHint(const string& method) {
+    if (std::find(BUILTIN_NAMES.begin(), BUILTIN_NAMES.end(), method) != BUILTIN_NAMES.end())
+        return "  (" + method + "(x) 처럼 앞에 붙여 쓰세요)";
+    return foreignHint(method);
+}
 
 // ============================================================
 //  1. 렉서 (Lexer)
@@ -664,6 +721,16 @@ std::vector<Token> lex(const string& src) {
         auto two = [&](char a, char b) {
             return src[i] == a && i + 1 < src.size() && src[i + 1] == b;
         };
+        // 다른 언어의 습관으로 친 것들. 그대로 "알 수 없는 문자" 라고 하면 학생은
+        // 자기가 무슨 언어의 버릇을 썼는지 모른다 — 무엇을 대신 쓰는지까지 말해 준다.
+        if (two('/', '/')) throw err("주석은 // 가 아니라 # 로 씁니다"
+                                     " (정수 나눗셈을 뜻한 거라면 floor(a / b))");
+        if (two('/', '*')) throw err("주석은 /* */ 가 아니라 # 로 씁니다 (여러 줄이면 줄마다 #)");
+        if (two('*', '*')) throw err("거듭제곱 연산자는 없습니다 — x * x 로 쓰거나 반복문으로 곱하세요");
+        if (two('+', '+')) throw err("++ 는 없습니다 — x += 1 로 쓰세요");
+        if (two('<', '>')) throw err("같지 않음은 <> 가 아니라 != 입니다");
+        if (two('&', '&')) throw err("그리고는 && 가 아니라 " + KW_AND + " 입니다");
+        if (two('|', '|')) throw err("또는은 || 가 아니라 " + KW_OR + " 입니다");
         if      (two('=', '=')) { push(Tok::EQ);      i += 2; }
         else if (two('!', '=')) { push(Tok::NEQ);     i += 2; }
         else if (two('<', '=')) { push(Tok::LE);      i += 2; }
@@ -691,6 +758,12 @@ std::vector<Token> lex(const string& src) {
                 case ',': push(Tok::COMMA);    break;
                 case ':': push(Tok::COLON);    break;
                 case '.': push(Tok::DOT);      break;
+                case '!': throw err("논리 부정은 ! 가 아니라 " + KW_NOT + " 을 씁니다"
+                                    " (같지 않음은 != 로 붙여 씁니다)");
+                case ';': throw err("Venos 는 문장 끝에 ; 를 붙이지 않습니다 (그냥 지우세요)");
+                case '^': throw err("거듭제곱 연산자는 없습니다 — x * x 로 쓰거나 반복문으로 곱하세요");
+                case '&': throw err("그리고는 & 가 아니라 " + KW_AND + " 입니다");
+                case '|': throw err("또는은 | 가 아니라 " + KW_OR + " 입니다");
                 default:
                     throw err(string("알 수 없는 문자: '") + c + "'");
             }
@@ -1429,8 +1502,10 @@ Value MethodCallExpr::eval(Env& env) {
     auto err = [&](const string& m) {
         return LangError(lineTag(line) + "" + m);
     };
-    if (obj.kind != Value::OBJ)
-        throw err(obj.kindName() + "에는 메서드를 호출할 수 없습니다");
+    if (obj.kind != Value::OBJ) {
+        // "abc".upper() 는 파이썬 버릇이다. 그 이름이 내장 함수면 쓰는 법을 알려 준다.
+        throw err(obj.kindName() + "에는 메서드를 호출할 수 없습니다" + methodHint(method));
+    }
     auto cit = g_classes.find(obj.className);
     if (cit == g_classes.end()) throw err("알 수 없는 클래스: " + obj.className);
     auto mit = cit->second->methods.find(method);
@@ -2062,14 +2137,23 @@ struct Parser {
                 throw LangError(lineTag(line) + "문법 오류: = 이(가) 필요합니다");
             if (dynamic_cast<CallExpr*>(e.get()) || dynamic_cast<MethodCallExpr*>(e.get()))
                 return std::make_unique<ExprStmt>(std::move(e));
-            throw LangError(lineTag(line) + "문법 오류: = 이(가) 필요합니다");
+            // "elif x == 2 {" 나 "def f():" 는 여기로 떨어진다 — 그냥 "= 가 필요합니다"
+            // 라고 하면 학생은 자기가 어느 언어의 버릇을 썼는지 모른다.
+            throw LangError(lineTag(line) + "문법 오류: = 이(가) 필요합니다"
+                            + (root ? foreignHint(root->name) : string()));
         }
+        if (check(Tok::INKW))
+            throw LangError(lineTag(peek().line) + KW_IN + " 은 for 반복에서만 씁니다"
+                            " (리스트에 있는지 보려면 has(리스트, 값))");
         throw LangError(lineTag(line) + "문법 오류: 문장이 될 수 없는 토큰입니다");
     }
 
     StmtP parseBlock() {
         int openLine = peek().line;
         NestGuard g(openLine);          // if 안에 if 안에 if ... 로 깊어지는 쪽
+        if (check(Tok::COLON))
+            throw LangError(lineTag(openLine) + "Venos 는 들여쓰기가 아니라 { } 로 묶습니다"
+                            " (: 를 지우고 { 로 열어서 } 로 닫으세요)");
         expect(Tok::LBRACE, "{");
         auto block = std::make_unique<BlockStmt>();
         while (!check(Tok::RBRACE) && !check(Tok::END))
@@ -2157,6 +2241,9 @@ struct Parser {
                 int line = peek().line;
                 advance();
                 ExprP idx = parseExpr();
+                if (check(Tok::COLON))
+                    throw LangError(lineTag(peek().line) + "Venos 에는 xs[1:3] 같은 슬라이스가 없습니다"
+                                    " (문자열은 substr(s, 시작, 개수), 리스트는 반복문으로)");
                 expect(Tok::RBRACKET, "]");
                 e = std::make_unique<IndexExpr>(std::move(e), std::move(idx), line);
                 continue;
@@ -3170,6 +3257,27 @@ struct CodeGen {
         if (auto* f = dynamic_cast<FieldExpr*>(e))
             return "fld_get(" + genExpr(f->target.get()) + ", " + cppStr(f->field) + ")";
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
+            // 어느 클래스에도 없는 메서드면 오타다. 인터프리터는 그 줄이 돌 때
+            // 오타 제안까지 붙여 알려 주는데, 빌드본은 클래스를 런타임에나 알아
+            // 제안을 못 한다 — 그래서 여기서, 빌드 시점에 같은 수준으로 잡는다
+            // (변수·필드를 빌드 시점에 잡는 것과 같은 방식).
+            {
+                bool known = false;
+                std::vector<string> names;
+                for (auto& [cn, cls] : classes) {
+                    (void)cn;
+                    for (auto& [mn, fn] : cls->methods) { (void)fn; names.push_back(mn); }
+                    if (cls->methods.count(mc->method)) known = true;
+                }
+                if (!known) {
+                    // upper/append 처럼 "파이썬이었으면 메서드였을" 이름이면 오타 제안보다
+                    // 쓰는 법을 알려 주는 쪽이 낫다 (인터프리터와 같은 문구).
+                    string hint = methodHint(mc->method);
+                    throw err(mc->line, "메서드 '" + mc->method + "'"
+                              + josa(mc->method, "이", "가") + " 어느 클래스에도 없습니다"
+                              + (hint.empty() ? suggestName(mc->method, names) : hint));
+                }
+            }
             methodCalls.insert({mc->method, (int)mc->args.size()});
             string o = "d_" + mangle(mc->method, "") + "_" + std::to_string(mc->args.size())
                      + "(" + genExpr(mc->target.get());
@@ -3512,7 +3620,8 @@ struct CodeGen {
             dispDecls << "static Value " << dn << "(" << params << ");\n";
             dispDefs << "static Value " << dn << "(" << params << ") {\n"
                      << "    if (__self.kind != Value::OBJ)\n"
-                     << "        throw RunErr(__self.kindName() + \"에는 메서드를 호출할 수 없습니다\");\n";
+                     << "        throw RunErr(__self.kindName() + "
+                     << cppStr("에는 메서드를 호출할 수 없습니다" + methodHint(mname)) << ");\n";
             for (auto& [cname, cls] : classes) {
                 auto mit = cls->methods.find(mname);
                 if (mit == cls->methods.end()) continue;

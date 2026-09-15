@@ -174,6 +174,11 @@ let b = copy(a)     # fully independent deep copy
 | List/dictionary nesting | 1000 levels | `자기 자신을 포함한 구조?` when printing, comparing or copying |
 
 ## Common mistakes (emphasize these to an AI)
+
+Habits from other languages — `elif`, `!`, `**`, `//` comments, `;`, `:` blocks,
+`xs[1:3]`, `"abc".upper()`, `True`/`None` — are named in the error, along with what to
+write instead.
+
 1. **Indices start at 1** (not 0!)
 2. No `elif` → use `else if`
 3. Declare variables with `let` before use (functions are the exception: hoisted)

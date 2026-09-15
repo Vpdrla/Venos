@@ -1,0 +1,3 @@
+=== running: tests/diag/습관_메서드.my ===
+!! 에러: [줄 1] 문자열에는 메서드를 호출할 수 없습니다  (upper(x) 처럼 앞에 붙여 쓰세요)
+    줄 1 | print "abc".upper()
