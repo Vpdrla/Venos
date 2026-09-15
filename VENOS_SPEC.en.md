@@ -175,6 +175,13 @@ let b = copy(a)     # fully independent deep copy
 | Expression/block nesting | 200 levels | `식이나 블록이 너무 깊게 중첩되었습니다` — an unclosed bracket lands here |
 | List/dictionary nesting | 1000 levels | `자기 자신을 포함한 구조?` when printing, comparing or copying |
 
+Speed, against CPython running the same program via `topython`: **about 3× slower on
+loops and lists, 6× on recursion, slightly faster on dictionaries.** One exception:
+growing a string with `s = s + ch` in a loop is **quadratic in Venos** where CPython
+extends in place and stays near-linear. 20,000 characters take 0.07s, so it is invisible
+at textbook sizes; 160,000 take 5s. Assembling a very long string is a reason to reach
+for `topython`.
+
 ## Common mistakes (emphasize these to an AI)
 
 Habits from other languages — `elif`, `!`, `**`, `//` comments, `;`, `:` blocks,

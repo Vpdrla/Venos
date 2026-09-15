@@ -117,6 +117,16 @@ Python answers differently — an empty needle in `replace` and `find`, strings 
 all are: refused when literal, routed through a checking helper otherwise.
 `tests/nopython/` holds those refusals to their wording.
 
+The same judgement came up on performance. Measured against CPython running the same
+program via `topython`, Venos is **about 3× slower on loops and lists, 6× on recursion,
+and slightly faster on dictionaries** — with one exception: `s = s + ch` in a loop is
+**quadratic**, where CPython extends the string in place when it holds the only
+reference. A special case in one assignment path would make it linear, and it was
+**deliberately not added**: 20,000 characters cost 0.07s, which is invisible at any size
+a textbook reaches, and the honest answer when the data gets big is `topython` — the
+same answer arbitrary-precision integers got. The measured numbers are in the spec
+instead. Measuring and then declining is not the same as never measuring.
+
 ## 7. How we would know it is working
 
 Honest, checkable signals, roughly in order of difficulty:
