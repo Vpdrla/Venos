@@ -58,6 +58,9 @@ tools/sanitize.sh    # ASan+UBSan+Leak 으로 두 백엔드 훑기 + 퍼징 (약
                      # 새로 만들면 여기 복사 목록에도 넣을 것 (안 넣으면 CI 에서만 깨진다)
 python3 tools/fuzz.py ./venos --minutes 2      # 망가진 입력으로 크래시 찾기
 python3 tools/genfuzz.py --rounds 100         # 올바른 프로그램을 만들어 3중 출력 비교
+                                              # (회당 5초쯤 — g++ 가 대부분. CI 는 30회를
+                                              #  매번 다른 씨앗으로 돌린다. --keep 으로
+                                              #  어긋난 입력을 genfuzz-diffs/ 에 남긴다)
 ```
 러너는 여섯 단계다:
 1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교

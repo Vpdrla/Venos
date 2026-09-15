@@ -111,13 +111,23 @@ jobs:
       - name: ASan + UBSan, 두 백엔드 + 퍼징
         run: tools/sanitize.sh --fuzz 1
 
+      # 올바른 프로그램을 만들어 세 백엔드의 출력을 비교한다 (위 퍼저는 크래시를 찾고,
+      # 이쪽은 틀린 답을 찾는다). 씨앗을 실행마다 바꿔 매번 새 프로그램을 탐색하되,
+      # 씨앗을 출력하고 어긋난 입력을 아티팩트로 올려 재현할 수 있게 한다.
+      - name: 생성한 프로그램으로 3중 비교
+        run: |
+          g++ -std=c++17 -O2 -o venos venos.cpp
+          python3 tools/genfuzz.py --rounds 30 --seed "${GITHUB_RUN_ID:-0}" --keep
+
       # 퍼저가 무언가 찾았으면 그 입력을 받아 볼 수 있어야 재현이 된다
-      - name: Upload crashing inputs
+      - name: Upload crashing / diverging inputs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-crashes
-          path: fuzz-crashes/
+          name: fuzz-findings
+          path: |
+            fuzz-crashes/
+            genfuzz-diffs/
           if-no-files-found: ignore
 
   playground-wasm:
