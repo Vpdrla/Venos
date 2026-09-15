@@ -11,6 +11,7 @@
 //   BUILTIN_NAMES 빠짐 → 오타 제안이 그 이름을 후보로 못 삼는다
 //   PyGen 빠짐      → topython 이 거절. 약속한 다리가 끊긴다
 //   vscode-venos 빠짐 → 편집기에서 그 이름만 색이 안 입는다 (키워드도 같다)
+//   VENOS_SPEC 빠짐 → 명세만 읽는 사람(과 AI)에게는 그 기능이 없는 것과 같다
 //
 // 그래서 소스에서 네 목록을 뽑아 서로 같은지만 본다. 스위트가 테스트 케이스로
 // 잡으려면 내장 함수마다 케이스를 써야 하는데, 이쪽이 싸고 빠짐없다.
@@ -115,8 +116,24 @@ if (kwExtraFound.length) {
     bad++;
 }
 
+// ---- 명세에 다 적혀 있는가 ----
+// VENOS_SPEC 은 "AI 에게 그대로 건네 주면 Venos 를 쓸 수 있다" 를 노린 문서다.
+// 내장 함수나 키워드가 거기 없으면, 그걸 쓰는 법을 알 방법이 없다.
+const specMissing = {};
+for (const doc of ['VENOS_SPEC.md', 'VENOS_SPEC.en.md']) {
+    const t = fs.readFileSync(path.join(__dirname, '..', doc), 'utf8');
+    const word = (w) => new RegExp('(?<![A-Za-z_])' + w + '(?![A-Za-z_])').test(t);
+    const miss = [...all].filter((n) => !word(n)).concat(kwWanted.filter((k) => !word(k))).sort();
+    if (miss.length) specMissing[doc] = miss;
+}
+
+for (const [doc, miss] of Object.entries(specMissing)) {
+    console.log(`✗ ${doc} 에 설명이 없음: ${miss.join(', ')}`);
+    bad++;
+}
+
 if (bad) {
-    console.log('\n내장 함수는 다섯 곳 전부에, 키워드는 venos.cpp 와 vscode-venos 양쪽에 있어야 합니다.');
+    console.log('\n내장 함수는 구현 다섯 곳(venos.cpp 넷 + vscode-venos)에, 키워드는 venos.cpp 와\nvscode-venos 양쪽에, 그리고 둘 다 VENOS_SPEC 두 벌에 적혀 있어야 합니다.');
     process.exit(1);
 }
-console.log(`내장 함수 ${all.size}개 · 키워드 ${kwWanted.length}개 모두 일치`);
+console.log(`내장 함수 ${all.size}개 · 키워드 ${kwWanted.length}개 — 구현 다섯 곳과 명세 두 벌 모두 일치`);
