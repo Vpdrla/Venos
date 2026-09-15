@@ -34,6 +34,7 @@ STR_VARS = ['s', 't', '글']
 LIST_VARS = ['xs', 'ys', '목록']
 DICT_VARS = ['d', '딕']
 FUNCS = ['더하기', '두배', '큰쪽']
+OBJ_VARS = ['상자', '통']
 
 WORDS = ['"가"', '"나"', '"abc"', '"한글"', '"-"', '"x"', '""']
 
@@ -63,6 +64,10 @@ class Gen:
             return 'abs(%s)' % self.int_expr(d + 1)
         if k == 8:
             return '%s(%s, %s)' % (r.choice(FUNCS), self.int_expr(d + 1), self.int_expr(d + 1))
+        if k == 9 and d == 0:                        # 객체의 필드와 메서드
+            o = r.choice(OBJ_VARS)
+            return r.choice(['%s.값' % o, '%s.더하기(%s)' % (o, self.int_expr(d + 1)),
+                             '%s.센것()' % o])
         return '(%s %s %s)' % (self.int_expr(d + 1), r.choice(['+', '-', '*']), self.int_expr(d + 1))
 
     def str_expr(self, d=0):
@@ -152,6 +157,12 @@ class Gen:
         if k == 10:
             return (['%stry {' % pad] + self.body(ind + 1, d + 1)
                     + ['%s} catch 오류 {' % pad, '%s    print "잡음"' % pad, '%s}' % pad])
+        if k == 11 and d == 0:
+            o = r.choice(OBJ_VARS)
+            return [r.choice(['%s%s.값 = %s' % (pad, o, self.int_expr()),
+                              '%s%s.값 += %s' % (pad, o, self.int_expr()),
+                              '%s%s.담기(%s)' % (pad, o, self.any_expr()),
+                              '%sprint %s.값, %s.센것()' % (pad, o, o)])]
         c = r.choice(LIST_VARS)
         return ['%sprint %s[%s]' % (pad, c, self.index(c))]
 
@@ -170,6 +181,12 @@ class Gen:
         L.append('func 더하기(p, q) { return p + q }')
         L.append('func 두배(p, q) { return (p + q) * 2 }')
         L.append('func 큰쪽(p, q) { if p > q { return p }  return q }')
+        L.append('class 그릇 {')
+        L.append('    func init(시작) { self.값 = 시작  self.담은것 = [] }')
+        L.append('    func 담기(v) { push(self.담은것, v)  self.값 += 1  return self }')
+        L.append('    func 센것() { return len(self.담은것) }')
+        L.append('    func 더하기(n) { return self.값 + n }')
+        L.append('}')
         for v in INT_VARS:
             L.append('let %s = %d' % (v, r.randint(-9, 9)))
         for v in STR_VARS:
@@ -178,6 +195,8 @@ class Gen:
             L.append('let %s = [%s]' % (v, ', '.join(str(r.randint(0, 9)) for _ in range(r.randint(2, 4)))))
         for v in DICT_VARS:
             L.append('let %s = {"k1": %d}' % (v, r.randint(0, 9)))
+        for v in OBJ_VARS:
+            L.append('let %s = 그릇(%d)' % (v, r.randint(0, 5)))
         for _ in range(r.randint(4, 10)):
             L += self.stmt(0)
         L.append('print "--- 끝 ---"')
@@ -185,6 +204,8 @@ class Gen:
             L.append('print "%s =", %s' % (v, v))
         for v in DICT_VARS:
             L.append('print "%s =", keys(%s)' % (v, v))
+        for v in OBJ_VARS:
+            L.append('print "%s =", %s.값, %s.센것(), %s.담은것' % (v, v, v, v))
         return '\n'.join(L) + '\n'
 
 
