@@ -90,12 +90,20 @@ Three obstacles removed, none of the substance removed:
 ## 6. What this means for what gets built
 
 **Build:** anything that makes textbook algorithms expressible, runnable, and translatable —
-the Python exit ramp, worked textbook algorithms, better beginner error messages, classroom
-plumbing (share links, lesson tracks).
+the Python exit ramp, worked textbook algorithms ([`examples/algorithms/`](examples/algorithms/)),
+better beginner error messages, classroom plumbing (share links, lesson tracks).
 
 **Refuse:** first-class functions, inheritance, a module system, a standard library, a package
 manager. Every one of these is a step down the road Pascal took. The test for a proposed feature is
 not "would this be nice" but **"can a textbook algorithm not be written without it?"**
+
+The test bites in both directions, which is the point. `"*" * n` passed (star patterns are the
+standard exercise in a loops chapter, and it was three lines of Venos before). Membership and
+position in a list passed as a consistency repair — `has` was dictionary-only and `find` was
+string-only, so "is it in the list" had no answer. Sorting records by a named field was refused:
+the sorting chapter has students write the sort, and everywhere else they can reuse the one they
+wrote. Arbitrary-precision integers were refused too — the cost is a different numeric tower, and
+the honest answer when the numbers get big is `topython`.
 
 ## 7. How we would know it is working
 
