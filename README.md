@@ -100,7 +100,7 @@ It is built to be usable in a classroom where nothing can be installed:
 
 ## Learning Venos
 
-**[TUTORIAL.md](TUTORIAL.md)** — 12 lessons from `print` to a small guessing game, each one runnable in the
+**[TUTORIAL.md](TUTORIAL.md)** — 13 lessons from `print` to a small guessing game and out the other side into Python, each one runnable in the
 playground with a single click. Korean version: [TUTORIAL.ko.md](TUTORIAL.ko.md).
 
 ## Install

@@ -389,6 +389,46 @@ while true {
     else { print "Lower" }
 }`
     }
+  },
+  {
+    id: 'python',
+    title: { ko: '파이썬으로 건너가기', en: 'Crossing to Python' },
+    desc: {
+      ko: 'Venos 는 **머무는 곳이 아니라 다리**입니다. 여기서 배운 것은 다음 언어로 그대로 넘어가요.\n\n▶ 실행해서 결과를 본 다음, 위의 **🐍 Python** 버튼을 눌러 보세요. **같은 프로그램**이 파이썬으로 나오고, `평균` 과 `점수들` 같은 이름도 그대로 남습니다 (파이썬도 한글 이름을 받아요).\n\n달라지는 것은 딱 세 가지입니다 — 중괄호 `{ }` 가 들여쓰기가 되고, `"{ }"` 보간이 f-string 이 되고, **1번부터 세던 리스트가 0번부터**로 바뀝니다. 그래서 `점수들[1]` 이 `점수들[0]` 이 돼요.\n\n나온 파이썬을 복사해 어떤 파이썬 편집기에든 붙여 넣으면 그대로 돌아갑니다. 거기서부터는 파이썬입니다.',
+      en: 'Venos is **a bridge, not a place to stay**. What you learned here carries over.\n\nRun it, then press **🐍 Python** above. The *same program* comes out in Python, with your own names — `평균` and `점수들` — intact, because Python takes them too.\n\nOnly three things change: the braces `{ }` become indentation, `"{ }"` interpolation becomes an f-string, and **lists that counted from 1 now count from 0**. So `점수들[1]` becomes `점수들[0]`.\n\nCopy the Python into any Python editor and it runs. From there on, it is Python.'
+    },
+    code: {
+      ko: `func 평균(점수들) {
+    let 합 = 0
+    for 점수 in 점수들 {
+        합 += 점수
+    }
+    return 합 / len(점수들)
+}
+
+let 우리반 = [88, 94, 71, 100]
+print "첫 번째 점수: {우리반[1]}"
+print "평균: {평균(우리반)}"
+
+for i = 1 to len(우리반) {
+    if 우리반[i] >= 90 then { print "{i}번 학생: 잘했어요" }
+}`,
+      en: `func 평균(점수들) {
+    let 합 = 0
+    for 점수 in 점수들 {
+        합 += 점수
+    }
+    return 합 / len(점수들)
+}
+
+let 우리반 = [88, 94, 71, 100]
+print "first score: {우리반[1]}"
+print "average: {평균(우리반)}"
+
+for i = 1 to len(우리반) {
+    if 우리반[i] >= 90 then { print "student {i}: nice work" }
+}`
+    }
   }
 ];
 

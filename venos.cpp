@@ -4512,15 +4512,20 @@ struct PyGen {
             if (ka && kb)                       // 둘 다 상수면 방향이 확정된다
                 return sa <= sb ? "range(" + a + ", " + pyNum(sb + 1) + ")"
                                 : "range(" + a + ", " + pyNum(sb - 1) + ", -1)";
-            // 방향이 실행할 때 정해지므로 range() 로는 못 낸다 (_rng 가 정해 준다)
-            lastRangeIsInt = false;             // _rng 는 소수도 내줄 수 있다
+            // 방향이 실행할 때 정해지므로 range() 로는 못 낸다 (_rng 가 정해 준다).
+            // 그래도 양 끝이 정수인 게 확실하면 _rng 는 range 를 돌려주므로 i 는 정수다
+            // (_rng 는 a, b, s 가 모두 정수일 때만 range 를 낸다). for i = 1 to len(xs)
+            // 가 교과서에서 제일 흔한 모양이라, 여기서 정수라고 말해 주면 "{i}번" 이
+            // _show(i) 없이 그대로 나간다.
+            lastRangeIsInt = intish(f->start.get()) && intish(f->end.get());
             return need("rng") + "(" + a + ", " + b + ")";
         }
         // range() 는 정수만 받는다 — 시작값이 정수라고 확신할 수 있을 때만 쓴다.
         // (for i = 어떤소수 to 10 step 2 를 range 로 내면 파이썬이 TypeError 를 낸다)
         if (kb && (ka || intish(f->start.get())) && constInt(f->step.get(), st) && st != 0)
             return "range(" + a + ", " + pyNum(sb + (st > 0 ? 1 : -1)) + ", " + pyNum(st) + ")";
-        lastRangeIsInt = false;
+        lastRangeIsInt = intish(f->start.get()) && intish(f->end.get())
+                      && intish(f->step.get());
         return need("rng") + "(" + a + ", " + b + ", " + expr(f->step.get()) + ")";
     }
     // 파이썬에서 정수로 나오는 게 확실한 식인가 (range() 에 그대로 넣어도 되는가)

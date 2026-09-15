@@ -97,7 +97,7 @@ print "가장 높은 점수: {최댓값(우리반)}"      │  print(f"가장 �
 
 ## 배우기
 
-**[TUTORIAL.ko.md](TUTORIAL.ko.md)** — `print` 부터 숫자 맞히기 게임까지 12단계. 각 레슨은 클릭 한 번으로
+**[TUTORIAL.ko.md](TUTORIAL.ko.md)** — `print` 부터 숫자 맞히기 게임을 지나 파이썬으로 건너가기까지 13단계. 각 레슨은 클릭 한 번으로
 플레이그라운드에서 바로 실행됩니다. 영어판: [TUTORIAL.md](TUTORIAL.md).
 
 ## 설치

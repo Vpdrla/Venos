@@ -130,7 +130,7 @@ git tag v0.6.0 && git push origin v0.6.0
 - [x] 테스트 스위트 + CI (tests/run_tests.sh + GitHub Actions)
 - [x] VENOS_SPEC.en.md, README.ko.md, examples/rpg.my, vscode-venos/ 추가 (README 깨진 링크 해소)
 - [x] README 데모 (GIF — RPG 플레이 → build 26초, docs/demo.gif, 한글 2칸 폭 렌더러로 제작)
-- [x] 교육용 1라운드: 플레이그라운드 공유 링크·자동 저장·WASM 로드 실패 처리 + 12단계 레슨 트랙 + TUTORIAL 자동 생성
+- [x] 교육용 1라운드: 플레이그라운드 공유 링크·자동 저장·WASM 로드 실패 처리 + 13단계 레슨 트랙(마지막은 `topython` 으로 건너가기) + TUTORIAL 자동 생성
 - [x] 개발기 블로그 초안 — `DEVLOG.md` / `DEVLOG.ko.md`. 줄기는 "버그는 전부 그걸 볼 수 있는 도구를 만든 날 나왔다" (도구 아홉 개와 각각이 찾은 것). **초안이니 사용자가 다듬어 쓸 것.** 원래 적어 둔 소재 (소재: IN 매크로 사건, 세그폴트→128MB 스택, diff 테스팅, WASM -fexceptions, **return 마다 C++ 예외를 던져 재귀가 CPython 의 50배였던 것**, **윈도우 CI 를 처음 켠 날 잡힌 버그 3개 — argv 가 ANSI 라 한글 파일명을 못 열던 것 / 트랜스파일본이 한글 경로를 못 열던 것 / 생성 파이썬이 한글 출력에 죽던 것**, **f-string 이 파이썬 표기를 새어 나가게 하던 것**)
 - [ ] 커뮤니티 공유: r/ProgrammingLanguages → Show HN → 국내 (플레이그라운드 완성 후)
 - [x] 릴리스 자동화 (`.github/workflows/release.yml`) — Linux/Windows/macOS 정적 바이너리 → GitHub Releases. **첫 릴리스 v0.6.0 게시됨** (https://github.com/Vpdrla/Venos/releases/tag/v0.6.0, 태그는 `1ca77d3`, 자산 4개, 전체 런 69초)
