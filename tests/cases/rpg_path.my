@@ -1,0 +1,230 @@
+# examples/rpg.my 그대로. 222줄짜리 실제 프로그램이 세 백엔드에서 똑같이 도는지 본다
+# (장난감 케이스가 통과하는 것과, 진짜 프로그램이 통과하는 것은 다른 이야기다).
+# 입력은 rpg_path.input 에 있고, random() 을 쓰는 "던전 탐험"과 파일을 남기는 "저장"은
+# 지나가지 않도록 짜여 있다.
+# ================================================
+#  던전 오브 베노스 — Venos 텍스트 RPG
+# ================================================
+
+class 플레이어 {
+    func init(이름) {
+        self.이름 = 이름
+        self.레벨 = 1
+        self.exp = 0
+        self.최대hp = 50
+        self.hp = 50
+        self.atk = 8
+        self.골드 = 30
+        self.물약 = 2
+    }
+    func 상태() {
+        print ""
+        print "===== " + self.이름 + " (Lv." + self.레벨 + ") ====="
+        print "HP: " + self.hp + "/" + self.최대hp + "   공격력: " + self.atk
+        print "골드: " + self.골드 + "   물약: " + self.물약 + "개   EXP: " + self.exp + "/" + (self.레벨 * 20)
+    }
+    func 공격굴림() {
+        # 공격력의 80% ~ 120% 사이 무작위
+        return random(round(self.atk * 0.8), round(self.atk * 1.2))
+    }
+    func 물약마시기() {
+        if self.물약 <= 0 {
+            print ">> 물약이 없다!"
+            return false
+        }
+        self.물약 -= 1
+        let 회복량 = 30
+        self.hp = min(self.hp + 회복량, self.최대hp)
+        print ">> 물약을 마셨다! HP " + 회복량 + " 회복 → " + self.hp + "/" + self.최대hp
+        return true
+    }
+    func 경험치획득(량) {
+        self.exp += 량
+        while self.exp >= self.레벨 * 20 {
+            self.exp -= self.레벨 * 20
+            self.레벨 += 1
+            self.최대hp += 15
+            self.atk += 3
+            self.hp = self.최대hp
+            print ""
+            print "★★ 레벨 업! Lv." + self.레벨 + " (HP/공격력 상승, 체력 전부 회복) ★★"
+        }
+    }
+    func 저장하기() {
+        let 데이터 = self.이름 + "," + self.레벨 + "," + self.exp + "," + self.최대hp
+        데이터 = 데이터 + "," + self.hp + "," + self.atk + "," + self.골드 + "," + self.물약
+        writefile("save.txt", 데이터)
+        print ">> 저장 완료! (save.txt)"
+    }
+}
+
+class 몬스터 {
+    func init(틀, 강화) {
+        self.이름 = 틀["이름"]
+        self.hp = 틀["hp"] + 강화 * 8
+        self.atk = 틀["atk"] + 강화 * 2
+        self.골드 = 틀["골드"] + 강화 * 5
+        self.exp = 틀["exp"] + 강화 * 4
+    }
+    func 공격굴림() {
+        return random(round(self.atk * 0.7), round(self.atk * 1.3))
+    }
+}
+
+func 몬스터소환(레벨) {
+    let 도감 = [
+        {"이름": "끈적 슬라임", "hp": 22, "atk": 4, "골드": 8,  "exp": 7},
+        {"이름": "동굴 고블린", "hp": 32, "atk": 6, "골드": 14, "exp": 12},
+        {"이름": "잿빛 늑대",   "hp": 42, "atk": 9, "골드": 22, "exp": 18},
+        {"이름": "광산 오크",   "hp": 55, "atk": 12, "골드": 34, "exp": 26}
+    ]
+    let 강화 = 레벨 - 1
+    let 번호 = random(1, min(len(도감), 레벨 + 1))
+    return 몬스터(도감[번호], 강화)
+}
+
+# 전투: 승리 true / 도망·사망 false
+func 전투(p, m) {
+    print ""
+    print "!!! " + m.이름 + " 이(가) 나타났다! (HP " + m.hp + " / 공격력 " + m.atk + ")"
+    while true {
+        print ""
+        print "[1] 공격  [2] 물약(" + p.물약 + "개)  [3] 도망"
+        let 선택 = input "> "
+        if 선택 == 1 {
+            let 피해 = p.공격굴림()
+            m.hp -= 피해
+            print ">> " + m.이름 + " 에게 " + 피해 + " 피해! (남은 HP " + max(m.hp, 0) + ")"
+            if m.hp <= 0 {
+                print ""
+                print ">> " + m.이름 + " 을(를) 쓰러뜨렸다! +" + m.골드 + "골드 +" + m.exp + "exp"
+                p.골드 += m.골드
+                p.경험치획득(m.exp)
+                return true
+            }
+        } else if 선택 == 2 {
+            if not p.물약마시기() { continue }   # 물약 없으면 턴 유지
+        } else if 선택 == 3 {
+            if random(1, 100) <= 50 {
+                print ">> 무사히 도망쳤다!"
+                return false
+            }
+            print ">> 도망 실패!"
+        } else {
+            print ">> 1, 2, 3 중에 골라줘"
+            continue
+        }
+        # 몬스터의 반격
+        let 반격 = m.공격굴림()
+        p.hp -= 반격
+        print ">> " + m.이름 + " 의 공격! " + 반격 + " 피해 (내 HP " + max(p.hp, 0) + "/" + p.최대hp + ")"
+        if p.hp <= 0 { return false }
+    }
+}
+
+func 상점(p) {
+    while true {
+        print ""
+        print "===== 상점 ===== (보유 골드: " + p.골드 + ")"
+        print "[1] 물약 (20골드)  [2] 공격력 +2 (40골드)  [3] 나가기"
+        let 선택 = input "> "
+        if 선택 == 1 {
+            if p.골드 < 20 { print ">> 골드 부족!" continue }
+            p.골드 -= 20
+            p.물약 += 1
+            print ">> 물약 구매! (보유 " + p.물약 + "개)"
+        } else if 선택 == 2 {
+            if p.골드 < 40 { print ">> 골드 부족!" continue }
+            p.골드 -= 40
+            p.atk += 2
+            print ">> 공격력이 " + p.atk + " 이 되었다!"
+        } else if 선택 == 3 {
+            return 0
+        } else {
+            print ">> 1, 2, 3 중에 골라줘"
+        }
+    }
+}
+
+func 불러오기() {
+    let f = split(readfile("save.txt"), ",")
+    let p = 플레이어(f[1])
+    p.레벨 = num(f[2])
+    p.exp = num(f[3])
+    p.최대hp = num(f[4])
+    p.hp = num(f[5])
+    p.atk = num(f[6])
+    p.골드 = num(f[7])
+    p.물약 = num(f[8])
+    print ">> 불러오기 완료: " + p.이름 + " (Lv." + p.레벨 + ")"
+    return p
+}
+
+# ================= 게임 시작 =================
+print "================================"
+print "   던전 오브 베노스 (Venos RPG)"
+print "================================"
+print "[1] 새 게임  [2] 불러오기"
+let 시작 = input "> "
+let p = 0
+if 시작 == 2 and not exists("save.txt") {
+    print ">> 세이브 파일이 없다! 새 게임으로 시작할게."
+    시작 = 1
+}
+if 시작 == 2 {
+    p = 불러오기()
+} else {
+    let 이름 = input "용사의 이름은? > "
+    p = 플레이어(이름)
+    print ""
+    print 이름 + " 용사, 던전에 온 것을 환영한다!"
+    print "Lv.4 가 되면 던전의 주인 '흑염 드래곤' 에게 도전할 수 있다."
+}
+
+let 게임중 = true
+while 게임중 {
+    print ""
+    print "========== 마을 =========="
+    print "[1] 던전 탐험  [2] 상태 보기  [3] 상점  [4] 저장  [5] 종료"
+    if p.레벨 >= 4 { print "[6] ★ 보스에게 도전한다 ★" }
+    let 선택 = input "> "
+
+    if 선택 == 1 {
+        let m = 몬스터소환(p.레벨)
+        전투(p, m)
+        if p.hp <= 0 {
+            print ""
+            print "▼▼ " + p.이름 + " 은(는) 쓰러졌다... GAME OVER ▼▼"
+            게임중 = false
+        }
+    } else if 선택 == 2 {
+        p.상태()
+    } else if 선택 == 3 {
+        상점(p)
+    } else if 선택 == 4 {
+        p.저장하기()
+    } else if 선택 == 5 {
+        print ""
+        print "또 만나자, " + p.이름 + "!"
+        게임중 = false
+    } else if 선택 == 6 and p.레벨 >= 4 {
+        let 보스틀 = {"이름": "흑염 드래곤", "hp": 130, "atk": 16, "골드": 300, "exp": 100}
+        let 보스 = 몬스터(보스틀, 0)
+        if 전투(p, 보스) {
+            print ""
+            print "★★★★★★★★★★★★★★★★★★★★"
+            print " 드래곤을 쓰러뜨렸다! 던전 클리어!"
+            print " 최종: Lv." + p.레벨 + " / 골드 " + p.골드
+            print "★★★★★★★★★★★★★★★★★★★★"
+            게임중 = false
+        } else if p.hp <= 0 {
+            print ""
+            print "▼▼ 드래곤 앞에 쓰러졌다... GAME OVER ▼▼"
+            게임중 = false
+        }
+    } else {
+        print ">> 메뉴 번호를 골라줘"
+    }
+}
+print ""
+print "(게임 종료)"
