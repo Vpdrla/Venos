@@ -111,12 +111,13 @@ static const char* VENOS_VERSION = "0.6.0";   // 릴리스 태그를 올릴 때 
 // V8 스택이 먼저 터져서 학생에게 "RangeError: Maximum call stack size exceeded" 라는
 // 알아볼 수 없는 메시지가 뜬다 (실측: 브라우저는 600~800 사이에서 넘어간다).
 // 웹에서는 낮춰 잡아 Venos 자신의 한국어 메시지가 먼저 나오게 한다.
-// 400 으로 잡은 이유: 실측에서 450 까지는 매번 통과했지만 490~500 은 실행 상태에 따라
-// 들쭉날쭉했다 (V8 의 여유 스택은 그때그때 다르다). 교과서 재귀는 하노이·피보나치처럼
-// 깊이가 수십인 것들이라 400 으로도 충분하다.
+// 200 으로 잡은 이유: 브라우저에서 넘어가는 지점이 실행마다 다르다. 실측에서 450 이 두 번
+// 통과하고 380 이 한 번 실패했다 — V8 의 여유 스택은 그때그때 다르고, 한 번 넘치면 그 페이지에서
+// 회복되지도 않는다. 넘치면 학생이 보는 건 Venos 메시지가 아니라 영어 RangeError 이므로
+// 여유를 크게 둔다. 교과서 재귀(하노이 20단, 피보나치, 유클리드, 이진탐색)는 전부 깊이 수십이다.
 static const int RECURSION_DESKTOP = 2000;
 #ifdef VENOS_WASM
-static const int MAX_RECURSION = 400;
+static const int MAX_RECURSION = 200;
 #else
 static const int MAX_RECURSION = RECURSION_DESKTOP;
 #endif
@@ -2266,6 +2267,7 @@ void runSource(const string& src) {
     g_funcs.clear();
     g_classes.clear();
     g_callDepth = 0;
+    g_frames.clear();   // 앞 실행이 스택 넘침 등으로 중간에 끊겼으면 프레임이 남아 있다
     // 함수/클래스 호이스팅: 정의보다 위에서 사용하는 코드도 작동
     for (auto& stmt : program) {
         if (auto* fn = dynamic_cast<FuncStmt*>(stmt.get()))
@@ -4780,6 +4782,7 @@ void cmdRepl() {
     g_funcs.clear();
     g_classes.clear();
     g_callDepth = 0;
+    g_frames.clear();   // 앞 실행이 스택 넘침 등으로 중간에 끊겼으면 프레임이 남아 있다
     g_lineMap.clear();
     g_srcLines.clear();
     g_global = &env;

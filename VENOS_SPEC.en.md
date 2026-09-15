@@ -76,7 +76,7 @@ break    continue
 func add(a, b) { return a + b }      # returns 0 if return is omitted
 print add(3, 4)
 ```
-Recursion works (depth limit 2000 on the desktop, **400 in the web playground** — a browser's call stack is far shallower. Python's default is 1000, so `topython` raises it with `sys.setrecursionlimit`). Functions can be called before their definition (hoisting).
+Recursion works (depth limit 2000 on the desktop, **200 in the web playground** — a browser's call stack is far shallower. Python's default is 1000, so `topython` raises it with `sys.setrecursionlimit`). Functions can be called before their definition (hoisting).
 Functions can read/write global variables; `let` inside a function creates a local.
 
 ## Lists (indices start at 1!)

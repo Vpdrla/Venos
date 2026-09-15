@@ -77,12 +77,16 @@ const CHECKS = [
     expect: '값: 열여섯' },
   // 브라우저 호출 스택은 네이티브보다 얕다. 한도(웹 400) 안쪽은 돌아야 하고, 넘어가면
   // V8 의 RangeError 가 아니라 Venos 의 한국어 메시지가 나와야 한다.
-  { name: '한도 안쪽 재귀 (380)',
-    code: 'func 합(n) { if n <= 0 { return 0 }  return n + 합(n - 1) }\nprint 합(380)\n',
-    expect: '72390' },
+  { name: '한도 안쪽 재귀 (190)',
+    code: 'func 합(n) { if n <= 0 { return 0 }  return n + 합(n - 1) }\nprint 합(190)\n',
+    expect: '18145' },
   { name: '한도를 넘으면 Venos 메시지',
     code: 'func 끝없이(n) { return 끝없이(n + 1) }\nprint 끝없이(1)\n',
     expect: '함수 호출이 너무 깊습니다', expectError: true },
+  // 한도를 넘긴 바로 다음 실행 — 깊이와 호출 프레임이 남아 있으면 여기서 드러난다
+  { name: '넘긴 다음 실행도 멀쩡',
+    code: 'func 합(n) { if n <= 0 { return 0 }  return n + 합(n - 1) }\nprint 합(150)\n',
+    expect: '11325' },
   // 아래 셋은 "브라우저가 최신 wasm 을 들고 있는가"를 본다. 소스 해시 검사는 커밋된
   // 파일이 소스와 맞는지만 보지, 그 안에 기능이 실제로 들어갔는지는 못 본다.
   { name: '별 찍기 ("*" * n)', code: 'for i = 1 to 3 { print "*" * i }\nprint "-" * 5\n',
