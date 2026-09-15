@@ -83,7 +83,7 @@ git tag v0.6.0 && git push origin v0.6.0
 
 ## 지뢰밭 (이미 밟고 고친 것들 — 재발 금지)
 - **윈도우는 `main` 의 argv 를 ANSI 코드페이지로 준다** → 한글 파일 이름이 `?` 로 뭉개져 "파일 없음: ??.my" 가 된다. `useUtf8Argv()` 가 `CommandLineToArgvW` 로 명령줄을 다시 받아 UTF-8 로 바꿔 끼운다. 새로 argv 를 읽는 코드를 넣을 때 이 변환 뒤라는 걸 전제할 것.
-- **파일 경로는 `toPath()`(본체) / `rt_path()`(RUNTIME) 를 반드시 거칠 것.** `std::ifstream(문자열)` 을 그냥 쓰면 윈도우에서 한글 경로를 못 연다 — 트랜스파일 빌드본이 실제로 그 상태였다.
+- **파일은 `openFile()`(본체) / `rt_open()`(RUNTIME) 으로만 열 것.** 둘 다 윈도우에서 `_wfopen` + 넓은 경로, 바이너리 모드다. `std::ifstream(문자열)` 은 윈도우에서 한글 경로를 못 열고, **`std::ifstream(std::filesystem::path)` 는 MinGW 빌드에서 없는 파일도 "열렸다"고 답한다** — 트랜스파일 빌드본의 `exists()` 가 전부 참이 되고 `readfile()` 이 에러를 안 냈다 (윈도우 CI 가 잡음). `exists()` 는 양쪽 다 `filesystem::is_regular_file`. 바이너리 모드인 이유는 텍스트 모드의 CRLF 변환이 백엔드마다 다르게 걸리지 않게 하려는 것.
 - **생성 파이썬의 출력 인코딩**: 윈도우 파이썬은 stdout 을 로케일 코드페이지로 인코딩해서 한글 print 가 `UnicodeEncodeError` 로 죽는다. 비-ASCII 문자열 리터럴이 있으면 PyGen 이 `sys.stdout.reconfigure(encoding="utf-8")` 를 넣는다 (`sawNonAscii`).
 - windows.h가 `IN`/`OUT`을 빈 매크로로 정의 → enum은 `Tok::INKW`, include 뒤 `#undef IN/OUT` + `#ifndef NOMINMAX` 가드 유지 (본체와 RUNTIME 문자열 양쪽).
 - Windows 콘솔 한글: 셸은 ReadConsoleW, **생성 exe의 RUNTIME에도 동일 로직(rt_readline) 이식돼 있음** — input 관련 수정 시 양쪽 유지.
