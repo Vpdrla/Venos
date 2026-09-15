@@ -24,6 +24,10 @@ tests/.tmp_*
 save.txt
 *.log
 
+# CI 가 playground-check 를 돌리려고 설치하는 것
+node_modules/
+package-lock.json
+
 # IDE
 *.cbp
 *.layout
