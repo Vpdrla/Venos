@@ -4345,11 +4345,25 @@ struct PyGen {
     // ---- 문장 ----
     static string pad(int d) { return string(d * 4, ' '); }
 
-    // 대입 대상이 전역이면 함수 안에서 global 선언이 필요하다
-    void noteAssign(const string& name) {
+    // 대입 대상이 전역이면 함수 안에서 global 선언이 필요하다.
+    // 겸해서 "선언되지 않은 변수에 대입"을 여기서 막는다 — 세 백엔드가 갈라지던 자리다:
+    // 인터프리터는 잡을 수 있는 에러, build 는 빌드 거절, 파이썬은 **그냥 새 변수를 만든다**.
+    // try 안에서 났을 때 인터프리터는 "잡음"을 찍고 파이썬은 대입을 해 버려 다른 프로그램이 된다.
+    void noteAssign(const string& name, int line) {
+        if (!(inFunc && localSet.count(name)) && !globalSet.count(name)) {
+            string hint = suggestName(name, visibleNames());
+            if (hint.empty()) hint = "  (" + KW_LET + " " + name + " = ... 로 먼저 선언하세요)";
+            throw err(line, "선언되지 않은 변수에 대입: " + name + hint);
+        }
         if (inFunc && !localSet.count(name) && globalSet.count(name)) touchedGlobals.insert(name);
         // for 루프 변수에 다시 대입하면 더 이상 정수라고 볼 수 없다
         intVars.erase(name);
+    }
+
+    std::vector<string> visibleNames() const {
+        std::vector<string> out(globalSet.begin(), globalSet.end());
+        if (inFunc) out.insert(out.end(), localSet.begin(), localSet.end());
+        return out;
     }
 
     // 경로 대입의 앞부분: xs[1][2] / obj.필드 를 파이썬 좌변으로
@@ -4374,7 +4388,7 @@ struct PyGen {
             return;
         }
         if (auto* a = dynamic_cast<AssignStmt*>(s)) {
-            noteAssign(a->name);
+            noteAssign(a->name, a->line);
             // 파서가 x += 1 을 x = x + 1 로 풀어놓는다 — 읽기 좋게 되돌린다
             if (auto* b = dynamic_cast<BinExpr*>(a->val.get())) {
                 auto* lv = dynamic_cast<VarExpr*>(b->lhs.get());
@@ -4398,12 +4412,12 @@ struct PyGen {
             return;
         }
         if (auto* pa = dynamic_cast<PathAssignStmt*>(s)) {
-            noteAssign(pa->name);
+            noteAssign(pa->name, pa->line);
             o << pad(d) << lvalue(pa->name, pa->path) << " = " << expr(pa->val.get()) << "\n";
             return;
         }
         if (auto* pc = dynamic_cast<PathCompoundStmt*>(s)) {
-            noteAssign(pc->name);
+            noteAssign(pc->name, pc->line);
             string slot = lvalue(pc->name, pc->path);
             const char* op = "+";
             switch (pc->op) {
