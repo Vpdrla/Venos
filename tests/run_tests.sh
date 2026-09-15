@@ -159,9 +159,9 @@ for case_file in tests/nopython/*.my; do
     fi
 done
 
-# ---- 내장 함수가 네 백엔드에 다 있는가 (tools/check-builtins.js) ----
+# ---- 내장 함수·키워드가 모든 곳에 있는가 (tools/check-builtins.js) ----
 # 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —
-# topython 이 거절하면서 다리가 끊긴다. 소스에서 네 목록을 뽑아 대조한다.
+# topython 이 거절하면서 다리가 끊긴다. 소스와 VSCode 문법에서 목록을 뽑아 대조한다.
 builtins="건너뜀 (node 없음)"
 if command -v node >/dev/null 2>&1; then
     if node tools/check-builtins.js > "$TMP/builtins.txt" 2>&1; then
@@ -190,7 +190,7 @@ echo
 echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pytested, 건너뜀 $pyskipped)"
 [ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
 echo "topython 거절: 통과 $npass"
-echo "내장 함수: $builtins"
+echo "이름 대조: $builtins"
 echo "레슨 트랙: $lessons"
 echo "에러 메시지: 통과 $dpass / 실패 $dfail"
 [ "$fail" -eq 0 ] && [ "$dfail" -eq 0 ]
