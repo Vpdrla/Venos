@@ -1,0 +1,84 @@
+# 런길이 압축 (Run-Length Encoding) — 같은 글자가 이어지면 "글자+개수" 로 줄인다
+#
+# 교과서 의사코드
+#   i ← 1
+#   반복: i ≤ 길이(S) 인 동안
+#       c ← S[i],  n ← 1
+#       반복: i+n ≤ 길이(S) 그리고 S[i+n] = c 인 동안
+#           n ← n + 1
+#       출력에 c 와 n 을 붙인다
+#       i ← i + n
+#
+# 압축이 늘 이득은 아니다 — "abc" 는 "a1b1c1" 로 오히려 두 배가 된다.
+# 그림 파일이나 팩스처럼 같은 값이 길게 이어지는 자료에서만 쓸모가 있다는 게 요점.
+
+func 압축(s) {
+    let 결과 = ""
+    let i = 1
+    while i <= len(s) {
+        let 글자 = s[i]
+        let 개수 = 1
+        # 같은 글자가 몇 개나 이어지는지 센다
+        while i + 개수 <= len(s) and s[i + 개수] == 글자 {
+            개수 = 개수 + 1
+        }
+        결과 = 결과 + 글자 + 개수
+        i = i + 개수
+    }
+    return 결과
+}
+
+# 되돌리기 — 글자 하나 뒤에 붙은 숫자를 모두 읽어 그만큼 반복한다
+func 풀기(압축본) {
+    let 결과 = ""
+    let i = 1
+    while i <= len(압축본) {
+        let 글자 = 압축본[i]
+        let 수 = ""
+        i = i + 1
+        while i <= len(압축본) and find("0123456789", 압축본[i]) > 0 {
+            수 = 수 + 압축본[i]
+            i = i + 1
+        }
+        if 수 == "" { error("잘못된 압축본입니다: 숫자가 빠졌습니다") }
+        결과 = 결과 + 글자 * num(수)
+    }
+    return 결과
+}
+
+print "=== 압축하고 되돌리기 ==="
+let 보기 = ["aaabbc", "abc", "aaaaaaaaaaaa", "가가나나나다", "wwwwwwwwwwwwbbbwwwwww"]
+for s in 보기 {
+    let c = 압축(s)
+    let 되돌림 = 풀기(c)
+    print "\"" + s + "\"  →  \"" + c + "\"   (" + len(s) + "글자 → " + len(c) + "글자)"
+    if 되돌림 != s {
+        print "   !! 되돌리기가 틀렸습니다:", 되돌림
+    }
+}
+
+print ""
+print "=== 언제 이득인가 ==="
+func 이득(s) {
+    let 원래 = len(s)
+    let 줄인 = len(압축(s))
+    if 줄인 < 원래 { return "이득 " + (원래 - 줄인) + "글자" }
+    if 줄인 == 원래 { return "본전" }
+    return "손해 " + (줄인 - 원래) + "글자"
+}
+for s in ["aaaaaaaaaa", "aabb", "abcdef"] {
+    print "\"" + s + "\" →", 이득(s)
+}
+
+print ""
+print "=== 빈 문자열과 한 글자 ==="
+print "빈 문자열:", "\"" + 압축("") + "\""
+print "한 글자:", 압축("x"), "→", 풀기(압축("x"))
+
+print ""
+print "=== 잘못된 압축본은 에러 ==="
+try {
+    print 풀기("a3b")
+} catch 오류 {
+    print "잡음:", 오류
+}

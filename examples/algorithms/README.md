@@ -2,7 +2,7 @@
 
 *English | [한국어](README.ko.md)*
 
-Fifteen algorithms from the standard informatics curriculum, each written to sit
+Sixteen algorithms from the standard informatics curriculum, each written to sit
 line-for-line against the pseudocode a textbook prints. Every file starts with that
 pseudocode in a comment, so you can read the two side by side.
 
@@ -41,6 +41,7 @@ install — and press **🐍 Python** to see the Python version.
 | `matrix.my` | Matrix add/multiply/transpose | Why `A×B ≠ B×A` |
 | `stack-queue.my` | Stack and queue | Built from lists; balanced parentheses, a print queue |
 | `caesar-cipher.my` | Caesar cipher | Brute force and letter frequency; needs `%` to wrap negatives |
+| `run-length.my` | Run-length encoding | Compression that sometimes makes the data *bigger* — and why that is the point |
 
 ## One thing to know before reading
 
