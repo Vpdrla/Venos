@@ -1,0 +1,18 @@
+# input 은 숫자처럼 보이는 입력만 숫자로 준다 — 세 백엔드가 여기서 갈라지면 안 된다.
+# (프롬프트는 줄바꿈 없이 나가므로 출력 순서까지 같아야 한다)
+let 수 = input "1: "
+let 음수 = input "2: "
+let 글 = input "3: "
+let 공백낀수 = input "4: "
+let 빈줄 = input "5: "
+let 앞영 = input "6: "
+let 소수점 = input "7: "
+print ""
+
+print 수, 음수, 글, 공백낀수, 빈줄, 앞영, 소수점
+print 수 + 1, 음수 + 1, 앞영 + 1
+print 글 == "abc", 글 + "!", len(글)
+print 공백낀수 * 2
+print 빈줄 == "", len(빈줄)
+print 소수점 * 2
+print 수 > 20, 수 == 25

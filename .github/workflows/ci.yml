@@ -35,11 +35,15 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Build (MinGW g++)
-        run: g++ -std=c++17 -O2 -Wall -Werror -o venos.exe venos.cpp
+      # -static: 릴리스가 내보내는 것과 같은 모양으로 만든다. 정적 링크가 아니면
+      # libstdc++-6.dll 등이 PATH 에 없어 Git Bash 에서 실행 자체가 안 된다.
+      - name: Build (MinGW g++, static)
+        run: g++ -std=c++17 -O2 -Wall -Werror -static -o venos.exe venos.cpp
 
       - name: Smoke test
-        run: ./venos.exe examples/algorithms/selection-sort.my
+        run: |
+          ./venos.exe examples/algorithms/selection-sort.my
+          ./venos.exe examples/algorithms/caesar-cipher.my
 
       - name: Differential tests, error messages, lesson track
         run: tests/run_tests.sh
