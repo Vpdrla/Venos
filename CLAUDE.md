@@ -14,7 +14,7 @@
 - `topython` 은 기능이자 약속이다 — 나가는 길을 직접 파는 언어는 슬그머니 종착지가 될 수 없다.
 
 ## 프로젝트 개요
-- **단일 파일 `venos.cpp` (~4,400줄)** 안에 전부 들어 있음: 렉서 → 재귀 하강 파서 → AST → ①트리워킹 인터프리터 ②C++ 트랜스파일러(`build` 명령, g++ 호출) ③파이썬 생성기(`topython`, `PyGen`) ④CLI 셸 ⑤REPL ⑥WASM 진입점.
+- **단일 파일 `venos.cpp` (~5,500줄)** 안에 전부 들어 있음: 렉서 → 재귀 하강 파서 → AST → ①트리워킹 인터프리터 ②C++ 트랜스파일러(`build` 명령, g++ 호출) ③파이썬 생성기(`topython`, `PyGen`) ④CLI 셸 ⑤REPL ⑥WASM 진입점.
 - 언어 스펙: `VENOS_SPEC.md`(한국어) / `VENOS_SPEC.en.md`(영어) — **기능 추가 시 두 문서 모두 갱신**.
 - 검증 프로젝트: `examples/rpg.my` (222줄 텍스트 RPG).
 - 웹 플레이그라운드: `docs/` (index.html + venos.js + venos.wasm) → GitHub Pages. 공유 링크(`#code=`), 자동 저장, 레슨 트랙(`#lesson=`) 포함.
