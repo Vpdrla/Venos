@@ -47,8 +47,8 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 ## 철칙: 백엔드 동시 구현 + diff 검증
 언어 기능을 추가/수정하면 **반드시 인터프리터와 트랜스파일러(RUNTIME 문자열 + CodeGen) 양쪽에 구현**하고, 같은 프로그램을 두 방식으로 실행해 출력을 diff로 비교한다 (differential testing — 지금까지 코드젠 버그를 여러 개 잡아준 핵심 검증법). **`PyGen`(topython)도 같이 갱신**한다 — 못 옮기는 문법이면 틀린 파이썬을 내지 말고 줄 번호와 함께 거절할 것.
 
-**자동화됨**: `tests/run_tests.sh` 가 `tests/cases/*.my` 전체를 **세 방식**(인터프리터 / C++ 빌드본 / topython → python3)으로 실행해 비교하고, CI(`.github/workflows/ci.yml`)가 푸시마다 돌린다. 허용 차이는 러너가 정규화로 흡수: 인터프리터 전용 `=== ===` 배너, catch 메시지의 `[줄 N]` 접두사, 소수 표기(양쪽을 `%g` 로 통일 — 파이썬은 `91.66666666666667`, Venos 는 `91.6667`).
-- 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio/listops).
+**자동화됨**: `tests/run_tests.sh` 가 `tests/cases/*.my` 와 `examples/algorithms/*.my` 전체를 **세 방식**(인터프리터 / C++ 빌드본 / topython → python3)으로 실행해 비교하고, CI(`.github/workflows/ci.yml`)가 푸시마다 돌린다. 허용 차이는 러너가 정규화로 흡수: 인터프리터 전용 `=== ===` 배너, catch 메시지의 `[줄 N]` 접두사, 소수 표기(양쪽을 `%g` 로 통일 — 파이썬은 `91.66666666666667`, Venos 는 `91.6667`).
+- 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio/listops_errors). 에러 문구에 기대는 줄만 별도 케이스로 떼어내면 나머지는 파이썬까지 검증할 수 있다 — `listops` 를 그렇게 쪼갰다.
 ```bash
 tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지(tests/diag) + 레슨 트랙
 ```
@@ -82,6 +82,9 @@ git tag v0.6.0 && git push origin v0.6.0
 - `import`는 파싱 전 텍스트 병합 (`expandImports`, 중복 자동 스킵).
 
 ## 지뢰밭 (이미 밟고 고친 것들 — 재발 금지)
+- **윈도우는 `main` 의 argv 를 ANSI 코드페이지로 준다** → 한글 파일 이름이 `?` 로 뭉개져 "파일 없음: ??.my" 가 된다. `useUtf8Argv()` 가 `CommandLineToArgvW` 로 명령줄을 다시 받아 UTF-8 로 바꿔 끼운다. 새로 argv 를 읽는 코드를 넣을 때 이 변환 뒤라는 걸 전제할 것.
+- **파일 경로는 `toPath()`(본체) / `rt_path()`(RUNTIME) 를 반드시 거칠 것.** `std::ifstream(문자열)` 을 그냥 쓰면 윈도우에서 한글 경로를 못 연다 — 트랜스파일 빌드본이 실제로 그 상태였다.
+- **생성 파이썬의 출력 인코딩**: 윈도우 파이썬은 stdout 을 로케일 코드페이지로 인코딩해서 한글 print 가 `UnicodeEncodeError` 로 죽는다. 비-ASCII 문자열 리터럴이 있으면 PyGen 이 `sys.stdout.reconfigure(encoding="utf-8")` 를 넣는다 (`sawNonAscii`).
 - windows.h가 `IN`/`OUT`을 빈 매크로로 정의 → enum은 `Tok::INKW`, include 뒤 `#undef IN/OUT` + `#ifndef NOMINMAX` 가드 유지 (본체와 RUNTIME 문자열 양쪽).
 - Windows 콘솔 한글: 셸은 ReadConsoleW, **생성 exe의 RUNTIME에도 동일 로직(rt_readline) 이식돼 있음** — input 관련 수정 시 양쪽 유지.
 - Emscripten은 기본으로 C++ 예외 catch 비활성 → WASM 빌드에 `-fexceptions -s DISABLE_EXCEPTION_CATCHING=0` 필수 (없으면 return/break가 전부 죽음).
@@ -111,7 +114,7 @@ git tag v0.6.0 && git push origin v0.6.0
 - [x] `input` 의 `window.prompt()` 모달 제거 — **Asyncify** 로 해결. 출력창 아래 입력줄이 뜨고, 기다리는 동안 화면이 정상적으로 칠해진다. wasm 471KB → 839KB(1.78배), 브라우저 fib(24) 0.33초(네이티브 0.51초)라 속도는 문제 없음. (Worker+SharedArrayBuffer 는 GitHub Pages 가 COOP/COEP 헤더를 못 줘서 불가)
 - [x] 에러 메시지에 오타 제안 (글자 단위 편집 거리 — 변수/대입/함수/내장함수/필드/메서드, 인터프리터와 트랜스파일러 양쪽). 닫히지 않은 `{` 는 파일 끝이 아니라 여는 줄을 가리키고, `if x = 5` 는 `==` 를 안내한다. 회귀 테스트는 `tests/diag/*.my` + `.expected` (러너 2단계)
 - [x] `docs/venos.js`·`venos.wasm` 드리프트 방지 — 빌드는 `tools/build-wasm.sh` 로 통일했고, 스크립트가 `docs/venos.wasm.source-sha256` 에 소스 해시를 남긴다. CI 의 `playground-wasm` 잡이 `venos.cpp` 해시와 대조해 **소스만 고치고 WASM 을 안 올린 상태를 실패로 잡는다** + emsdk 로 빌드 자체도 확인. (마지막 수동 빌드: emsdk 6.0.9)
-- [ ] Windows 네이티브 CI 잡 — macOS 는 release.yml 에서 유니버설 빌드 + 스위트까지 돌지만, Windows exe 는 크로스 컴파일로 **빌드만** 되고 한 번도 실행되지 않는다 (ReadConsoleW·`IN`/`OUT` 매크로 회피·`_beginthreadex` 가 런타임 미검증). `windows-latest` 에서 스위트를 돌리려면 Git Bash·CRLF·콘솔 한글 인코딩부터 확인해야 함
+- [x] Windows 네이티브 CI 잡 (`ci.yml` 의 `windows`) — MinGW 정적 빌드 + 전체 스위트를 Git Bash 에서. **첫 실행에 실제 버그 3개를 잡았다** (아래 지뢰밭 참고). 체크아웃 전에 `core.autocrlf false`, 러너는 `.exe` 이름과 CRLF 를 흡수한다
 - [x] 문자열 보간 `"이름: {x}"`, 리스트 `==`(깊은 비교)/`+`(연결) — v0.6.0
 - [x] **포지셔닝 확정 + `topython`** — 조사(Portugol/HAGGIS/Pascal/2022 개정 교육과정) → `STRATEGY.md`, `PyGen`, 플레이그라운드 🐍 Python 버튼, 3중 differential
 - [x] 교과서 알고리즘 예제집 (`examples/algorithms/`) — 15개, 교과서 의사코드를 주석에 넣고 1:1. **테스트 스위트에 편입**되어 세 방식으로 돌려 비교한다 (러너가 `tests/cases` 와 `examples/algorithms` 를 함께 순회)
