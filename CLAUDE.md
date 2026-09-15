@@ -79,6 +79,7 @@ git tag v0.6.0 && git push origin v0.6.0
 - 에러 문구의 한국어 조사는 `josa(단어, "과", "와")` 로 고른다 (본체와 RUNTIME 양쪽에 같은 함수가 있다). 직접 "와(과)" 를 쓰지 말 것.
 - 에러 메시지는 `lineTag(line)` 사용 (직접 "[줄 N]" 문자열 만들지 말 것) — import 병합 시 원본 파일 좌표(`[utils.my 줄 3]`)로 자동 변환됨 (`g_lineMap`). 에러 밑에 해당 코드 줄 표시는 `printError()` + `g_srcLines`.
 - 실행은 `runOnBigStack`(128MB 전용 스택 스레드) 경유 — 재귀 한도(2000) 전에 세그폴트 방지. WASM에선 스레드 없이 직접 실행(링크 시 TOTAL_STACK 32MB).
+- **웹은 재귀 한도가 400** (`MAX_RECURSION`, `VENOS_WASM` 일 때). `TOTAL_STACK` 은 선형 메모리의 그림자 스택이지 브라우저 호출 스택이 아니라서, 2000 을 그대로 두면 한도에 닿기 전에 V8 이 `RangeError: Maximum call stack size exceeded` 를 던진다 — 학생에게는 알아볼 수 없는 영어 메시지다. 실측: 450 까지는 매번 통과, 490~500 은 들쭉날쭉. `topython` 이 내는 `setrecursionlimit` 은 `RECURSION_DESKTOP` 기준이라 웹에서 변환해도 같은 파이썬이 나온다. `tools/playground-check.js` 가 한도 안쪽/바깥쪽을 둘 다 확인한다.
 - 트랜스파일러: 메서드는 클래스별 정적 함수 `m_클래스_메서드` + (이름,인자수)별 디스패처(수제 vtable). 식별자 맹글링 u_/f_ + non-ASCII hex. 대입 좌변은 접근자 체인(idx_mid/idx_put/fld_mid/fld_put).
 - `import`는 파싱 전 텍스트 병합 (`expandImports`, 중복 자동 스킵).
 

@@ -74,6 +74,14 @@ const CHECKS = [
   { name: '레슨 3 (input)', code: lesson('input'), answer: '미르', expect: '미르님' },
   { name: '긴 출력 · 보간', code: 'let a = "열여섯 바이트를 훌쩍 넘는 아주 긴 한글 문자열입니다"\nprint "값: {a}"\n',
     expect: '값: 열여섯' },
+  // 브라우저 호출 스택은 네이티브보다 얕다. 한도(웹 400) 안쪽은 돌아야 하고, 넘어가면
+  // V8 의 RangeError 가 아니라 Venos 의 한국어 메시지가 나와야 한다.
+  { name: '한도 안쪽 재귀 (380)',
+    code: 'func 합(n) { if n <= 0 { return 0 }  return n + 합(n - 1) }\nprint 합(380)\n',
+    expect: '72390' },
+  { name: '한도를 넘으면 Venos 메시지',
+    code: 'func 끝없이(n) { return 끝없이(n + 1) }\nprint 끝없이(1)\n',
+    expect: '함수 호출이 너무 깊습니다', expectError: true },
   // 아래 셋은 "브라우저가 최신 wasm 을 들고 있는가"를 본다. 소스 해시 검사는 커밋된
   // 파일이 소스와 맞는지만 보지, 그 안에 기능이 실제로 들어갔는지는 못 본다.
   { name: '별 찍기 ("*" * n)', code: 'for i = 1 to 3 { print "*" * i }\nprint "-" * 5\n',
@@ -82,6 +90,8 @@ const CHECKS = [
     expect: "혹시 '이름'?", expectError: true },
   { name: '에러의 호출 경로', code: 'func 안쪽(xs) { return xs[9] }\nfunc 바깥(xs) { return 안쪽(xs) }\nprint 바깥([1])\n',
     expect: '부른 순서: 바깥', expectError: true },
+  // 브라우저 스택은 32MB(링크 시 TOTAL_STACK), 네이티브는 128MB 다. 재귀 한도 2000 에
+  // 닿기 전에 스택이 먼저 터지면 학생에게는 탭이 멈춘 것으로 보인다 — 한도 직전까지 가 본다.
   { name: '레슨 10 (classes) 실행', code: lesson('classes'), expect: '멍멍' },
 ];
 

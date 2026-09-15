@@ -106,7 +106,20 @@ static const string KW_FALSE    = "false";
 static const string FILE_EXT    = ".my";
 
 static const char* VENOS_VERSION = "0.6.0";   // 릴리스 태그를 올릴 때 같이 고칠 것
-static const int MAX_RECURSION = 2000;   // 함수 재귀 깊이 제한
+// 함수 재귀 깊이 제한.
+// 브라우저는 네이티브보다 호출 스택이 훨씬 얕다 — 2000 을 그대로 두면 한도에 닿기 전에
+// V8 스택이 먼저 터져서 학생에게 "RangeError: Maximum call stack size exceeded" 라는
+// 알아볼 수 없는 메시지가 뜬다 (실측: 브라우저는 600~800 사이에서 넘어간다).
+// 웹에서는 낮춰 잡아 Venos 자신의 한국어 메시지가 먼저 나오게 한다.
+// 400 으로 잡은 이유: 실측에서 450 까지는 매번 통과했지만 490~500 은 실행 상태에 따라
+// 들쭉날쭉했다 (V8 의 여유 스택은 그때그때 다르다). 교과서 재귀는 하노이·피보나치처럼
+// 깊이가 수십인 것들이라 400 으로도 충분하다.
+static const int RECURSION_DESKTOP = 2000;
+#ifdef VENOS_WASM
+static const int MAX_RECURSION = 400;
+#else
+static const int MAX_RECURSION = RECURSION_DESKTOP;
+#endif
 
 // ============================================================
 //  플랫폼 헬퍼 — Windows 한글 입력/파일명 깨짐 방지
@@ -1382,8 +1395,13 @@ struct DepthGuard {
     DepthGuard(int line, const string& name) {
         if (++g_callDepth > MAX_RECURSION) {
             --g_callDepth;
-            throw LangError(lineTag(line) + "함수 호출이 너무 깊습니다 (재귀 " 
-                            + std::to_string(MAX_RECURSION) + "회 초과 — 무한 재귀?)");
+            throw LangError(lineTag(line) + "함수 호출이 너무 깊습니다 (재귀 "
+                            + std::to_string(MAX_RECURSION) + "회 초과 — 무한 재귀?)"
+#ifdef VENOS_WASM
+                            + "  (브라우저에서는 " + std::to_string(MAX_RECURSION)
+                            + "까지만 됩니다. 내려받아 쓰면 " + std::to_string(RECURSION_DESKTOP) + ")"
+#endif
+                            );
         }
         g_frames.push_back({ &name, line });
     }
@@ -4428,7 +4446,7 @@ struct PyGen {
                    "#      줄여서 보여주지만 파이썬은 있는 그대로 보여줍니다.\n";
         if (deepRecursion)
             out << "#   " << ++noteN << ") 재귀 깊이 한도가 다릅니다 — Venos 는 "
-                << MAX_RECURSION << "번, 파이썬은 기본 1000번이라\n"
+                << RECURSION_DESKTOP << "번, 파이썬은 기본 1000번이라\n"
                    "#      맨 위에서 sys.setrecursionlimit 으로 맞춰 두었습니다.\n";
         if (!helpers.empty())
             out << "#   " << ++noteN << ") 밑줄로 시작하는 _이름 함수들은 Venos 와 똑같이 보이게 하려고"
@@ -4449,8 +4467,8 @@ struct PyGen {
                 out << "sys.stdin.reconfigure(encoding=\"utf-8\")\n";
         }
         if (deepRecursion)
-            out << "\nsys.setrecursionlimit(" << (MAX_RECURSION + 1000) << ")"
-                   "   # Venos 는 " << MAX_RECURSION << "번까지 허용, 파이썬 기본값은 1000\n";
+            out << "\nsys.setrecursionlimit(" << (RECURSION_DESKTOP + 1000) << ")"
+                   "   # Venos 는 " << RECURSION_DESKTOP << "번까지 허용, 파이썬 기본값은 1000\n";
         string help = helperSource();
         if (!help.empty()) out << "\n" << help;
         out << "\n";
