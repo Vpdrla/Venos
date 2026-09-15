@@ -559,10 +559,28 @@ static void writeAll(std::FILE* fp, const string& s) {
     std::fclose(fp);
 }
 static fs::path importToPath(const string& utf8) { return toPath(utf8); }
-static void loadWithImports(const string& rawPath, std::set<string>& loaded,
+// "폴더/파일.my" → "폴더". UTF-8 안전하다 — / 와 \ 는 멀티바이트 글자 안에 나올 수 없다.
+static string dirOf(const string& p) {
+    size_t i = p.find_last_of("/\\");
+    return i == string::npos ? "" : p.substr(0, i);
+}
+static bool isAbsPath(const string& p) {
+    return !p.empty() && (p[0] == '/' || p[0] == '\\'
+                          || (p.size() > 1 && p[1] == ':'));   // 윈도우 C:\...
+}
+
+// label 은 에러 메시지에 쓰는 이름 — import 에 적힌 그대로다.
+// 여는 데 쓰는 path 는 "import 를 쓴 파일 옆" 기준으로 풀린 경로라 길어질 수 있는데,
+// 학생에게는 자기가 적은 "utils.my" 로 보여야 찾아갈 수 있다.
+static void loadWithImports(const string& rawPath, const string& rawLabel,
+                            std::set<string>& loaded,
                             string& out, std::vector<string>& lmap,
                             bool& sawImport, const string& fromWhere) {
     string path = rawPath;
+    string label = rawLabel;
+    if (label.size() < FILE_EXT.size()
+        || label.substr(label.size() - FILE_EXT.size()) != FILE_EXT)
+        label += FILE_EXT;
     if (path.size() < FILE_EXT.size()
         || path.substr(path.size() - FILE_EXT.size()) != FILE_EXT)
         path += FILE_EXT;
@@ -571,7 +589,7 @@ static void loadWithImports(const string& rawPath, std::set<string>& loaded,
 
     std::ifstream in(importToPath(path));
     if (!in)
-        throw LangError("import 실패: 파일을 열 수 없습니다: " + path
+        throw LangError("import 실패: 파일을 열 수 없습니다: " + label
                         + (fromWhere.empty() ? "" : "  (" + fromWhere + " 에서)"));
     string line;
     int no = 0;
@@ -589,8 +607,15 @@ static void loadWithImports(const string& rawPath, std::set<string>& loaded,
                     size_t r = rest.find_first_not_of(" \t\r");
                     if (r == string::npos || rest[r] == '#') {
                         sawImport = true;
-                        loadWithImports(t.substr(p + 1, q - p - 1), loaded, out, lmap,
-                                        sawImport, path + " 줄 " + std::to_string(no));
+                        // import 는 **그 import 를 쓴 파일 옆**을 기준으로 찾는다.
+                        // 현재 작업 폴더 기준이면 "venos 프로젝트/main.my" 를 프로젝트
+                        // 밖에서 돌릴 때 옆에 둔 utils.my 를 못 연다.
+                        string asWritten = t.substr(p + 1, q - p - 1);
+                        string target = asWritten;
+                        string base = dirOf(path);
+                        if (!base.empty() && !isAbsPath(target)) target = base + "/" + target;
+                        loadWithImports(target, asWritten, loaded, out, lmap,
+                                        sawImport, label + " 줄 " + std::to_string(no));
                         continue;    // import 줄 자체는 출력에 넣지 않음
                     }
                 }
@@ -598,7 +623,7 @@ static void loadWithImports(const string& rawPath, std::set<string>& loaded,
         }
         out += line;
         out += "\n";
-        lmap.push_back(path + " 줄 " + std::to_string(no));
+        lmap.push_back(label + " 줄 " + std::to_string(no));
     }
 }
 
@@ -608,7 +633,7 @@ static string expandImports(const string& mainPath) {
     std::vector<string> lmap;
     lmap.push_back("");                  // 줄번호는 1부터라 0번은 비움
     bool sawImport = false;
-    loadWithImports(mainPath, loaded, out, lmap, sawImport, "");
+    loadWithImports(mainPath, mainPath, loaded, out, lmap, sawImport, "");
     if (sawImport) g_lineMap = lmap;     // import 썼을 때만 "파일:줄" 표기
     else           g_lineMap.clear();
     // 에러 표시용으로 소스 줄 보관
@@ -5420,7 +5445,24 @@ int main(int argc, char** argv) {
         else if (cmd == "clear")   { clearScreen(); drawBanner(); }
         else if (cmd == "help")    cmdHelp();
         else if (cmd == "exit" || cmd == "quit") break;
-        else std::cout << "알 수 없는 명령어: " << cmd << "  (help 참고)\n";
+        else {
+            // 셸에 처음 온 사람이 가장 먼저 하는 일은 코드를 치는 것이다.
+            // "알 수 없는 명령어: let" 만 보여 주면 repl 이 있다는 걸 알 길이 없다.
+            static const std::vector<string> CMDS = {
+                "create", "choose", "code", "show", "run", "list",
+                "build", "topython", "repl", "clear", "help", "exit",
+            };
+            bool looksLikeCode =
+                cmd == KW_LET || cmd == KW_PRINT || cmd == KW_IF || cmd == KW_WHILE
+             || cmd == KW_FOR || cmd == KW_FUNC || cmd == KW_CLASS || cmd == KW_TRY
+             || cmd == KW_RETURN || cmd == "import"
+             || line.find('=') != string::npos || line.find('(') != string::npos;
+            std::cout << "알 수 없는 명령어: " << cmd
+                      << (looksLikeCode
+                            ? "  (코드를 한 줄씩 실행하려면 repl 을 먼저 치세요)"
+                            : suggestName(cmd, CMDS))
+                      << "\n   명령어 목록은 help\n";
+        }
     }
     std::cout << "종료합니다.\n";
     return 0;

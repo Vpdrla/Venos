@@ -138,6 +138,8 @@ misc:    time()→seconds  exit()→quit immediately  copy(v)→deep copy  error
 ```
 import "utils.my"        # at the top of the file, one per line. Duplicate imports are skipped
 ```
+Paths resolve **relative to the file doing the importing**, so `venos project/main.my`
+works from outside the folder. Subfolders: `import "lib/helpers.my"`.
 `import` is desktop-only (not available in the web playground or REPL).
 
 ## Error handling (try/catch)

@@ -85,7 +85,7 @@ git tag v0.6.0 && git push origin v0.6.0
 - 실행은 `runOnBigStack`(128MB 전용 스택 스레드) 경유 — 재귀 한도(2000) 전에 세그폴트 방지. WASM에선 스레드 없이 직접 실행(링크 시 TOTAL_STACK 32MB).
 - **웹은 재귀 한도가 200** (`MAX_RECURSION`, `VENOS_WASM` 일 때). `TOTAL_STACK` 은 선형 메모리의 그림자 스택이지 브라우저 호출 스택이 아니라서, 2000 을 그대로 두면 한도에 닿기 전에 V8 이 `RangeError: Maximum call stack size exceeded` 를 던진다 — 학생에게는 알아볼 수 없는 영어 메시지다. 실측: 450 이 두 번 통과했다가 380 이 한 번 실패했다 — 넘어가는 지점이 실행마다 다르고, 한 번 넘치면 그 페이지에서 회복되지 않는다. 그래서 여유를 크게 뒀다. **스택이 터지면 `DepthGuard` 소멸자가 안 돌아 `g_frames` 가 남는다** — `runSource` 가 시작할 때 비운다 (안 비우면 다음 실행의 에러에 앞 실행 함수들이 섞여 나온다). `topython` 이 내는 `setrecursionlimit` 은 `RECURSION_DESKTOP` 기준이라 웹에서 변환해도 같은 파이썬이 나온다. `tools/playground-check.js` 가 한도 안쪽/바깥쪽을 둘 다 확인한다.
 - 트랜스파일러: 메서드는 클래스별 정적 함수 `m_클래스_메서드` + (이름,인자수)별 디스패처(수제 vtable). 식별자 맹글링 u_/f_ + non-ASCII hex. 대입 좌변은 접근자 체인(idx_mid/idx_put/fld_mid/fld_put).
-- `import`는 파싱 전 텍스트 병합 (`expandImports`, 중복 자동 스킵).
+- `import`는 파싱 전 텍스트 병합 (`expandImports`, 중복 자동 스킵). **경로는 그 import 를 쓴 파일 기준**으로 푼다 — cwd 기준이면 `venos 프로젝트/main.my` 를 폴더 밖에서 못 돌린다 (실제 버그였다). 에러에 쓰는 이름(`label`)은 import 에 적힌 그대로 두고, 여는 경로(`path`)만 푼다. `tests/cases/imports.my` + `tests/cases/lib/` 가 3중 differential 로 지킨다.
 
 ## 지뢰밭 (이미 밟고 고친 것들 — 재발 금지)
 - **윈도우는 `main` 의 argv 를 ANSI 코드페이지로 준다** → 한글 파일 이름이 `?` 로 뭉개져 "파일 없음: ??.my" 가 된다. `useUtf8Argv()` 가 `CommandLineToArgvW` 로 명령줄을 다시 받아 UTF-8 로 바꿔 끼운다. 새로 argv 를 읽는 코드를 넣을 때 이 변환 뒤라는 걸 전제할 것.

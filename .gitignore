@@ -18,6 +18,9 @@ examples/algorithms/*
 tests/cases/*
 !tests/cases/*.my
 !tests/cases/*.input
+!tests/cases/lib/
+tests/cases/lib/*
+!tests/cases/lib/*.my
 tests/nopython/*.py
 tests/.tmp_*
 
