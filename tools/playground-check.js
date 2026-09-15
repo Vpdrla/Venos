@@ -212,6 +212,15 @@ const CHECKS = [
     else { bad++; console.log('✗ 중단한 다음 실행'); console.log('   ' + after.split('\n').join(' / ')); }
   }
 
+  // 학생 출력이 에러로 칠해지지 않는가 — examples/rpg.my 가 "!!! 고블린이 나타났다!" 를 찍는다
+  {
+    await page.fill('#editor', 'print "!!! 고블린이 나타났다!"\nprint "보통 줄"\n');
+    await runAndRead('#runBtn');
+    const reds = await page.$$eval('#output .err', es => es.map(e => e.textContent));
+    if (reds.length === 0) console.log('✓ "!!!" 로 시작하는 출력이 에러로 안 칠해짐');
+    else { bad++; console.log('✗ 학생 출력이 에러 색으로 칠해짐: ' + JSON.stringify(reds)); }
+  }
+
   // 손가락으로 쓰는 화면 — 교실 태블릿이 실제 대상 기기다.
   // 버튼이 44px 보다 작으면 손끝으로 놓치고, 입력 칸 글꼴이 16px 미만이면
   // iOS 사파리가 포커스 때 화면을 확대해 버린다.

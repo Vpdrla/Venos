@@ -770,7 +770,9 @@ inputBox.addEventListener('keydown', e => {
 createVenos({
   venosAskInput: askInput,
   print: t => { if (capture !== null) capture.push(t);
-                append(t, t.startsWith('!!') ? 'err' : (t.startsWith('===') ? 'ok' : '')); },
+                // Venos 의 에러는 늘 "!! " (느낌표 둘 + 공백) 로 시작한다. 공백까지 보지 않으면
+                // RPG 의 "!!! 고블린이 나타났다!" 같은 학생 출력이 빨간 에러로 칠해진다.
+                append(t, t.startsWith('!! ') ? 'err' : (t.startsWith('===') ? 'ok' : '')); },
   printErr: t => append(t, 'err'),
 }).then(mod => {
   M = mod;
@@ -833,7 +835,7 @@ function toPython() {
   const text = capture.join('\n');
   capture = null;
   pyBtn.disabled = false;
-  if (text && !text.startsWith('!!') && navigator.clipboard) {
+  if (text && !text.startsWith('!! ') && navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => {
       shareMsg.textContent = 'Python copied — paste it into any Python editor';
       setTimeout(() => { shareMsg.textContent = ''; }, 4000);
