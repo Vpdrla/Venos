@@ -270,6 +270,57 @@ their output must match a recorded file character for character. When I improve 
 I have to update the file, which is exactly the friction that keeps me from changing
 wording carelessly.
 
+## 10. The tenth instrument, built the same week
+
+Writing §8 made the shape obvious enough that I went and built the next one
+before finishing the essay.
+
+The fuzzer in §7 mutates real programs, so nearly everything it produces is a
+syntax error. It can find a crash; it cannot find a *wrong answer*. So the
+other half: a generator that writes random but **valid** Venos programs from a
+grammar — nested ifs, loops with `break` and `continue` inside `try`, string
+repetition inside list indices, dictionary iteration, a class with a
+constructor and methods — and runs each through all three backends, diffing the
+output.
+
+The programs are constrained to finish without error, because error text
+legitimately differs between backends and comparing it would produce nothing
+but false alarms. What is left is the question that matters: given a program
+that works, do the three implementations agree?
+
+Its seventh program did not, and the disagreement was three ways:
+
+```
+try { 없는변수 = 3
+      print "여기 안 옴" } catch 오류 { print "잡음" }
+```
+
+The interpreter raises where the line runs and the `catch` catches it.
+`venos build` refuses at build time, as designed. And `topython` emitted Python
+that **assigns the variable**, because in Python assignment creates a name. A
+different program, from a mistake the language is otherwise good at catching.
+
+Its ninth program hung — the Python hung, while Venos finished:
+
+```
+let xs = [1, 2, 3]
+for x in xs { push(xs, x * 10) }
+```
+
+Venos walks the list as it was when the loop started. Python's `for` walks the
+live list, so it walks the appended elements too, forever. No error anywhere,
+just a different answer, from a program with nothing wrong in it. Appending to
+the list you are looping over is something a beginner does on purpose.
+
+That one has the nicer fix. The emitter now writes the loop body first and
+wraps the iterable in `list(...)` only if that body mentions the name — across
+the sixteen algorithm examples, that is zero loops. `for 점수 in 점수들:` stays
+exactly as it was, which is the whole point of the feature.
+
+Two bugs, both of the kind nothing else I had built could see. Which is the
+argument of this essay arriving on schedule, and I would rather report that
+than pretend I planned it.
+
 ---
 
 ## What the list adds up to
@@ -287,6 +338,7 @@ Nine instruments, and each one found the class of bug only it could find:
 | a real browser in CI | a JavaScript error where Korean should have been |
 | a touch viewport | 34px buttons in a classroom of tablets |
 | a coverage audit | `import` had never been tested at all |
+| a generator of valid programs | two answers that differed with no error in sight |
 
 The pattern is not "test more." It is that each instrument sees one kind of thing and is
 blind to the rest, and you cannot reason your way to the blind spots — you can only build
@@ -296,7 +348,11 @@ fuzzer said it inside its first fifty mutated programs.
 
 The corollary, which I like less: whatever is broken in Venos right now is broken in a way
 I cannot currently see, and the way to find it is not to look harder. It is to build the
-tenth instrument.
+next instrument.
 
-I have a guess about what it should be. Nobody who is not me has written a Venos program
-yet.
+Section 10 is that corollary being tested while the essay was still open, which is the
+most convincing version of it I could have hoped for and the least deliberate. Ten
+instruments, ten kinds of blindness, and the tenth found two things nine could not.
+
+The eleventh is not something I can build. Nobody who is not me has written a Venos
+program yet.
