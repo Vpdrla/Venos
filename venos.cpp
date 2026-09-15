@@ -1601,8 +1601,9 @@ struct CallExpr : Expr {
         }
         if (name == "exists") {    // exists("save.txt") → 파일 있으면 true
             needArgs(1, "exists(경로)");
-            std::ifstream f(toPath(needStr(0)));
-            return Value::number(f.good() ? 1 : 0);
+            // "열리는가"가 아니라 "있는가"를 묻는다 — 트랜스파일 빌드본과 같은 판단이어야 한다
+            std::error_code ec;
+            return Value::number(fs::is_regular_file(toPath(needStr(0)), ec) ? 1 : 0);
         }
         if (name == "appendfile") { // appendfile(경로, 내용) → 파일 끝에 이어쓰기
             needArgs(2, "appendfile(경로, 내용)");
@@ -2815,8 +2816,8 @@ static Value rt_deepcopy(const Value& v, int depth) {
 }
 static Value b_copy(const Value& v) { return rt_deepcopy(v, 0); }
 static Value b_exists(const Value& a) {
-    std::ifstream f(rt_path(needStrR(a, "exists")));
-    return Value(f.good() ? 1.0 : 0.0);
+    std::error_code ec;
+    return Value(std::filesystem::is_regular_file(rt_path(needStrR(a, "exists")), ec) ? 1.0 : 0.0);
 }
 static Value b_appendfile(const Value& a, const Value& b) {
     std::ofstream f(rt_path(needStrR(a, "appendfile")), std::ios::app);
