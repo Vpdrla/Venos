@@ -52,6 +52,8 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 ```bash
 tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + topython 거절 + 내장함수 대조 + 레슨 트랙
 tools/sanitize.sh    # ASan+UBSan 으로 두 백엔드 훑기 + 퍼징 (약 4분, CI 의 sanitize 잡)
+                     # 케이스를 임시 폴더로 복사해 돌린다 — 딸린 파일(tests/cases/lib 등)을
+                     # 새로 만들면 여기 복사 목록에도 넣을 것 (안 넣으면 CI 에서만 깨진다)
 python3 tools/fuzz.py ./venos --minutes 2   # 퍼징만 따로
 ```
 러너는 다섯 단계다:

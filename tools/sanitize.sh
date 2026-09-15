@@ -57,8 +57,10 @@ out=$("$TMP/venos-asan" examples/rpg.my < tests/cases/rpg_path.input 2>&1)
 report "실행/rpg" "$out"
 
 echo "== topython"
-# topython 은 .my 옆에 .py 를 쓴다 — 저장소를 더럽히지 않게 임시 폴더로 복사해서 돌린다
+# topython 은 .my 옆에 .py 를 쓴다 — 저장소를 더럽히지 않게 임시 폴더로 복사해서 돌린다.
+# import 는 "그 파일 옆" 기준이므로 tests/cases/lib 도 같이 옮겨야 imports.my 가 산다.
 mkdir -p "$TMP/py"
+cp -r tests/cases/lib "$TMP/py/" 2>/dev/null
 for f in tests/cases/*.my examples/algorithms/*.my; do
     cp "$f" "$TMP/py/case.my"
     out=$("$TMP/venos-asan" topython "$TMP/py/case.my" 2>&1)
@@ -69,6 +71,7 @@ echo "== 생성된 C++ (RUNTIME 문자열 = 두 번째 구현)"
 mkdir -p "$TMP/gen"
 cp tests/cases/*.my examples/algorithms/*.my "$TMP/gen/" 2>/dev/null
 cp tests/cases/*.input "$TMP/gen/" 2>/dev/null
+cp -r tests/cases/lib "$TMP/gen/" 2>/dev/null   # imports.my 가 불러 쓰는 파일
 for f in "$TMP/gen"/*.my; do
     name=$(basename "$f" .my)
     "$TMP/venos-asan" build "$f" > /dev/null 2>&1 || { echo "FAIL  빌드/$name"; bad=$((bad+1)); continue; }

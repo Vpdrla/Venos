@@ -27,6 +27,7 @@ import glob
 import hashlib
 import os
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -102,6 +103,10 @@ def main():
     out_dir = args.out or os.path.join(os.environ.get('TMPDIR', '/tmp'), 'venos-fuzz')
     os.makedirs(out_dir, exist_ok=True)
     case = os.path.join(out_dir, 'case.my')
+    # imports.my 씨앗이 파스 전에 죽지 않도록, 그 파일이 불러 쓰는 폴더를 옆에 둔다
+    # (import 는 "그 import 를 쓴 파일 옆" 기준이다)
+    if os.path.isdir('tests/cases/lib'):
+        shutil.copytree('tests/cases/lib', os.path.join(out_dir, 'lib'), dirs_exist_ok=True)
 
     rng = random.Random(args.seed)
     deadline = time.time() + args.minutes * 60 if args.minutes else None
