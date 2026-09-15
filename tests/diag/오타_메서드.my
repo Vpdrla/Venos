@@ -1,0 +1,6 @@
+class 사람 {
+    func init() { self.이름 = "가람" }
+    func 인사() { print "안녕" }
+}
+let p = 사람()
+p.인샤()

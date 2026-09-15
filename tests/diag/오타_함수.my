@@ -1,0 +1,2 @@
+func 더하기(a, b) { return a + b }
+print 더하키(1, 2)

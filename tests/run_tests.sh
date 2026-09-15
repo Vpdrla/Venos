@@ -99,6 +99,30 @@ for case_file in tests/cases/*.my; do
     fi
 done
 
+# ---- 에러 메시지 회귀 (tests/diag) ----
+# 일부러 틀린 프로그램의 출력이 .expected 와 글자까지 같아야 한다.
+# 에러 문구는 초보자가 가장 많이 보는 화면이라 제품 기능으로 취급한다.
+dpass=0; dfail=0
+for case_file in tests/diag/*.my; do
+    [ -e "$case_file" ] || break
+    name=$(basename "$case_file" .my)
+    want="tests/diag/$name.expected"
+    if [ ! -f "$want" ]; then
+        echo "FAIL  진단/$name  (.expected 가 없습니다)"
+        dfail=$((dfail+1)); continue
+    fi
+    "$VENOS" "$case_file" > "$TMP/diag.txt" 2>&1
+    if diff "$want" "$TMP/diag.txt" > "$TMP/diff.txt" 2>&1; then
+        echo "PASS  진단/$name"
+        dpass=$((dpass+1))
+    else
+        echo "FAIL  진단/$name  (에러 메시지가 바뀌었습니다)"
+        cat "$TMP/diff.txt"
+        dfail=$((dfail+1))
+    fi
+done
+
 echo
 echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pytested, 건너뜀 $pyskipped)"
-[ "$fail" -eq 0 ]
+echo "에러 메시지: 통과 $dpass / 실패 $dfail"
+[ "$fail" -eq 0 ] && [ "$dfail" -eq 0 ]

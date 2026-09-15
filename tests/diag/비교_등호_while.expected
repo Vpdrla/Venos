@@ -1,0 +1,3 @@
+=== running: tests/diag/비교_등호_while.my ===
+!! 에러: [줄 2] while 조건에서 값을 견줄 때는 == 를 씁니다 (= 는 값을 넣을 때)
+    줄 2 | while x = 5 { print "다섯" }

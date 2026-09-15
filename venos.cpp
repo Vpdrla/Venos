@@ -287,6 +287,47 @@ static std::vector<string> utf8Chars(const string& s) {
     return out;
 }
 
+// ---- 오타 제안 ----
+// "정의되지 않은 변수: 이릅" 만 던지고 끝내면 초보자는 뭐가 틀렸는지 못 찾는다.
+// 편집 거리를 글자 단위로 재서 (바이트로 재면 한글이 전부 거리 3 이 된다) 가까운 이름을 붙여 준다.
+static size_t editDistance(const std::vector<string>& a, const std::vector<string>& b) {
+    std::vector<size_t> prev(b.size() + 1), cur(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); j++) prev[j] = j;
+    for (size_t i = 1; i <= a.size(); i++) {
+        cur[0] = i;
+        for (size_t j = 1; j <= b.size(); j++)
+            cur[j] = std::min({ prev[j] + 1, cur[j - 1] + 1,
+                                prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1) });
+        prev = cur;
+    }
+    return prev[b.size()];
+}
+// 후보 중 가장 가까운 이름을 "  (혹시 'X'?)" 로. 마땅한 게 없으면 빈 문자열.
+static string suggestName(const string& typo, std::vector<string> cands) {
+    auto t = utf8Chars(typo);
+    if (t.size() < 2) return "";                       // 한 글자짜리는 아무거나 다 가까워진다
+    size_t maxD = t.size() <= 4 ? 1 : 2;
+    std::sort(cands.begin(), cands.end());
+    cands.erase(std::unique(cands.begin(), cands.end()), cands.end());
+    string best;
+    size_t bestD = maxD + 1;
+    for (const string& c : cands) {
+        if (c == typo) continue;
+        auto cc = utf8Chars(c);
+        if (cc.size() + maxD < t.size() || t.size() + maxD < cc.size()) continue;
+        size_t d = editDistance(t, cc);
+        if (d < bestD) { bestD = d; best = c; }
+    }
+    return best.empty() ? "" : "  (혹시 '" + best + "'?)";
+}
+// 내장 함수 이름 — 오타 제안 후보로 쓴다 (인터프리터·트랜스파일러가 같이 본다)
+static const std::vector<string> BUILTIN_NAMES = {
+    "random", "round", "floor", "ceil", "abs", "sqrt", "min", "max", "num", "str",
+    "len", "push", "pop", "sort", "reverse", "remove", "keys", "has",
+    "split", "join", "upper", "lower", "find", "replace", "substr",
+    "readfile", "writefile", "appendfile", "exists", "time", "exit", "copy", "error",
+};
+
 // ============================================================
 //  1. 렉서 (Lexer)
 // ============================================================
@@ -638,6 +679,11 @@ struct Env {
         return parent ? parent->find(n) : nullptr;
     }
     void define(const string& n, Value v) { vars[n] = std::move(v); }
+    // 오타 제안 후보 — 지금 보이는 모든 변수 이름 (지역 → 전역)
+    void collectNames(std::vector<string>& out) {
+        for (auto& [k, v] : vars) out.push_back(k);
+        if (parent) parent->collectNames(out);
+    }
 };
 
 // 제어 흐름 시그널 — break/continue/return 을 예외로 전달
@@ -684,7 +730,10 @@ struct VarExpr : Expr {
     VarExpr(string n, int l) : name(std::move(n)), line(l) {}
     Value eval(Env& env) override {
         Value* v = env.find(name);
-        if (!v) throw LangError(lineTag(line) + "정의되지 않은 변수: " + name);
+        if (!v) {
+            std::vector<string> names; env.collectNames(names);
+            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + suggestName(name, names));
+        }
         return *v;
     }
 };
@@ -865,8 +914,11 @@ struct FieldExpr : Expr {
             throw LangError(lineTag(line) + "" + t.kindName()
                             + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
         auto it = t.map->find(field);
-        if (it == t.map->end())
-            throw LangError(lineTag(line) + "필드가 없습니다: ." + field);
+        if (it == t.map->end()) {
+            std::vector<string> names;
+            for (auto& [k, v] : *t.map) names.push_back(k);
+            throw LangError(lineTag(line) + "필드가 없습니다: ." + field + suggestName(field, names));
+        }
         return it->second;
     }
 };
@@ -950,9 +1002,12 @@ struct AssignStmt : Stmt {
     AssignStmt(string n, ExprP v, int l) : name(std::move(n)), val(std::move(v)), line(l) {}
     void exec(Env& env) override {
         Value* slot = env.find(name);
-        if (!slot)
-            throw LangError(lineTag(line) + "선언되지 않은 변수에 대입: " + name
-                            + "  (" + KW_LET + " " + name + " = ... 로 먼저 선언하세요)");
+        if (!slot) {
+            std::vector<string> names; env.collectNames(names);
+            string hint = suggestName(name, names);
+            if (hint.empty()) hint = "  (" + KW_LET + " " + name + " = ... 로 먼저 선언하세요)";
+            throw LangError(lineTag(line) + "선언되지 않은 변수에 대입: " + name + hint);
+        }
         *slot = val->eval(env);
     }
 };
@@ -973,7 +1028,11 @@ static Value* stepIntoAcc(Value* cur, Accessor& a, Env& env) {
         if (cur->kind != Value::OBJ)
             throw err(cur->kindName() + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
         auto it = cur->map->find(a.field);
-        if (it == cur->map->end()) throw err("필드가 없습니다: ." + a.field);
+        if (it == cur->map->end()) {
+            std::vector<string> names;
+            for (auto& [k, v] : *cur->map) names.push_back(k);
+            throw err("필드가 없습니다: ." + a.field + suggestName(a.field, names));
+        }
         return &it->second;
     }
     Value key = a.index->eval(env);
@@ -1235,8 +1294,12 @@ Value MethodCallExpr::eval(Env& env) {
     auto cit = g_classes.find(obj.className);
     if (cit == g_classes.end()) throw err("알 수 없는 클래스: " + obj.className);
     auto mit = cit->second->methods.find(method);
-    if (mit == cit->second->methods.end())
-        throw err("클래스 '" + obj.className + "' 에 메서드 '" + method + "' 이(가) 없습니다");
+    if (mit == cit->second->methods.end()) {
+        std::vector<string> names;
+        for (auto& [k, v] : cit->second->methods) names.push_back(k);
+        throw err("클래스 '" + obj.className + "' 에 메서드 '" + method + "' 이(가) 없습니다"
+                  + suggestName(method, names));
+    }
     FuncStmt* fn = mit->second;
     if (args.size() != fn->params.size())
         throw err(method + "() 는 인자 " + std::to_string(fn->params.size())
@@ -1546,7 +1609,12 @@ struct CallExpr : Expr {
 
         // ---- 사용자 정의 함수 ----
         auto it = g_funcs.find(name);
-        if (it == g_funcs.end()) throw err("정의되지 않은 함수 또는 클래스: " + name);
+        if (it == g_funcs.end()) {
+            std::vector<string> names = BUILTIN_NAMES;
+            for (auto& [k, v] : g_funcs)   names.push_back(k);
+            for (auto& [k, v] : g_classes) names.push_back(k);
+            throw err("정의되지 않은 함수 또는 클래스: " + name + suggestName(name, names));
+        }
         FuncStmt* fn = it->second;
         if (vals.size() != fn->params.size())
             throw err(name + "() 는 인자 " + std::to_string(fn->params.size())
@@ -1660,6 +1728,7 @@ struct Parser {
         if (match(Tok::IF)) {
             auto node = std::make_unique<IfStmt>();
             node->cond = parseExpr();
+            checkCompareTypo(KW_IF);
             match(Tok::FILLER);
             node->thenB = parseBlock();
             if (match(Tok::ELSE)) {
@@ -1671,6 +1740,7 @@ struct Parser {
         if (match(Tok::WHILE)) {
             auto node = std::make_unique<WhileStmt>();
             node->cond = parseExpr();
+            checkCompareTypo(KW_WHILE);
             match(Tok::FILLER);
             node->body = parseBlock();
             return node;
@@ -1833,12 +1903,22 @@ struct Parser {
     }
 
     StmtP parseBlock() {
+        int openLine = peek().line;
         expect(Tok::LBRACE, "{");
         auto block = std::make_unique<BlockStmt>();
         while (!check(Tok::RBRACE) && !check(Tok::END))
             block->stmts.push_back(parseStatement());
-        expect(Tok::RBRACE, "}");
+        // 파일 끝까지 } 가 안 나왔다 — 끝 줄이 아니라 열린 자리를 가리켜야 찾을 수 있다
+        if (!check(Tok::RBRACE))
+            throw LangError(lineTag(openLine) + "여기서 연 { 를 닫는 } 가 없습니다");
+        advance();
         return block;
+    }
+    // if/while 조건 뒤에 = 가 오면 == 를 잘못 쓴 것이다 (초보자 최빈 실수)
+    void checkCompareTypo(const string& kw) {
+        if (check(Tok::ASSIGN))
+            throw LangError(lineTag(peek().line) + kw + " 조건에서 값을 견줄 때는 == 를 씁니다"
+                                                       " (= 는 값을 넣을 때)");
     }
 
     ExprP parseExpr() { return parseOr(); }
@@ -2722,6 +2802,18 @@ struct CodeGen {
     bool declared(const string& n) {
         return (inFunc && localSet.count(n)) || globalSet.count(n);
     }
+    // 오타 제안 후보 — 지금 보이는 변수 이름들 / 부를 수 있는 이름들
+    std::vector<string> visibleVars() {
+        std::vector<string> out(globalSet.begin(), globalSet.end());
+        if (inFunc) out.insert(out.end(), localSet.begin(), localSet.end());
+        return out;
+    }
+    std::vector<string> callableNames() {
+        std::vector<string> out = BUILTIN_NAMES;
+        for (auto& [k, v] : funcs)   out.push_back(k);
+        for (auto& [k, v] : classes) out.push_back(k);
+        return out;
+    }
 
     // 문자열 리터럴 → C++ 소스용 이스케이프
     static string cppStr(const string& s) {
@@ -2805,7 +2897,8 @@ struct CodeGen {
         if (auto* s = dynamic_cast<StrExpr*>(e))
             return "Value(string(" + cppStr(s->s) + "))";
         if (auto* v = dynamic_cast<VarExpr*>(e)) {
-            if (!declared(v->name)) throw err(v->line, "정의되지 않은 변수: " + v->name);
+            if (!declared(v->name))
+                throw err(v->line, "정의되지 않은 변수: " + v->name + suggestName(v->name, visibleVars()));
             return varName(v->name);
         }
         if (auto* l = dynamic_cast<ListExpr*>(e)) {
@@ -2890,7 +2983,9 @@ struct CodeGen {
                 return "new_" + mangle(c->name, "") + "(" + argsCode + ")";
             }
             auto uf = funcs.find(c->name);
-            if (uf == funcs.end()) throw err(c->line, "정의되지 않은 함수 또는 클래스: " + c->name);
+            if (uf == funcs.end())
+                throw err(c->line, "정의되지 않은 함수 또는 클래스: " + c->name
+                                   + suggestName(c->name, callableNames()));
             if (c->args.size() != uf->second->params.size())
                 throw err(c->line, c->name + "() 는 인자 " + std::to_string(uf->second->params.size())
                           + "개가 필요합니다 (지금 " + std::to_string(c->args.size()) + "개)");
@@ -2909,15 +3004,18 @@ struct CodeGen {
             return;
         }
         if (auto* a = dynamic_cast<AssignStmt*>(s)) {
-            if (!declared(a->name))
-                throw err(a->line, "선언되지 않은 변수에 대입: " + a->name
-                          + "  (" + KW_LET + " " + a->name + " = ... 로 먼저 선언하세요)");
+            if (!declared(a->name)) {
+                string hint = suggestName(a->name, visibleVars());
+                if (hint.empty()) hint = "  (" + KW_LET + " " + a->name + " = ... 로 먼저 선언하세요)";
+                throw err(a->line, "선언되지 않은 변수에 대입: " + a->name + hint);
+            }
             ind(out, depth);
             out << varName(a->name) << " = " << genExpr(a->val.get()) << ";\n";
             return;
         }
         if (auto* pa = dynamic_cast<PathAssignStmt*>(s)) {
-            if (!declared(pa->name)) throw err(pa->line, "정의되지 않은 변수: " + pa->name);
+            if (!declared(pa->name))
+                throw err(pa->line, "정의되지 않은 변수: " + pa->name + suggestName(pa->name, visibleVars()));
             string target = varName(pa->name);
             for (size_t k = 0; k + 1 < pa->path.size(); k++) {
                 Accessor& a = pa->path[k];
@@ -2934,7 +3032,8 @@ struct CodeGen {
             return;
         }
         if (auto* pc = dynamic_cast<PathCompoundStmt*>(s)) {
-            if (!declared(pc->name)) throw err(pc->line, "정의되지 않은 변수: " + pc->name);
+            if (!declared(pc->name))
+                throw err(pc->line, "정의되지 않은 변수: " + pc->name + suggestName(pc->name, visibleVars()));
             string target = varName(pc->name);
             for (auto& a : pc->path)
                 target = a.isField
