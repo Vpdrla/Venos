@@ -149,6 +149,13 @@ error("my own error")               # raise an error that try can catch
 ```
 break/continue/return/exit are not errors — they pass through catch untouched.
 
+An uncaught error stops the program and prints **how execution got there** (interpreter):
+```
+!! 에러: [줄 2] 인덱스 범위 초과: 10 (리스트 크기: 3, 인덱스는 1부터)
+    줄 2 | return xs[10]
+    부른 순서: 바깥 (줄 10에서) → 가운데 (줄 8에서) → 안쪽 (줄 5에서)
+```
+
 ## Copying (mind the reference semantics)
 ```
 let b = a           # for lists/dicts/objects this aliases the same value (mutating b mutates a)

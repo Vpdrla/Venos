@@ -1,0 +1,7 @@
+class 통 {
+    func init() { self.값 = [1, 2] }
+    func 꺼내기(i) { return self.값[i] }
+}
+func 쓰는쪽(t) { return t.꺼내기(9) }
+let t = 통()
+print 쓰는쪽(t)

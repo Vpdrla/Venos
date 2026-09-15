@@ -367,8 +367,17 @@ struct Token {
     int line = 0;
 };
 
+// ---- 호출 경로 ----
+// 에러가 함수 안쪽에서 나면 "어디서 불렀는지"가 사실상 답이다. 파이썬은 traceback 을
+// 통째로 보여 주는데 그건 초보자에게 겁만 주므로, 여기서는 한 줄로 줄여서 보여 준다.
+// 에러가 만들어지는 순간의 스택을 찍어 둔다 (던진 뒤엔 DepthGuard 가 이미 걷혀 있다).
+struct CallFrame { const string* name; int line; };   // 이름은 AST 가 들고 있으므로 포인터로
+static std::vector<CallFrame> g_frames;
+static string callPath();
+
 struct LangError : std::runtime_error {
-    LangError(const string& msg) : std::runtime_error(msg) {}
+    string path;                       // "바깥(줄 10) → 가운데(줄 8)" — 없으면 빈 문자열
+    LangError(const string& msg) : std::runtime_error(msg), path(callPath()) {}
 };
 
 // import 로 파일이 병합되면, 병합된 줄번호 → "원본파일 줄 N" 매핑을 채운다.
@@ -378,6 +387,27 @@ static string lineTag(int line) {
     if (line >= 1 && line < (int)g_lineMap.size() && !g_lineMap[line].empty())
         return "[" + g_lineMap[line] + "] ";
     return "[줄 " + std::to_string(line) + "] ";
+}
+// 지금 쌓여 있는 호출을 한 줄로. 깊은 재귀는 가운데를 접는다 (2000줄을 쏟으면 안 되므로).
+static string callPath() {
+    if (g_frames.empty()) return "";
+    auto one = [](const CallFrame& f) {
+        string tag = lineTag(f.line);
+        if (!tag.empty() && tag.front() == '[') tag = tag.substr(1, tag.find(']') - 1);
+        return *f.name + " (" + tag + "에서)";
+    };
+    const size_t HEAD = 3, TAIL = 2;
+    string out;
+    if (g_frames.size() <= HEAD + TAIL + 1) {
+        for (size_t i = 0; i < g_frames.size(); i++)
+            out += (i ? " → " : "") + one(g_frames[i]);
+        return out;
+    }
+    for (size_t i = 0; i < HEAD; i++) out += (i ? " → " : "") + one(g_frames[i]);
+    out += " → ... " + std::to_string(g_frames.size() - HEAD - TAIL) + "개 더 → ";
+    for (size_t i = g_frames.size() - TAIL; i < g_frames.size(); i++)
+        out += one(g_frames[i]) + (i + 1 < g_frames.size() ? " → " : "");
+    return out;
 }
 
 // 마지막으로 실행/빌드한 소스 (에러 시 해당 줄을 보여주기 위해 보관)
@@ -402,6 +432,11 @@ static void printError(const string& msg, const string& prefix = "!! 에러: ") 
     }
     if (merged >= 1 && merged <= (int)g_srcLines.size())
         std::cout << "    " << tag << " | " << trim(g_srcLines[merged - 1]) << "\n";
+}
+// 에러 + 그 에러가 난 자리까지 오게 된 호출 경로
+static void printError(const LangError& e) {
+    printError(e.what());
+    if (!e.path.empty()) std::cout << "    부른 순서: " << e.path << "\n";
 }
 
 // ============================================================
@@ -1314,14 +1349,15 @@ static Value deepCopy(const Value& v, int depth, int line) {
 
 // 재귀 깊이 카운터 — 생성 시 +1, 소멸 시 -1 (예외로 빠져나가도 자동 복원)
 struct DepthGuard {
-    DepthGuard(int line) {
+    DepthGuard(int line, const string& name) {
         if (++g_callDepth > MAX_RECURSION) {
             --g_callDepth;
             throw LangError(lineTag(line) + "함수 호출이 너무 깊습니다 (재귀 " 
                             + std::to_string(MAX_RECURSION) + "회 초과 — 무한 재귀?)");
         }
+        g_frames.push_back({ &name, line });
     }
-    ~DepthGuard() { --g_callDepth; }
+    ~DepthGuard() { --g_callDepth; g_frames.pop_back(); }
 };
 
 Value MethodCallExpr::eval(Env& env) {
@@ -1659,7 +1695,7 @@ struct CallExpr : Expr {
         if (vals.size() != fn->params.size())
             throw err(name + "() 는 인자 " + std::to_string(fn->params.size())
                       + "개가 필요합니다 (지금 " + std::to_string(vals.size()) + "개)");
-        DepthGuard guard(line);   // 무한 재귀 방지
+        DepthGuard guard(line, name);   // 무한 재귀 방지 + 호출 경로
         Env local;
         local.parent = g_global;
         for (size_t i = 0; i < vals.size(); i++)
@@ -1672,7 +1708,7 @@ struct CallExpr : Expr {
 Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
                 std::vector<Value>& args, int line) {
     (void)cls;
-    DepthGuard guard(line);
+    DepthGuard guard(line, fn->name);
     Env local;
     local.parent = g_global;
     local.define("self", self);   // self 는 같은 필드 맵을 공유 → 수정이 원본에 반영
@@ -4460,7 +4496,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_run(const char* code) {
         runSource(src);
         std::cout << "=== done ===\n";
     } catch (const LangError& e) {
-        printError(e.what());
+        printError(e);
     } catch (const std::exception& e) {
         std::cout << "!! 내부 에러: " << e.what() << "\n";
     }
@@ -4602,7 +4638,7 @@ void cmdRepl() {
         } catch (ExitSignal&) {
             break;
         } catch (LangError& e) {
-            printError(e.what());
+            printError(e);
         } catch (std::exception& e) {
             std::cout << "!! 내부 에러: " << e.what() << "\n";
         }
@@ -4715,7 +4751,7 @@ void cmdCode() {
                 runSourceBigStack(expandImports(currentFile));   // 저장본 기준 (import 지원)
                 std::cout << "=== done ===\n";
             } catch (const LangError& e) {
-                printError(e.what());
+                printError(e);
             } catch (const std::exception& e) {
                 std::cout << "!! 내부 에러: " << e.what() << "\n";
             }
@@ -4778,7 +4814,7 @@ void cmdRun() {
         runSourceBigStack(expandImports(currentFile));
         std::cout << "=== done ===\n";
     } catch (const LangError& e) {
-        printError(e.what());
+        printError(e);
     } catch (const std::exception& e) {
         std::cout << "!! 내부 에러: " << e.what() << "\n";
     }
