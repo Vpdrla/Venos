@@ -17,7 +17,10 @@ const os = require('os');
 const { execFileSync, spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const VENOS = path.join(ROOT, 'venos');
+// 윈도우에서는 g++ 가 확장자 없는 -o 에 .exe 를 붙인다
+const VENOS = ['venos', 'venos.exe']
+    .map((n) => path.join(ROOT, n))
+    .find((p) => fs.existsSync(p)) || path.join(ROOT, 'venos');
 
 // 입력을 쓰는 레슨이 끝까지 갈 수 있게 답을 넉넉히 넣어 준다.
 // 전부 숫자로 둔다 — 숫자 맞히기처럼 입력을 수로 다루는 레슨이 섞여 있어서다

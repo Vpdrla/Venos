@@ -32,6 +32,7 @@
 #define NOMINMAX          // windows.h 의 min/max 매크로가 std::min/max 를 깨는 것 방지
 #endif
 #include <windows.h>
+#include <shellapi.h>   // CommandLineToArgvW — argv 를 UTF-8 로 되살리는 데 쓴다
 #include <process.h>   // _beginthreadex (실행 스레드 스택 크기 지정용)
 #include <conio.h>     // _getch (방향키 스크롤용)
 #include <io.h>        // _isatty
@@ -3445,6 +3446,7 @@ struct PyGen {
     bool sawList = false;                    // 리스트가 존재할 수 있는가
     bool sawIndex = false;                   // [ ] 인덱싱을 쓰는가 (머리말에 1부터 얘기를 넣을지)
     bool sawFloat = false;                   // 소수가 나올 수 있는가 (/ · sqrt · 입력 등)
+    bool sawNonAscii = false;                // 문자열 리터럴에 ASCII 밖 글자가 있는가 (출력 인코딩)
     bool lastRangeIsInt = false;             // 방금 만든 for 범위가 진짜 range() 인가 (rangeOf 가 설정)
 
 
@@ -3471,6 +3473,10 @@ struct PyGen {
     static string pyName(const string& n) { return taken(n) ? n + "_" : n; }
 
     // 문자열 리터럴 → 파이썬 소스
+    string pyStrTracked(const string& s) {
+        for (unsigned char c : s) if (c > 0x7F) { sawNonAscii = true; break; }
+        return pyStr(s);
+    }
     static string pyStr(const string& s) {
         string o = "\"";
         for (char c : s) {
@@ -3814,6 +3820,7 @@ struct PyGen {
         string o = string("f") + q;
         for (Expr* p : parts) {
             if (auto* st = dynamic_cast<StrExpr*>(p)) {
+                for (unsigned char uc : st->s) if (uc > 0x7F) { sawNonAscii = true; break; }
                 for (char c : st->s) {
                     if (c == '{')       o += "{{";
                     else if (c == '}')  o += "}}";
@@ -3836,7 +3843,7 @@ struct PyGen {
             if (n->v != (long long)n->v) sawFloat = true;
             return pyNum(n->v);
         }
-        if (auto* s = dynamic_cast<StrExpr*>(e))  return pyStr(s->s);
+        if (auto* s = dynamic_cast<StrExpr*>(e))  return pyStrTracked(s->s);
         if (auto* v = dynamic_cast<VarExpr*>(e))  return pyName(v->name);
         if (auto* l = dynamic_cast<ListExpr*>(e)) {
             sawList = true;
@@ -4341,7 +4348,7 @@ struct PyGen {
         imports.clear();
         buildAll(defs, main);
         bool deepRecursion = hasRecursion();
-        if (deepRecursion) imports.insert("sys");
+        if (deepRecursion || sawNonAscii) imports.insert("sys");
 
         std::ostringstream out;
         out << "# 이 파일은 Venos 프로그램을 파이썬으로 옮긴 것입니다 (venos topython).\n";
@@ -4367,6 +4374,9 @@ struct PyGen {
             out << "\n";
             for (auto& m : imports) out << "import " << m << "\n";
         }
+        if (sawNonAscii)
+            out << "\nsys.stdout.reconfigure(encoding=\"utf-8\")"
+                   "   # 윈도우 콘솔 기본 인코딩에서 한글이 깨지지 않게\n";
         if (deepRecursion)
             out << "\nsys.setrecursionlimit(" << (MAX_RECURSION + 1000) << ")"
                    "   # Venos 는 " << MAX_RECURSION << "번까지 허용, 파이썬 기본값은 1000\n";
@@ -4967,8 +4977,35 @@ void cmdHelp() {
         "  CLI: venos 파일.my (바로 실행) / venos build 파일.my run\n";
 }
 
+#ifdef _WIN32
+// 윈도우는 main 의 argv 를 시스템 ANSI 코드페이지로 준다. 한글 파일 이름이 물음표로
+// 뭉개져서 "파일 없음: ??_??.my" 가 되고, 한국어 사용자용 언어인데 정렬.my 를 못 연다.
+// 명령줄을 UTF-16 으로 다시 받아 UTF-8 로 바꿔 끼운다 (프로그램 내부는 전부 UTF-8).
+static std::vector<string> g_wideArgs;
+static std::vector<char*>  g_wideArgv;
+static void useUtf8Argv(int& argc, char**& argv) {
+    int n = 0;
+    LPWSTR* w = CommandLineToArgvW(GetCommandLineW(), &n);
+    if (!w || n <= 0) return;
+    g_wideArgs.clear();
+    for (int i = 0; i < n; i++) {
+        int need = WideCharToMultiByte(CP_UTF8, 0, w[i], -1, nullptr, 0, nullptr, nullptr);
+        string u8(need > 1 ? need - 1 : 0, '\0');
+        if (need > 1) WideCharToMultiByte(CP_UTF8, 0, w[i], -1, &u8[0], need, nullptr, nullptr);
+        g_wideArgs.push_back(std::move(u8));
+    }
+    LocalFree(w);
+    g_wideArgv.clear();
+    for (auto& a : g_wideArgs) g_wideArgv.push_back(a.empty() ? const_cast<char*>("") : &a[0]);
+    g_wideArgv.push_back(nullptr);
+    argc = n;
+    argv = g_wideArgv.data();
+}
+#endif
+
 int main(int argc, char** argv) {
 #ifdef _WIN32
+    useUtf8Argv(argc, argv);
     SetConsoleCP(CP_UTF8);
     SetConsoleOutputCP(CP_UTF8);
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
