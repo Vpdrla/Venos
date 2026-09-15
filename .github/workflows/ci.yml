@@ -68,6 +68,35 @@ jobs:
           ./tests/.tmp_probe.exe || echo "(종료 코드 $?)"
           rm -f tests/.tmp_probe*
 
+      # 한글 파일 이름은 이 언어가 내건 약속이고, 윈도우가 실제로 깨뜨린 자리다
+      # (argv 가 ANSI 라 "정렬.my" 가 "??.my" 로 왔다). 세 경로 모두 지나가 본다.
+      - name: Korean filenames, end to end
+        run: |
+          mkdir -p "tests/.tmp_한글 폴더"
+          cat > "tests/.tmp_한글 폴더/정렬.my" <<'EOF'
+          import "도우미.my"
+          let 점수 = [88, 92, 79]
+          print "평균:", 평균(점수)
+          print "이름에 한글 👍"
+          EOF
+          cat > "tests/.tmp_한글 폴더/도우미.my" <<'EOF'
+          func 평균(xs) {
+              let s = 0
+              for x in xs { s += x }
+              return s / len(xs)
+          }
+          EOF
+          echo "--- 인터프리터 (폴더 밖에서, import 는 파일 옆 기준)"
+          ./venos.exe "tests/.tmp_한글 폴더/정렬.my"
+          echo "--- topython"
+          ./venos.exe topython "tests/.tmp_한글 폴더/정렬.my"
+          python "tests/.tmp_한글 폴더/정렬.py"
+          echo "--- build + run"
+          ./venos.exe build "tests/.tmp_한글 폴더/정렬.my" run
+          echo "--- 없는 한글 파일은 에러여야 한다"
+          ./venos.exe "tests/.tmp_없는한글.my" && { echo "::error::없는 파일인데 성공했습니다"; exit 1; } || echo "OK"
+          rm -rf "tests/.tmp_한글 폴더" tests/.tmp_없는한글.my
+
       - name: Differential tests, error messages, lesson track
         run: tests/run_tests.sh
 
