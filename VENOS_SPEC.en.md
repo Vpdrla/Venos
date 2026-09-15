@@ -46,6 +46,7 @@ Interpolation rules: literal braces are `{{` / `}}`. Double-quoted strings can't
 - `+` concatenates when a string is involved (`"age: " + 15` → "age: 15") and joins two lists (`[1] + [2]` → [1, 2])
 - `==`/`!=` work on every type — different types are simply not equal, and lists/dicts/objects compare **by content (deep equality)**. `< > <= >=` are numbers/strings only
 - Comparisons don't chain — write `a < b and b < c`, not `a < b < c`
+- `%` takes the sign of the **right** operand (the maths and Python convention) — `-7 % 3` is `2`, `-1 % 26` is `25`, so wrapping negatives around (a Caesar cipher, say) just works
 - `and`/`or` short-circuit
 - `#` starts a comment until end of line. Newlines/indentation are free-form (braces delimit blocks)
 

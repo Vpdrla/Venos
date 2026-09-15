@@ -779,6 +779,14 @@ static bool deepEquals(const Value& a, const Value& b, int depth, int line) {
     }
     return true;
 }
+// 나머지 — 결과가 나누는 수의 부호를 따른다 (수학·파이썬 관례).
+// C 의 fmod 는 나눠지는 수의 부호를 따라 -7 % 3 이 -1 이 되는데, 그러면 시저 암호처럼
+// 음수를 되감는 교과서 예제가 파이썬과 다른 답을 낸다.
+static double floorMod(double a, double b) {
+    double r = std::fmod(a, b);
+    if (r != 0 && ((r < 0) != (b < 0))) r += b;
+    return r;
+}
 // 이항 연산의 실제 처리 — BinExpr 와 원소 복합 대입(xs[i] += ...)이 공유
 static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
     auto err = [&](const string& m) {
@@ -822,7 +830,7 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
             return Value::number(a.num / b.num);
         case Tok::PERCENT:
             if (b.num == 0) throw err("0으로 나머지 연산을 할 수 없습니다");
-            return Value::number(std::fmod(a.num, b.num));
+            return Value::number(floorMod(a.num, b.num));
         default: throw err("지원하지 않는 연산자");
     }
 }
@@ -2225,7 +2233,10 @@ static Value vdiv(const Value& a, const Value& b) {
 static Value vmod(const Value& a, const Value& b) {
     needNums(a, b);
     if (b.num == 0) throw RunErr("0으로 나머지 연산을 할 수 없습니다");
-    return Value(std::fmod(a.num, b.num));
+    // 나머지는 나누는 수의 부호를 따른다 (수학·파이썬 관례) — -7 % 3 = 2
+    double r = std::fmod(a.num, b.num);
+    if (r != 0 && ((r < 0) != (b.num < 0))) r += b.num;
+    return Value(r);
 }
 static Value vneg(const Value& a) {
     if (a.kind != Value::NUM) throw RunErr(a.kindName() + "에는 - 를 붙일 수 없습니다");
@@ -3126,7 +3137,6 @@ struct PyGen {
     bool sawMap = false;                     // 딕셔너리가 존재할 수 있는가 (1차 통과에서 알아낸다)
     bool sawList = false;                    // 리스트가 존재할 수 있는가
     bool sawIndex = false;                   // [ ] 인덱싱을 쓰는가 (머리말에 1부터 얘기를 넣을지)
-    bool sawMod = false;                     // % 를 쓰는가
     bool sawFloat = false;                   // 소수가 나올 수 있는가 (/ · sqrt · 입력 등)
     bool lastRangeIsInt = false;             // 방금 만든 for 범위가 진짜 range() 인가 (rangeOf 가 설정)
 
@@ -3281,7 +3291,10 @@ struct PyGen {
                     else                o += c;
                 }
             } else {
-                o += "{" + expr(p) + "}";
+                // print 와 같은 규칙 — 파이썬 표기가 새어 나올 수 있으면 _show() 로 감싼다.
+                // (감싸지 않으면 True / 5.0 / {'a': 1} / 83.33333333333333 이 찍힌다)
+                o += plainSafe(p) ? "{" + expr(p) + "}"
+                                  : "{" + need("show") + "(" + expr(p) + ")}";
             }
         }
         return o + "\"";
@@ -3340,7 +3353,7 @@ struct PyGen {
                 case Tok::MINUS:op = "-";  break;
                 case Tok::STAR: op = "*";  break;
                 case Tok::SLASH:op = "/";  sawFloat = true; break;
-                case Tok::PERCENT: op = "%"; sawMod = true; break;
+                case Tok::PERCENT: op = "%"; break;
                 case Tok::EQ:   op = "=="; break;
                 case Tok::NEQ:  op = "!="; break;
                 case Tok::LT:   op = "<";  break;
@@ -3725,7 +3738,7 @@ struct PyGen {
         std::ostringstream out;
         out << "# 이 파일은 Venos 프로그램을 파이썬으로 옮긴 것입니다 (venos topython).\n";
         int noteN = 0;
-        if (sawIndex || sawFloat || sawMod || !helpers.empty())
+        if (sawIndex || sawFloat || !helpers.empty())
             out << "#\n# Venos 와 파이썬이 다른 점 — 숨기지 않고 적어 둡니다:\n";
         if (sawIndex)
             out << "#   " << ++noteN << ") 리스트를 Venos 는 1번부터, 파이썬은 0번부터 셉니다."
@@ -3734,9 +3747,6 @@ struct PyGen {
             out << "#   " << ++noteN << ") 소수를 보여주는 방식이 다릅니다. Venos 는 5.0 을 5 로,"
                    " 91.66666...을 91.6667 로\n"
                    "#      줄여서 보여주지만 파이썬은 있는 그대로 보여줍니다.\n";
-        if (sawMod)
-            out << "#   " << ++noteN << ") 음수 나머지가 다릅니다 — Venos 는 -7 % 3 이 -1,"
-                   " 파이썬은 2 입니다.\n";
         if (!helpers.empty())
             out << "#   " << ++noteN << ") 밑줄로 시작하는 _이름 함수들은 Venos 와 똑같이 보이게 하려고"
                    " 붙인 것뿐이니\n"
