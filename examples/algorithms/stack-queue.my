@@ -1,0 +1,77 @@
+# 스택과 큐 — 리스트로 만드는 두 가지 자료구조
+#
+# 스택(stack): 나중에 넣은 것이 먼저 나온다 (LIFO). 접시 쌓기.
+# 큐(queue):   먼저 넣은 것이 먼저 나온다 (FIFO). 줄 서기.
+
+class 스택 {
+    func init() { self.항목 = [] }
+    func 넣기(x) { push(self.항목, x)  return 0 }
+    func 빼기() {
+        if len(self.항목) == 0 { error("스택이 비었습니다") }
+        return pop(self.항목)                  # 맨 뒤에서 뺀다
+    }
+    func 맨위() { return self.항목[len(self.항목)] }
+    func 비었나() { return len(self.항목) == 0 }
+    func 크기() { return len(self.항목) }
+}
+
+class 큐 {
+    func init() { self.항목 = [] }
+    func 넣기(x) { push(self.항목, x)  return 0 }
+    func 빼기() {
+        if len(self.항목) == 0 { error("큐가 비었습니다") }
+        return remove(self.항목, 1)            # 맨 앞에서 뺀다
+    }
+    func 맨앞() { return self.항목[1] }
+    func 비었나() { return len(self.항목) == 0 }
+    func 크기() { return len(self.항목) }
+}
+
+let s = 스택()
+s.넣기(1)  s.넣기(2)  s.넣기(3)
+print "스택에 1,2,3 을 넣고 빼면:"
+while not s.비었나() { print " ", s.빼기() }
+
+let q = 큐()
+q.넣기(1)  q.넣기(2)  q.넣기(3)
+print "큐에 1,2,3 을 넣고 빼면:"
+while not q.비었나() { print " ", q.빼기() }
+
+# 스택 쓰임새 ①: 괄호 짝 맞추기
+func 괄호맞나(글) {
+    let s = 스택()
+    for 글자 in 글 {
+        if 글자 == "(" { s.넣기(글자) }
+        else if 글자 == ")" {
+            if s.비었나() { return 0 }
+            s.빼기()
+        }
+    }
+    return s.비었나()
+}
+print ""
+for 식 in ["(1+2)*(3-4)", "((1+2)", "1+2)(", "(())"] {
+    print "\"{식}\" → {괄호맞나(식)}"
+}
+
+# 스택 쓰임새 ②: 문자열 뒤집기
+func 뒤집기(글) {
+    let s = 스택()
+    for 글자 in 글 { s.넣기(글자) }
+    let 결과 = ""
+    while not s.비었나() { 결과 = 결과 + s.빼기() }
+    return 결과
+}
+print ""
+print "스택으로 뒤집기:", 뒤집기("가나다라마")
+
+# 큐 쓰임새: 순서대로 처리하기 (프린터 대기열)
+print ""
+let 대기 = 큐()
+대기.넣기("보고서.txt")
+대기.넣기("사진.png")
+대기.넣기("발표.pdf")
+print "인쇄 대기 {대기.크기()}건"
+while not 대기.비었나() {
+    print "인쇄 중:", 대기.빼기(), "(남은 {대기.크기()}건)"
+}

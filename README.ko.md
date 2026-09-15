@@ -146,6 +146,17 @@ g++ -std=c++17 -O2 -o venos.exe venos.cpp    # Windows (MinGW)
 
 ## 예제
 
+**[`examples/algorithms/`](examples/algorithms/)** — 교과서 알고리즘 15개 (선택 정렬, 이진 탐색,
+유클리드 호제법, 에라토스테네스의 체, 하노이의 탑, 시저 암호…). 교과서가 인쇄하는 의사코드와
+줄이 1:1 로 맞게 썼고, 그 의사코드를 각 파일 맨 위 주석에 그대로 넣어 두었다. 15개 전부를
+테스트 스위트가 **세 방식**(인터프리터 / 빌드본 / `topython` 파이썬)으로 돌려 출력이 같은지
+검사한다.
+
+```bash
+venos examples/algorithms/binary-search.my
+venos topython examples/algorithms/binary-search.my    # 같은 프로그램의 파이썬 버전
+```
+
 클래스, 딕셔너리, 문자열 보간, 파일 입출력 세이브/로드를 모두 활용하는 텍스트 RPG — 두 버전:
 `examples/rpg.my` (한국어 식별자) / `examples/rpg.en.my` (영어 식별자, 위 데모에 나오는 버전):
 

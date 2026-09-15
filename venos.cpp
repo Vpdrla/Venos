@@ -3573,26 +3573,48 @@ struct PyGen {
             cur = b->lhs.get();
         }
         std::reverse(parts.begin(), parts.end());
-        string o = "f\"";
+
+        // 값 자리를 먼저 만들어 둔다. print 와 같은 규칙 — 파이썬 표기가 새어 나올 수 있으면
+        // _show() 로 감싼다 (안 감싸면 True / 5.0 / {'a': 1} / 83.33333333333333 이 찍힌다).
+        std::map<Expr*, string> code;
+        bool hasDq = false, hasSq = false;
         for (Expr* p : parts) {
-            if (auto* s = dynamic_cast<StrExpr*>(p)) {
-                for (char c : s->s) {
+            if (dynamic_cast<StrExpr*>(p)) continue;
+            string c = plainSafe(p) ? expr(p) : need("show") + "(" + expr(p) + ")";
+            hasDq = hasDq || c.find('"')  != string::npos;
+            hasSq = hasSq || c.find('\'') != string::npos;
+            code[p] = c;
+        }
+        // 파이썬 3.11 까지는 f-문자열 안에서 바깥과 같은 따옴표를 다시 못 쓴다.
+        // "{replace(s, \"a\", \"b\")}" 같은 보간이 여기 걸린다 — 따옴표를 바꿔 피하고,
+        // 양쪽 다 들어 있으면 f-문자열을 포기하고 이어붙이기로 낸다.
+        if (hasDq && hasSq) {
+            string o;
+            for (Expr* p : parts) {
+                if (!o.empty()) o += " + ";
+                if (auto* st = dynamic_cast<StrExpr*>(p)) o += pyStr(st->s);
+                else                                     o += code[p];
+            }
+            return o.empty() ? "\"\"" : "(" + o + ")";
+        }
+        const char q = hasDq ? '\'' : '"';
+        string o = string("f") + q;
+        for (Expr* p : parts) {
+            if (auto* st = dynamic_cast<StrExpr*>(p)) {
+                for (char c : st->s) {
                     if (c == '{')       o += "{{";
                     else if (c == '}')  o += "}}";
-                    else if (c == '"')  o += "\\\"";
+                    else if (c == q)    { o += '\\'; o += c; }
                     else if (c == '\\') o += "\\\\";
                     else if (c == '\n') o += "\\n";
                     else if (c == '\t') o += "\\t";
                     else                o += c;
                 }
             } else {
-                // print 와 같은 규칙 — 파이썬 표기가 새어 나올 수 있으면 _show() 로 감싼다.
-                // (감싸지 않으면 True / 5.0 / {'a': 1} / 83.33333333333333 이 찍힌다)
-                o += plainSafe(p) ? "{" + expr(p) + "}"
-                                  : "{" + need("show") + "(" + expr(p) + ")}";
+                o += "{" + code[p] + "}";
             }
         }
-        return o + "\"";
+        return o + q;
     }
 
     // ---- 표현식 ----

@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."   # 저장소 루트에서 실행
 
 VENOS=./venos
 TMP=$(mktemp -d)
-cleanup() { rm -rf "$TMP" tests/.tmp_* tests/cases/*.py ; }
+cleanup() { rm -rf "$TMP" tests/.tmp_* tests/cases/*.py examples/algorithms/*.py examples/algorithms/*.cpp ; }
 trap cleanup EXIT
 
 # 파이썬 변환을 건너뛰는 케이스와 그 이유.
@@ -43,9 +43,16 @@ for line in sys.stdin:
 }
 
 pass=0; fail=0; pytested=0; pyskipped=0
-for case_file in tests/cases/*.my; do
+# tests/cases/*.my 는 언어 기능을, examples/algorithms/*.my 는 교과서 알고리즘을 본다.
+# 예제도 스위트에 넣는 이유: "같은 프로그램의 파이썬 버전을 준다"는 약속이 진짜인지는
+# 장난감 케이스가 아니라 실제 예제가 세 방식에서 같은 답을 낼 때만 증명된다.
+for case_file in tests/cases/*.my examples/algorithms/*.my; do
+    [ -e "$case_file" ] || continue
+    dir=$(dirname "$case_file")
     name=$(basename "$case_file" .my)
-    input="tests/cases/$name.input"
+    label="$name"
+    [ "$dir" = "tests/cases" ] || label="예제/$name"
+    input="$dir/$name.input"
     [ -f "$input" ] || input=/dev/null
 
     rm -f tests/.tmp_*
@@ -53,20 +60,20 @@ for case_file in tests/cases/*.my; do
 
     # ---- ② C++ 빌드본 ----
     if ! "$VENOS" build "$case_file" > "$TMP/build.txt" 2>&1; then
-        echo "FAIL  $name  (빌드 명령 실패)"; cat "$TMP/build.txt"
+        echo "FAIL  $label  (빌드 명령 실패)"; cat "$TMP/build.txt"
         fail=$((fail+1)); continue
     fi
-    bin="tests/cases/$name"
+    bin="$dir/$name"
     if [ ! -x "$bin" ]; then
-        echo "FAIL  $name  (실행 파일이 생성되지 않음)"; cat "$TMP/build.txt"
+        echo "FAIL  $label  (실행 파일이 생성되지 않음)"; cat "$TMP/build.txt"
         fail=$((fail+1)); continue
     fi
     rm -f tests/.tmp_*
     "./$bin" < "$input" > "$TMP/compiled.txt" 2>&1
-    rm -f "$bin" "tests/cases/$name.cpp"
+    rm -f "$bin" "$dir/$name.cpp"
 
     if ! diff <(normalize "$TMP/interp.txt") <(normalize "$TMP/compiled.txt") > "$TMP/diff.txt" 2>&1; then
-        echo "FAIL  $name  (인터프리터/빌드본 출력 불일치)"
+        echo "FAIL  $label  (인터프리터/빌드본 출력 불일치)"
         cat "$TMP/diff.txt"
         fail=$((fail+1)); continue
     fi
@@ -76,24 +83,24 @@ for case_file in tests/cases/*.my; do
     for s in $PY_SKIP; do [ "$s" = "$name" ] && skip=yes; done
     if [ -z "$PY" ] || [ "$skip" = yes ]; then
         [ "$skip" = yes ] && pyskipped=$((pyskipped+1))
-        echo "PASS  $name"
+        echo "PASS  $label"
         pass=$((pass+1)); continue
     fi
 
     "$VENOS" topython "$case_file" > "$TMP/py.txt" 2>&1
-    if [ ! -f "tests/cases/$name.py" ]; then
-        echo "FAIL  $name  (topython 이 .py 를 만들지 못함)"; cat "$TMP/py.txt"
+    if [ ! -f "$dir/$name.py" ]; then
+        echo "FAIL  $label  (topython 이 .py 를 만들지 못함)"; cat "$TMP/py.txt"
         fail=$((fail+1)); continue
     fi
     rm -f tests/.tmp_*
-    "$PY" "tests/cases/$name.py" < "$input" > "$TMP/python.txt" 2>&1
-    rm -f "tests/cases/$name.py"
+    "$PY" "$dir/$name.py" < "$input" > "$TMP/python.txt" 2>&1
+    rm -f "$dir/$name.py"
 
     if diff <(normalize "$TMP/interp.txt") <(normalize "$TMP/python.txt") > "$TMP/diff.txt" 2>&1; then
-        echo "PASS  $name"
+        echo "PASS  $label"
         pass=$((pass+1)); pytested=$((pytested+1))
     else
-        echo "FAIL  $name  (인터프리터/파이썬 변환본 출력 불일치)"
+        echo "FAIL  $label  (인터프리터/파이썬 변환본 출력 불일치)"
         cat "$TMP/diff.txt"
         fail=$((fail+1))
     fi

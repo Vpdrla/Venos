@@ -147,7 +147,18 @@ The spec is written so you can hand it to an AI assistant and have it write vali
 `vscode-venos/` contains a VS Code extension with syntax highlighting for `.my` files —
 copy the folder into `~/.vscode/extensions/` (see its README).
 
-## Example
+## Examples
+
+**[`examples/algorithms/`](examples/algorithms/)** — fifteen textbook algorithms (selection
+sort, binary search, Euclid's algorithm, the sieve, Hanoi, a Caesar cipher…), each written
+line-for-line against the pseudocode a textbook prints, with that pseudocode in a comment
+at the top. Every one of them is run three ways by the test suite — interpreter, compiled
+binary, and the Python `topython` emits — and all three must agree.
+
+```bash
+venos examples/algorithms/binary-search.my
+venos topython examples/algorithms/binary-search.my    # the same program in Python
+```
 
 A text RPG exercising classes, dictionaries, string interpolation, and save/load via file I/O — in two flavors:
 `examples/rpg.en.my` (English identifiers, the one in the demo above) and `examples/rpg.my` (the same game written entirely with Korean identifiers):

@@ -1,0 +1,62 @@
+# 이진 탐색 (binary search)
+#
+# 교과서 의사코드:  (A 는 반드시 정렬되어 있어야 한다)
+#   low ← 1,  high ← n
+#   while low ≤ high
+#       mid ← (low + high) / 2 의 몫
+#       if A[mid] = key  then return mid
+#       if A[mid] < key  then low  ← mid + 1
+#                        else high ← mid - 1
+#   return 0
+
+func 이진탐색(A, 찾을값) {
+    let 왼쪽 = 1
+    let 오른쪽 = len(A)
+    while 왼쪽 <= 오른쪽 {
+        let 중간 = floor((왼쪽 + 오른쪽) / 2)
+        if A[중간] == 찾을값 { return 중간 }
+        else if A[중간] < 찾을값 { 왼쪽 = 중간 + 1 }
+        else { 오른쪽 = 중간 - 1 }
+    }
+    return 0
+}
+
+let 자료 = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]
+print "정렬된 자료:", 자료
+print "23 의 위치:", 이진탐색(자료, 23)
+print "2 의 위치:", 이진탐색(자료, 2)
+print "91 의 위치:", 이진탐색(자료, 91)
+print "50 의 위치:", 이진탐색(자료, 50), "(0 = 없음)"
+
+# 매번 범위가 절반으로 줄어드는 게 보이도록
+func 이진탐색_과정(A, 찾을값) {
+    let 왼쪽 = 1
+    let 오른쪽 = len(A)
+    let 단계 = 0
+    while 왼쪽 <= 오른쪽 {
+        단계 += 1
+        let 중간 = floor((왼쪽 + 오른쪽) / 2)
+        print "{단계}단계: 범위 [{왼쪽}..{오른쪽}] ({오른쪽 - 왼쪽 + 1}개), 가운데 A[{중간}] = {A[중간]}"
+        if A[중간] == 찾을값 { return 중간 }
+        else if A[중간] < 찾을값 { 왼쪽 = 중간 + 1 }
+        else { 오른쪽 = 중간 - 1 }
+    }
+    return 0
+}
+print ""
+print "72 를 찾는 과정:"
+print "→ 찾은 위치:", 이진탐색_과정(자료, 72)
+
+# 순차 탐색과의 차이: 1024개짜리 자료면 최악 1024회 vs 11회
+func 이진_최악(n) {
+    let 횟수 = 0
+    while n >= 1 {
+        횟수 += 1
+        n = floor(n / 2)
+    }
+    return 횟수
+}
+print ""
+for 크기 in [10, 100, 1000, 1000000] {
+    print "자료 {크기}개 → 순차 최악 {크기}회, 이진 최악 {이진_최악(크기)}회"
+}

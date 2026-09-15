@@ -107,6 +107,6 @@ git tag v0.6.0 && git push origin v0.6.0
 - [ ] Windows 네이티브 CI 잡 — macOS 는 release.yml 에서 유니버설 빌드 + 스위트까지 돌지만, Windows exe 는 크로스 컴파일로 **빌드만** 되고 한 번도 실행되지 않는다 (ReadConsoleW·`IN`/`OUT` 매크로 회피·`_beginthreadex` 가 런타임 미검증). `windows-latest` 에서 스위트를 돌리려면 Git Bash·CRLF·콘솔 한글 인코딩부터 확인해야 함
 - [x] 문자열 보간 `"이름: {x}"`, 리스트 `==`(깊은 비교)/`+`(연결) — v0.6.0
 - [x] **포지셔닝 확정 + `topython`** — 조사(Portugol/HAGGIS/Pascal/2022 개정 교육과정) → `STRATEGY.md`, `PyGen`, 플레이그라운드 🐍 Python 버튼, 3중 differential
-- [ ] 교과서 알고리즘 예제집 (`examples/algorithms/`) — 선택정렬·이진탐색·최대공약수 등, 교과서 의사코드와 1:1. 포지셔닝을 증명하는 콘텐츠
+- [x] 교과서 알고리즘 예제집 (`examples/algorithms/`) — 15개, 교과서 의사코드를 주석에 넣고 1:1. **테스트 스위트에 편입**되어 세 방식으로 돌려 비교한다 (러너가 `tests/cases` 와 `examples/algorithms` 를 함께 순회)
 - [ ] ~~다음 언어 기능 후보: 일급 함수, 상속~~ — **포지셔닝상 거부**. 음수 인덱스/슬라이스만 재검토 여지 있음
 - [x] 리네임: MyLang → **Venos** (문서/배너/바이너리/확장 일괄 치환 완료. 저장소 rename(Settings→Rename→Venos)은 사용자가 직접 — 하기 전까지 README 링크·Pages URL은 새 주소 기준이라 404)

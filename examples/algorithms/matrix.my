@@ -1,0 +1,89 @@
+# 행렬 — 덧셈, 곱셈, 전치
+#
+# 곱셈 의사코드:
+#   for i ← 1 to n
+#       for j ← 1 to m
+#           C[i][j] ← 0
+#           for k ← 1 to p
+#               C[i][j] ← C[i][j] + A[i][k] × B[k][j]
+
+# 0 으로 채운 n×m 행렬 만들기
+func 빈행렬(n, m) {
+    let M = []
+    for i = 1 to n {
+        let 행 = []
+        for j = 1 to m { push(행, 0) }
+        push(M, 행)
+    }
+    return M
+}
+
+func 보이기(이름, M) {
+    print 이름
+    for 행 in M { print " ", 행 }
+}
+
+func 더하기(A, B) {
+    let n = len(A)
+    let m = len(A[1])
+    let C = 빈행렬(n, m)
+    for i = 1 to n {
+        for j = 1 to m { C[i][j] = A[i][j] + B[i][j] }
+    }
+    return C
+}
+
+func 곱하기(A, B) {
+    let n = len(A)
+    let p = len(B)
+    let m = len(B[1])
+    let C = 빈행렬(n, m)
+    for i = 1 to n {
+        for j = 1 to m {
+            let 합 = 0
+            for k = 1 to p { 합 += A[i][k] * B[k][j] }
+            C[i][j] = 합
+        }
+    }
+    return C
+}
+
+func 전치(A) {
+    let n = len(A)
+    let m = len(A[1])
+    let T = 빈행렬(m, n)
+    for i = 1 to n {
+        for j = 1 to m { T[j][i] = A[i][j] }
+    }
+    return T
+}
+
+let A = [[1, 2], [3, 4]]
+let B = [[5, 6], [7, 8]]
+보이기("A =", A)
+보이기("B =", B)
+보이기("A + B =", 더하기(A, B))
+보이기("A × B =", 곱하기(A, B))
+보이기("A 의 전치 =", 전치(A))
+
+# 행렬 곱셈은 순서를 바꾸면 답이 달라진다
+print ""
+print "A×B 와 B×A 가 같은가:", 곱하기(A, B) == 곱하기(B, A)
+
+# 모양이 다른 행렬도 — 2×3 곱하기 3×2 = 2×2
+let C = [[1, 2, 3], [4, 5, 6]]
+let D = [[7, 8], [9, 10], [11, 12]]
+print ""
+보이기("C (2×3) =", C)
+보이기("D (3×2) =", D)
+보이기("C × D (2×2) =", 곱하기(C, D))
+
+# 단위행렬을 곱하면 그대로
+func 단위행렬(n) {
+    let I = 빈행렬(n, n)
+    for i = 1 to n { I[i][i] = 1 }
+    return I
+}
+print ""
+보이기("단위행렬 I =", 단위행렬(2))
+print "A × I == A 인가:", 곱하기(A, 단위행렬(2)) == A

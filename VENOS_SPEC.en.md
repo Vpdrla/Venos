@@ -37,7 +37,7 @@ print "line1\nline2\ttab \"quoted\""   # escapes: \n \t \" \\
 print "name: {name}, next year: {age + 1}"   # string interpolation — any expression inside {}
 let answer = input "Question: "   # numeric input is converted to a number automatically
 ```
-Interpolation rules: literal braces are `{{` / `}}`. Double-quoted strings can't appear inside `{}` (assign to a variable first).
+Interpolation rules: literal braces are `{{` / `}}`. A string inside `{}` needs its quotes escaped — `"{join(xs, \", \")}"`. Pulling it out into a variable usually reads better.
 
 ## Operators (highest precedence first)
 ```

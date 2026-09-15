@@ -1,0 +1,77 @@
+# 소수 판별과 에라토스테네스의 체
+#
+# 소수 판별 의사코드:
+#   if n < 2 then return 거짓
+#   for i ← 2 to √n
+#       if n mod i = 0 then return 거짓
+#   return 참
+
+func 소수인가(n) {
+    if n < 2 { return 0 }
+    let i = 2
+    while i * i <= n {
+        if n % i == 0 { return 0 }
+        i += 1
+    }
+    return 1
+}
+
+print "1~30 중 소수:"
+let 모음 = []
+for n = 1 to 30 {
+    if 소수인가(n) { push(모음, n) }
+}
+print 모음
+
+# 에라토스테네스의 체 — 배수를 지워 나간다
+#   체[1..n] 을 모두 참으로 두고
+#   for i ← 2 to n
+#       if 체[i] 이면 i 는 소수, i×i 부터 i 씩 건너뛰며 체[j] ← 거짓
+func 체(n) {
+    let 남음 = []
+    for i = 1 to n { push(남음, 1) }
+    남음[1] = 0                       # 1 은 소수가 아니다
+    let 소수 = []
+    for i = 2 to n {
+        if 남음[i] == 1 {
+            push(소수, i)
+            let j = i * i
+            while j <= n {
+                남음[j] = 0
+                j += i
+            }
+        }
+    }
+    return 소수
+}
+
+print ""
+print "체로 구한 100 이하 소수:"
+print 체(100)
+print "개수:", len(체(100)), "개"
+
+# 몇 개나 있는지 — 소수는 점점 드물어진다
+print ""
+for 끝 in [10, 100, 1000] {
+    let s = 체(끝)
+    print "{끝} 이하 소수 {len(s)}개 (전체의 {round(len(s) / 끝 * 100, 1)}%)"
+}
+
+# 소인수분해
+func 소인수분해(n) {
+    let 인수 = []
+    let d = 2
+    while d * d <= n {
+        while n % d == 0 {
+            push(인수, d)
+            n = n / d
+        }
+        d += 1
+    }
+    if n > 1 { push(인수, n) }
+    return 인수
+}
+print ""
+for n in [12, 60, 97, 360] {
+    print "{n} = {join(소인수분해(n), \" × \")}"
+}
