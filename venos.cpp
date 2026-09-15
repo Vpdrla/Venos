@@ -3460,6 +3460,7 @@ struct PyGen {
     bool sawIndex = false;                   // [ ] 인덱싱을 쓰는가 (머리말에 1부터 얘기를 넣을지)
     bool sawFloat = false;                   // 소수가 나올 수 있는가 (/ · sqrt · 입력 등)
     bool sawNonAscii = false;                // 문자열 리터럴에 ASCII 밖 글자가 있는가 (출력 인코딩)
+    bool sawInput = false;                   // input 을 쓰는가 (입력 인코딩)
     bool lastRangeIsInt = false;             // 방금 만든 for 범위가 진짜 range() 인가 (rangeOf 가 설정)
 
 
@@ -3938,6 +3939,7 @@ struct PyGen {
         }
         if (auto* in = dynamic_cast<InputExpr*>(e)) {
             sawFloat = true;   // 사용자가 1.5 를 칠 수도 있다
+            sawInput = true;
             return need("input") + "(" + (in->prompt.empty() ? "" : pyStr(in->prompt)) + ")";
         }
         if (auto* c = dynamic_cast<CallExpr*>(e)) return call(c);
@@ -4361,7 +4363,7 @@ struct PyGen {
         imports.clear();
         buildAll(defs, main);
         bool deepRecursion = hasRecursion();
-        if (deepRecursion || sawNonAscii) imports.insert("sys");
+        if (deepRecursion || sawNonAscii || sawInput) imports.insert("sys");
 
         std::ostringstream out;
         out << "# 이 파일은 Venos 프로그램을 파이썬으로 옮긴 것입니다 (venos topython).\n";
@@ -4387,9 +4389,16 @@ struct PyGen {
             out << "\n";
             for (auto& m : imports) out << "import " << m << "\n";
         }
-        if (sawNonAscii)
-            out << "\nsys.stdout.reconfigure(encoding=\"utf-8\")"
-                   "   # 윈도우 콘솔 기본 인코딩에서 한글이 깨지지 않게\n";
+        // 윈도우 파이썬은 콘솔·파이프를 로케일 코드페이지로 읽고 쓴다. 그대로 두면
+        // 한글 출력이 UnicodeEncodeError 로 죽고, 한글 입력은 글자가 깨져 들어온다.
+        if (sawNonAscii || sawInput) {
+            out << "\n";
+            if (sawNonAscii)
+                out << "sys.stdout.reconfigure(encoding=\"utf-8\")"
+                       "   # 윈도우 기본 인코딩에서 한글이 깨지지 않게\n";
+            if (sawInput)
+                out << "sys.stdin.reconfigure(encoding=\"utf-8\")\n";
+        }
         if (deepRecursion)
             out << "\nsys.setrecursionlimit(" << (MAX_RECURSION + 1000) << ")"
                    "   # Venos 는 " << MAX_RECURSION << "번까지 허용, 파이썬 기본값은 1000\n";

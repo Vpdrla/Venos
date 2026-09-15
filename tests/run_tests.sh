@@ -50,6 +50,8 @@ for line in sys.stdin:
 }
 
 pass=0; fail=0; pytested=0; pyskipped=0
+failed_names=""
+note_fail() { failed_names="$failed_names $1"; fail=$((fail+1)); }
 # tests/cases/*.my 는 언어 기능을, examples/algorithms/*.my 는 교과서 알고리즘을 본다.
 # 예제도 스위트에 넣는 이유: "같은 프로그램의 파이썬 버전을 준다"는 약속이 진짜인지는
 # 장난감 케이스가 아니라 실제 예제가 세 방식에서 같은 답을 낼 때만 증명된다.
@@ -68,12 +70,12 @@ for case_file in tests/cases/*.my examples/algorithms/*.my; do
     # ---- ② C++ 빌드본 ----
     if ! "$VENOS" build "$case_file" > "$TMP/build.txt" 2>&1; then
         echo "FAIL  $label  (빌드 명령 실패)"; cat "$TMP/build.txt"
-        fail=$((fail+1)); continue
+        note_fail "$label"; continue
     fi
     bin="$dir/$name$EXE"
     if [ ! -x "$bin" ]; then
         echo "FAIL  $label  (실행 파일이 생성되지 않음)"; cat "$TMP/build.txt"
-        fail=$((fail+1)); continue
+        note_fail "$label"; continue
     fi
     rm -f tests/.tmp_*
     "./$bin" < "$input" > "$TMP/compiled.txt" 2>&1
@@ -82,7 +84,7 @@ for case_file in tests/cases/*.my examples/algorithms/*.my; do
     if ! diff <(normalize "$TMP/interp.txt") <(normalize "$TMP/compiled.txt") > "$TMP/diff.txt" 2>&1; then
         echo "FAIL  $label  (인터프리터/빌드본 출력 불일치)"
         cat "$TMP/diff.txt"
-        fail=$((fail+1)); continue
+        note_fail "$label"; continue
     fi
 
     # ---- ③ 파이썬 변환본 ----
@@ -97,7 +99,7 @@ for case_file in tests/cases/*.my examples/algorithms/*.my; do
     "$VENOS" topython "$case_file" > "$TMP/py.txt" 2>&1
     if [ ! -f "$dir/$name.py" ]; then
         echo "FAIL  $label  (topython 이 .py 를 만들지 못함)"; cat "$TMP/py.txt"
-        fail=$((fail+1)); continue
+        note_fail "$label"; continue
     fi
     rm -f tests/.tmp_*
     "$PY" "$dir/$name.py" < "$input" > "$TMP/python.txt" 2>&1
@@ -109,7 +111,7 @@ for case_file in tests/cases/*.my examples/algorithms/*.my; do
     else
         echo "FAIL  $label  (인터프리터/파이썬 변환본 출력 불일치)"
         cat "$TMP/diff.txt"
-        fail=$((fail+1))
+        note_fail "$label"
     fi
 done
 
@@ -151,6 +153,7 @@ fi
 
 echo
 echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pytested, 건너뜀 $pyskipped)"
+[ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
 echo "레슨 트랙: $lessons"
 echo "에러 메시지: 통과 $dpass / 실패 $dfail"
 [ "$fail" -eq 0 ] && [ "$dfail" -eq 0 ]
