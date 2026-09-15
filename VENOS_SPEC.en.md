@@ -17,6 +17,7 @@ Inside the shell, `repl` starts a line-by-line REPL — type a bare expression t
 
 ## Types
 Numbers (no integer/float distinction), strings, lists, dictionaries, objects (class instances).
+Numbers are a single real type, so **integers are exact up to about 9 quadrillion (2^53)** — `factorial(20)` is exact, `factorial(25)` is an approximation. When you need bigger, `topython` is the answer: Python's integers have no limit.
 `true`/`false` are the numbers 1/0. Truthiness: 0, the empty string, and empty lists/dictionaries are falsy. Objects are always truthy.
 Lists, dictionaries, and objects use **reference semantics** — copying a variable or passing an argument shares the same underlying value (like Python).
 Strings are **immutable** — `s[1] = "x"` is not allowed; build a new string with `replace()` and reassign.
