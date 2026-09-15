@@ -74,7 +74,7 @@ git tag v0.6.0 && git push origin v0.6.0
 
 ## 아키텍처 요점
 - `Value`: NUM/STR/LIST/MAP/OBJ. 리스트/딕셔너리/객체는 shared_ptr 참조 방식, `copy()`가 깊은 복사(순환 감지). 문자열 불변, UTF-8 글자 단위 인덱싱. **리스트 인덱스는 1부터.**
-- 제어 흐름 = `Stmt::exec()` 의 반환값 `Flow{NORMAL,BREAK,CONTINUE,RETURN}` (반환값은 전역 `g_retVal`). **새 Stmt 를 만들면 반드시 Flow 를 올바로 전파할 것** — 블록/조건/try 는 자식 것을 그대로 올리고, 반복문만 BREAK/CONTINUE 를 소비한다. try/catch(LangError)를 **통과**하는 성질은 그대로 (애초에 예외가 아니므로 저절로). 예전엔 예외였는데 `throw` 한 번에 마이크로초가 들어 재귀가 CPython 의 50배 느렸다 (fib(27) 2.0초 → 0.24초로 개선). `exit()` 만 예외(`ExitSignal`) — 프로그램 전체를 끊는 거라 그게 맞다.
+- 제어 흐름 = `Stmt::exec()` 의 반환값 `Flow{NORMAL,BREAK,CONTINUE,RETURN}` (반환값은 전역 `g_retVal`). **새 Stmt 를 만들면 반드시 Flow 를 올바로 전파할 것** — 블록/조건/try 는 자식 것을 그대로 올리고, 반복문만 BREAK/CONTINUE 를 소비한다. try/catch(LangError)를 **통과**하는 성질은 그대로 (애초에 예외가 아니므로 저절로). 예전엔 예외였는데 `throw` 한 번에 마이크로초가 들어 재귀가 CPython 의 ~50배 느렸다. 같은 기계에서 직전 커밋과 비교: **fib(27) 2.73초 → 0.23초, 하노이 20단 10.58초 → 1.93초, 300만 루프는 0.222 → 0.215초(변화 없음 — 대조군)**. `exit()` 만 예외(`ExitSignal`) — 프로그램 전체를 끊는 거라 그게 맞다.
 - 잡히지 않은 에러는 **호출 경로**("부른 순서: 바깥 (줄 10에서) → ...")까지 보여 준다 — `LangError` 가 생성 시점에 `g_frames` 를 찍어 두고(`callPath()`), `printError(const LangError&)` 가 출력. `DepthGuard` 가 프레임을 쌓으므로 새 호출 경로를 만들면 거기도 `DepthGuard(line, name)` 를 쓸 것. 인터프리터 전용이라(빌드본은 줄번호 자체가 없다) 테스트 러너가 `부른 순서:` 줄을 정규화로 걷어낸다.
 - 에러 문구의 한국어 조사는 `josa(단어, "과", "와")` 로 고른다 (본체와 RUNTIME 양쪽에 같은 함수가 있다). 직접 "와(과)" 를 쓰지 말 것.
 - 에러 메시지는 `lineTag(line)` 사용 (직접 "[줄 N]" 문자열 만들지 말 것) — import 병합 시 원본 파일 좌표(`[utils.my 줄 3]`)로 자동 변환됨 (`g_lineMap`). 에러 밑에 해당 코드 줄 표시는 `printError()` + `g_srcLines`.
