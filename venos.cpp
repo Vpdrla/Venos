@@ -4614,7 +4614,14 @@ void cmdBuild(const string& arg) {
     if (nonAscii)
         std::cout << "(note: non-ASCII filenames can break the g++ call on Windows — ASCII names recommended)\n";
     std::cout << "compiling with g++...\n";
-    string compile = "g++ -std=c++17 -O2 -o \"" + exeName + "\" \"" + cppName + "\"";
+    // 윈도우는 정적 링크한다. 그러지 않으면 만들어진 exe 가 libstdc++-6.dll 등을 PATH 에서
+    // 찾아야 해서 친구에게 건네면 안 열리고, PATH 에 다른 MinGW 의 libstdc++ 이 먼저
+    // 걸리면 표준 라이브러리가 조용히 오동작한다 (파일 열기가 늘 성공하는 걸 본 적 있다).
+    string compile = string("g++ -std=c++17 -O2")
+#ifdef _WIN32
+                   + " -static"
+#endif
+                   + " -o \"" + exeName + "\" \"" + cppName + "\"";
     std::cout << std::flush;
     int rc = std::system(compile.c_str());
     if (rc != 0) {
