@@ -54,8 +54,8 @@ class 사람 {
 - **Readable syntax** — `if x > 5 then { }`, `for i = 1 to 10`, `while x > 0 do { }`; optional filler keywords (`then`, `do`) make code read like pseudocode
 - **Three ways to run** — an interpreter for instant feedback, a transpiler (`.my` → C++ → native executable via g++), and a Python emitter (`.my` → `.py`). All three are differential-tested to produce identical output for the same program
 - **A way out** — `venos topython` writes your program as idiomatic Python, so nothing you learn here is thrown away
-- **Enough language to write real programs** — functions (recursion, hoisting), classes (constructors, methods, `self`), lists and dictionaries (reference semantics, deep equality with `==`, `+` to join lists, `copy()` for deep copies), string interpolation (`"name: {x}"`), UTF-8-aware string handling, `try/catch`, `import`, file I/O, and 30+ built-in functions
-- **Helpful errors** — error messages with line numbers; with `import`, errors point to the original file (`[utils.my line 3]`). Undefined variables and wrong argument counts are caught at build time
+- **Enough language to write real programs** — functions (recursion, hoisting), classes (constructors, methods, `self`), lists and dictionaries (reference semantics, deep equality with `==`, `+` to join lists, `copy()` for deep copies), string interpolation (`"name: {x}"`), UTF-8-aware string handling, `try/catch`, `import`, file I/O, and 30-odd built-in functions
+- **Helpful errors** — messages carry the line number and print the offending line. A misspelled name suggests the closest one (`정의되지 않은 변수: 이릅  (혹시 '이름'?)`), an unclosed `{` points at where it was opened rather than at the end of the file, and an error inside a function shows in one line how execution got there. Undefined variables and wrong argument counts are caught at build time
 - **Built-in dev environment** — a CLI shell with file management, an editor (arrow-key scroll viewer, paste mode), and one-command run/build
 
 > Note: error messages and shell UI are currently in Korean.
@@ -190,9 +190,21 @@ by writing real programs in it, finding what was missing, and adding it — the 
 
 ## Testing
 
-Every language feature is verified by **differential testing**: each program in `tests/cases/`
-runs on all three backends (the interpreter, the transpiled native binary, and the Python emitted by
-`topython`) and the outputs must match. CI does this on every push:
+Every language feature is verified by **differential testing**: each program in `tests/cases/` — and
+every example in `examples/algorithms/` — runs on all three backends (the interpreter, the transpiled
+native binary, and the Python emitted by `topython`) and the outputs must match. This is what has
+caught most of the code-generation bugs.
+
+Two more phases run alongside it:
+
+- **Error messages.** `tests/diag/*.my` are wrong on purpose and their output must match `.expected`
+  character for character. What a beginner reads when something breaks is a feature, so it is tested
+  like one.
+- **Lesson track.** `tools/check-lessons.js` runs every lesson's code in both languages, checks that
+  names the prose points at exist in the code, and that the generated tutorials are up to date.
+
+CI does all of it on every push, and separately verifies that the playground WASM committed in
+`docs/` was built from the current `venos.cpp`:
 
 ```bash
 tests/run_tests.sh
