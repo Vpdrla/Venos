@@ -184,6 +184,10 @@ Everything — lexer, parser, AST, interpreter, transpiler, runtime library, and
 ([한국어](STRATEGY.ko.md)) — what other teaching languages got right and wrong, and the
 gap this one is aimed at.
 
+**[DEVLOG.md](DEVLOG.md)** ([한국어](DEVLOG.ko.md)) — the bugs this took, and the instrument
+that found each one. A `windows.h` macro from 1985, a `return` that threw a C++ exception
+on every call, a parser with no depth limit, and an `import` that had never been tested.
+
 I built this from scratch to understand how programming languages actually work.
 It started as v0.1 (an interpreter that could only do variables and `print`) and grew to v0.6
 by writing real programs in it, finding what was missing, and adding it — the text RPG in

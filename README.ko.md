@@ -181,6 +181,10 @@ venos examples/rpg.en.my
 ([English](STRATEGY.md)) — 다른 교육용 언어들이 무엇을 맞히고 무엇을 놓쳤는지, 그리고
 이 언어가 노리는 빈자리.
 
+**[DEVLOG.ko.md](DEVLOG.ko.md)** ([English](DEVLOG.md)) — 만들면서 나온 버그들과, 각각을
+찾아낸 도구. 1985년 `windows.h` 매크로, 호출마다 C++ 예외를 던지던 `return`, 깊이 제한이
+없던 파서, 그리고 한 번도 테스트된 적 없던 `import`.
+
 프로그래밍 언어가 실제로 어떻게 동작하는지 이해하고 싶어서 바닥부터 만들었습니다.
 변수와 `print`만 되는 v0.1 인터프리터에서 시작해, 실제 프로그램을 짜보고 부족한 걸
 찾아 추가하는 방식으로 v0.6까지 왔습니다 — `examples/`의 텍스트 RPG가 `exists()`,
