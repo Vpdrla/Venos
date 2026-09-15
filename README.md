@@ -200,11 +200,13 @@ every example in `examples/algorithms/` — runs on all three backends (the inte
 native binary, and the Python emitted by `topython`) and the outputs must match. This is what has
 caught most of the code-generation bugs.
 
-Four more phases run alongside it:
+Five more phases run alongside it:
 
 - **Error messages.** `tests/diag/*.my` are wrong on purpose and their output must match `.expected`
   character for character. What a beginner reads when something breaks is a feature, so it is tested
   like one.
+- **The shell's editor.** `create` / `code` / `:d` / `:q` is how someone without VS Code writes a
+  program. The check drives a session and looks at the file it saved, not at the screen.
 - **Refusals.** `tests/nopython/*.my` are the places Python would answer differently from Venos, and
   `topython` must refuse them with a line number. Emitting wrong Python is worse than refusing,
   because the student has no way to know it is wrong.
@@ -214,7 +216,12 @@ Four more phases run alongside it:
 - **Lesson track.** `tools/check-lessons.js` runs every lesson's code in both languages, checks that
   names the prose points at exist in the code, and that the generated tutorials are up to date.
 
-Separately, `tools/sanitize.sh` builds with ASan and UBSan and sweeps the whole corpus through both
+Separately, `tools/genfuzz.py` writes random but valid Venos programs and checks that all three
+backends print the same thing — a hand-written case only covers combinations someone thought of, and
+this is what found a loop that terminates in Venos and never ends in the Python it emitted. It runs
+in CI with a fresh seed each time.
+
+`tools/sanitize.sh` builds with ASan and UBSan and sweeps the whole corpus through both
 the interpreter and the *generated* C++ — the emitted runtime is a second implementation, so it gets
 compiled with sanitizers and run too — then fuzzes mutated programs looking for crashes and hangs.
 That is what found the parser's missing depth limit.
