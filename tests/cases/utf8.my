@@ -1,0 +1,19 @@
+# UTF-8 경계 — 4바이트 문자(이모지)까지 글자 단위로 다뤄야 한다.
+# 바이트 단위로 세면 len 이 3 이 아니라 7 이 되고, 뒤집기가 깨진 바이트를 만든다.
+# 세 백엔드가 같은 답을 내는지가 핵심이라 값만 비교한다.
+
+# 4바이트 문자(이모지)와 한글 자모
+let e = "가👍나"
+print len(e), e[1], e[2], e[3]
+print reverse(e)
+print substr(e, 2, 1), substr(e, 2, 2)
+print upper("가👍abc"), lower("가👍ABC")
+print find(e, "👍"), find(e, "나")
+print split("가,👍,나", ","), join(["👍","✨"], "-")
+print replace(e, "👍", "★")
+for ch in e { print "글자:", ch }
+print "보간: {e}", "반복: " + "👍" * 3
+let d = {}
+d["👍"] = 1
+print keys(d), has(d, "👍")
+print len("각"), len("ㄱㅏㄱ")
