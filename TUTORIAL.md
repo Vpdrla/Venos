@@ -69,11 +69,11 @@ print "next year:", 나이
 
 ## 3. Input and string interpolation
 
-`input` asks the user for a value — in the playground a small dialog appears.
+`input` asks the user for a value — in the playground an input line appears below the output.
 
 Inside a string, `{ }` inserts the value in it. That is **string interpolation**, and it reads better than joining with `+`.
 
-Run it and type any name into the dialog.
+Run it and type any name into the input line, then press Enter.
 
 ```
 let name = input "What is your name? "

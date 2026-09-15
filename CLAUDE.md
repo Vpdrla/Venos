@@ -104,6 +104,8 @@ git tag v0.6.0 && git push origin v0.6.0
 - 플레이그라운드/WASM 을 건드렸으면 **`node tools/playground-check.js --future`** 로 확인할 것. `--future` 는 위 resizable 조건을 흉내 내 재현한다 (지금 브라우저로는 그 조건을 만들 수 없다). **기본 모드는 CI 의 `playground-wasm` 잡이 실제 브라우저로 돌린다** — `--future` 만 손으로 돌리면 된다.
 - **`TUTORIAL.md`·`TUTORIAL.ko.md` 는 생성 파일이다 — 손으로 고치면 다음 `gen-tutorial.js` 실행 때 조용히 사라진다.** 실제로 한 번 그렇게 영어 번역본을 날렸다. 레슨 코드는 `docs/lessons.js` 의 `code.ko` / `code.en` 에 넣을 것. 레슨 2(variables)만 식별자를 한글로 남긴다 — 그 레슨의 주제가 "이름을 한국어로 지어도 된다"라서다.
 - `desc.en` 이 식별자를 이름으로 언급하면(`` `factorial` below ``, `` use `self.name` ``) 영어 코드와 **반드시 같이 고칠 것**. 안 맞으면 설명이 거짓말이 된다.
+- **플레이그라운드는 교실 태블릿에서도 쓸 수 있어야 한다.** `@media (pointer: coarse)` 로 버튼을 44px 이상(손끝 권장 크기), 편집기·입력 칸 글꼴을 16px 이상으로 올린다 — 16px 미만이면 **iOS 사파리가 포커스 때 화면을 확대**해 버린다. `tools/playground-check.js` 가 768×1024 터치 컨텍스트로 확인한다 (가로 스크롤도 같이).
+- **UI 안내문이 기능보다 오래 산다.** Asyncify 로 `input` 모달을 없애고도 툴바 안내와 레슨 3 설명에 "a dialog appears" 가 그대로 남아 있었다. 동작을 바꾸면 `docs/index.html` 의 `.hint`·예제 주석과 `docs/lessons.js` 의 `desc` 를 같이 뒤질 것 (레슨을 고쳤으면 `node tools/gen-tutorial.js`).
 - 화면 클리어는 `\033[2J\033[3J\033[H` (3J = 스크롤백까지).
 - u8string은 C++17/20 타입이 달라서 바이트 복사로 처리 중.
 - **재귀 하강 파서에는 깊이 제한이 있어야 한다** (`MAX_NEST` 200, `NestGuard`). 없으면 `((((((...` 같은 입력에 그대로 재귀해 세그폴트다. 인터프리터는 128MB 스택 스레드 덕에 버티지만 `topython`·`build` 는 메인 스레드에서 파싱해 5천 단계에 죽었다 — **같은 파일이 실행은 되는데 변환만 죽는** 상태였다. 파서에 새 재귀 지점을 만들면 (`parseUnary`/`parseNot`/`parseBlock` 바깥에) 가드를 같이 넣을 것. 카운터가 전역인 이유는 문자열 보간 `{}` 안이 별도 `Parser` 로 파싱되기 때문.

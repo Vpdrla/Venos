@@ -60,8 +60,8 @@ print "next year:", 나이`
     id: 'input',
     title: { ko: '입력받기와 문자열 보간', en: 'Input and string interpolation' },
     desc: {
-      ko: '`input` 은 사용자에게 값을 물어봅니다. 플레이그라운드에서는 작은 창이 뜹니다.\n\n문자열 안에 `{ }` 를 쓰면 그 안의 값이 그대로 끼워집니다 — 이걸 **문자열 보간**이라고 해요. `+` 로 이어붙이는 것보다 읽기 쉽습니다.\n\n▶ 실행하면 이름을 물어봅니다. 아무 이름이나 넣어 보세요.',
-      en: '`input` asks the user for a value — in the playground a small dialog appears.\n\nInside a string, `{ }` inserts the value in it. That is **string interpolation**, and it reads better than joining with `+`.\n\nRun it and type any name into the dialog.'
+      ko: '`input` 은 사용자에게 값을 물어봅니다. 플레이그라운드에서는 출력창 아래에 입력줄이 나타납니다.\n\n문자열 안에 `{ }` 를 쓰면 그 안의 값이 그대로 끼워집니다 — 이걸 **문자열 보간**이라고 해요. `+` 로 이어붙이는 것보다 읽기 쉽습니다.\n\n▶ 실행하면 이름을 물어봅니다. 아무 이름이나 넣어 보세요.',
+      en: '`input` asks the user for a value — in the playground an input line appears below the output.\n\nInside a string, `{ }` inserts the value in it. That is **string interpolation**, and it reads better than joining with `+`.\n\nRun it and type any name into the input line, then press Enter.'
     },
     code: {
       ko: `let 이름 = input "이름이 뭐예요? "

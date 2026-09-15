@@ -111,6 +111,15 @@
     .lesson-nav { margin-left: 0; width: 100%; }
     #lessonDesc { font-size: 12.5px; }
   }
+
+  /* 손가락으로 쓰는 화면 — 2022 개정 교육과정 교실은 태블릿이 흔하다.
+     버튼이 34px 이라 손끝(권장 44px)에 작았고, 14px 입력 칸은 iOS 사파리가
+     포커스 때 화면을 확대해 버린다 (16px 이상이면 안 한다). */
+  @media (pointer: coarse) {
+    button, select { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+    #clearBtn, .lesson-nav button, .lesson-lang { min-height: 36px; }
+    #editor, #inputBox { font-size: 16px; }
+  }
 </style>
 </head>
 <body>
@@ -137,7 +146,7 @@
   </select>
   <button id="shareBtn" title="Copy a link that contains this program">🔗 Share</button>
   <span id="shareMsg"></span>
-  <span class="hint">🐍 Python shows the same program in Python · input uses a dialog · import is not available on the web · writefile is in-memory only (resets on reload)</span>
+  <span class="hint">🐍 Python shows the same program in Python · input asks below the output · import is not available on the web · writefile is in-memory only (resets on reload)</span>
 </div>
 
 <div id="lessonBar">
@@ -230,7 +239,7 @@ try {
 }
 print "keys:", keys(scores), "/ len:", len(scores)`,
 
-guess: `# Number guessing game — input pops up a dialog
+guess: `# Number guessing game — input appears below the output
 let answer = random(1, 100)
 let tries = 0
 print "Guess a number between 1 and 100!"

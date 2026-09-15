@@ -186,6 +186,30 @@ const CHECKS = [
     if (ok) console.log(`✓ ${c.name}`); else bad++;
   }
 
+  // 손가락으로 쓰는 화면 — 교실 태블릿이 실제 대상 기기다.
+  // 버튼이 44px 보다 작으면 손끝으로 놓치고, 입력 칸 글꼴이 16px 미만이면
+  // iOS 사파리가 포커스 때 화면을 확대해 버린다.
+  {
+    const touch = await browser.newContext({
+      viewport: { width: 768, height: 1024 }, hasTouch: true, isMobile: true,
+    });
+    const tp = await touch.newPage();
+    await tp.goto(`http://127.0.0.1:${PORT}/`);
+    await tp.waitForFunction(() => {
+      const b = document.getElementById('runBtn');
+      return b && !b.disabled;
+    }, { timeout: 60000 });
+    const m = await tp.evaluate(() => ({
+      가로스크롤: document.documentElement.scrollWidth > window.innerWidth + 1,
+      버튼: Math.round(document.getElementById('runBtn').getBoundingClientRect().height),
+      편집기글꼴: parseFloat(getComputedStyle(document.getElementById('editor')).fontSize),
+    }));
+    const ok = !m.가로스크롤 && m.버튼 >= 44 && m.편집기글꼴 >= 16;
+    if (ok) console.log('✓ 태블릿 화면 (터치 크기·가로 스크롤)');
+    else { bad++; console.log('✗ 태블릿 화면', JSON.stringify(m)); }
+    await touch.close();
+  }
+
   // 🐍 Python 버튼
   await page.fill('#editor', 'let 이름 = "미르"\nprint "안녕, {이름}! 반가워요 정말로"\n');
   const py = (await runAndRead('#pyBtn')).out;
