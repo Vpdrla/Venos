@@ -212,6 +212,18 @@ const CHECKS = [
     else { bad++; console.log('✗ 중단한 다음 실행'); console.log('   ' + after.split('\n').join(' / ')); }
   }
 
+  // 웹의 파일 입출력 — 메모리에만 남고 새로고침하면 사라진다고 툴바가 약속한다.
+  // examples/rpg.my 의 저장/불러오기가 이 동작에 그대로 얹혀 있다 (writefile/exists/readfile).
+  {
+    await page.fill('#editor',
+      'writefile("t.txt", "가나다")\nappendfile("t.txt", "라")\nprint "읽음:", readfile("t.txt")\n');
+    const w = (await runAndRead('#runBtn')).out;
+    await page.fill('#editor', 'print "있나:", exists("t.txt")\n');
+    const keep = (await runAndRead('#runBtn')).out;
+    if (w.includes('읽음: 가나다라') && keep.includes('있나: 1')) console.log('✓ 파일 입출력이 실행 사이에 남음 (RPG 저장/불러오기)');
+    else { bad++; console.log('✗ 파일 입출력'); console.log('   ' + w.split('\n').join(' / ') + ' | ' + keep.split('\n').join(' / ')); }
+  }
+
   // 학생 출력이 에러로 칠해지지 않는가 — examples/rpg.my 가 "!!! 고블린이 나타났다!" 를 찍는다
   {
     await page.fill('#editor', 'print "!!! 고블린이 나타났다!"\nprint "보통 줄"\n');
