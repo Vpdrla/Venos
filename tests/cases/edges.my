@@ -78,3 +78,25 @@ func 항등(x) { return x }
 print 항등(항등(항등(5)))
 func 합(n) { if n <= 0 { return 0 }  return n + 합(n-1) }
 print 합(0), 합(1), 합(100)
+
+# --- 마지막 쉼표 (여러 줄 리터럴에서 흔하다) ---
+let 여러줄 = [
+    10,
+    20,
+    30,
+]
+print 여러줄, len(여러줄)
+let 여러줄딕 = {
+    "하나": 1,
+    "둘": 2,
+}
+print 여러줄딕, len(여러줄딕)
+print [1,], {"a": 1,}
+func 쉼표끝(a, b,) { return a + b }
+print 쉼표끝(1, 2,)
+class 상자끝 {
+    func init(x,) { self.x = x }
+    func 더하기(y,) { return self.x + y }
+}
+let 상자 = 상자끝(5,)
+print 상자.더하기(3,)

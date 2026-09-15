@@ -50,6 +50,7 @@ Interpolation rules: literal braces are `{{` / `}}`. A string inside `{}` needs 
 - `%` takes the sign of the **right** operand (the maths and Python convention) — `-7 % 3` is `2`, `-1 % 26` is `25`, so wrapping negatives around (a Caesar cipher, say) just works
 - `and`/`or` short-circuit
 - `#` starts a comment until end of line. Newlines/indentation are free-form (braces delimit blocks)
+- A **trailing comma is allowed** in list and dictionary literals and in argument lists (`[1, 2,]`) — handy when writing them across lines, and the same as Python
 
 ## Control flow
 ```

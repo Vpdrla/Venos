@@ -1866,6 +1866,7 @@ struct Parser {
             expect(Tok::LPAREN, "(");
             if (!check(Tok::RPAREN)) {
                 do {
+                    if (check(Tok::RPAREN)) break;          // 마지막 쉼표 허용
                     node->params.push_back(expect(Tok::IDENT, "인자 이름").text);
                 } while (match(Tok::COMMA));
             }
@@ -2070,7 +2071,10 @@ struct Parser {
                     mc->method = nameTok.text;
                     mc->line = line;
                     if (!check(Tok::RPAREN)) {
-                        do { mc->args.push_back(parseExpr()); } while (match(Tok::COMMA));
+                        do {
+                            if (check(Tok::RPAREN)) break;  // 마지막 쉼표 허용
+                            mc->args.push_back(parseExpr());
+                        } while (match(Tok::COMMA));
                     }
                     expect(Tok::RPAREN, ")");
                     e = std::move(mc);
@@ -2155,7 +2159,10 @@ struct Parser {
                 advance();  // (
                 std::vector<ExprP> args;
                 if (!check(Tok::RPAREN)) {
-                    do { args.push_back(parseExpr()); } while (match(Tok::COMMA));
+                    do {
+                        if (check(Tok::RPAREN)) break;      // 마지막 쉼표 허용
+                        args.push_back(parseExpr());
+                    } while (match(Tok::COMMA));
                 }
                 expect(Tok::RPAREN, ")");
                 return std::make_unique<CallExpr>(name.text, std::move(args), name.line);
@@ -2166,7 +2173,11 @@ struct Parser {
         if (match(Tok::LBRACKET)) {
             auto list = std::make_unique<ListExpr>();
             if (!check(Tok::RBRACKET)) {
-                do { list->items.push_back(parseExpr()); } while (match(Tok::COMMA));
+                // 마지막 쉼표를 허용한다 (여러 줄로 쓴 리스트에서 흔하고, 파이썬도 받아 준다)
+                do {
+                    if (check(Tok::RBRACKET)) break;
+                    list->items.push_back(parseExpr());
+                } while (match(Tok::COMMA));
             }
             expect(Tok::RBRACKET, "]");
             return list;
@@ -2176,6 +2187,7 @@ struct Parser {
             m->line = t.line;
             if (!check(Tok::RBRACE)) {
                 do {
+                    if (check(Tok::RBRACE)) break;          // 마지막 쉼표 허용
                     ExprP k = parseExpr();
                     expect(Tok::COLON, ":");
                     ExprP v = parseExpr();
