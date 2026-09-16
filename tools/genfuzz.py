@@ -87,7 +87,30 @@ class Gen:
             return '%s(%s)' % (r.choice(['upper', 'lower', 'reverse']), self.str_expr(d + 1))
         if k == 6:
             return 'str(%s)' % self.int_expr(d + 1)
+        if k == 7 and d <= 1:
+            return self.interp(d)
         return 'join(%s, %s)' % (r.choice(LIST_VARS), r.choice(['"-"', '","', '""']))
+
+    # 문자열 보간 — PyGen 이 f-string 으로 되돌리는 자리다. 역사적으로 버그가 제일 많았다
+    # (파이썬 표기 누출, 따옴표 충돌, 하위 파서의 줄 번호).
+    def interp(self, d=0):
+        r = self.r
+        bits = []
+        for _ in range(r.randint(1, 3)):
+            k = r.randint(0, 5)
+            if k == 0:
+                bits.append('{%s}' % r.choice(INT_VARS))
+            elif k == 1:
+                bits.append('{%s}' % self.int_expr(d + 2))
+            elif k == 2:
+                bits.append('{%s}' % r.choice(STR_VARS))
+            elif k == 3:
+                bits.append('{len(%s)}' % r.choice(LIST_VARS))
+            elif k == 4:                             # 보간 안의 따옴표는 이스케이프해야 한다
+                bits.append('{join(%s, \\"%s\\")}' % (r.choice(LIST_VARS), r.choice(['-', ',', ' '])))
+            else:
+                bits.append(r.choice(['값:', '-', '가', ' ', '끝']))
+        return '"%s"' % ''.join(bits)
 
     def index(self, container):
         # 항상 범위 안 (1부터). 빈 리스트는 만들지 않는다.
@@ -112,7 +135,7 @@ class Gen:
     def stmt(self, ind, d=0):
         r = self.r
         pad = '    ' * ind
-        k = r.randint(0, 11)
+        k = r.randint(0, 12)
         if d > 2:
             k = r.choice([0, 1, 2, 3])
         if k == 0:
@@ -124,6 +147,12 @@ class Gen:
         if k == 3:
             c = r.choice(LIST_VARS)
             return ['%spush(%s, %s)' % (pad, c, self.any_expr())]
+        if k == 12 and d == 0:
+            c = r.choice(LIST_VARS)
+            return [r.choice(['%sprint %s' % (pad, self.interp()),
+                              '%sprint copy(%s)' % (pad, c),
+                              '%sprint [%s, [%s, %s]]' % (pad, self.int_expr(1), self.str_expr(1), self.int_expr(1)),
+                              '%s%s = copy(%s)' % (pad, r.choice(LIST_VARS), c)])]
         if k == 4:
             c = r.choice(LIST_VARS)
             return ['%s%s[%s] = %s' % (pad, c, self.index(c), self.any_expr())]
