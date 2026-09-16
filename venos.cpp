@@ -128,6 +128,29 @@ struct ExitSignal {};   // exit() — 프로그램 전체를 즉시 끝내므로
 // 페이지의 "⏹ 중단" 이 입력 대신 돌려주는 값. 제어문자로 시작해 학생이 칠 수 없다.
 static const char* VENOS_STOP = "\x01venos-stop";
 static bool g_stopped = false;        // 중단으로 끝났는가 (끝맺음 문구를 바꾸려고)
+
+// 계산만 도는 루프에서도 빠져나갈 수 있어야 한다. 브라우저는 한 가닥이라 wasm 이
+// 붙잡고 있는 동안은 ⏹ 버튼의 클릭조차 처리되지 않는다 — 학생이 실수로
+// for i = 1 to 100000000 을 돌리면 탭이 통째로 얼었다 (입력을 기다릴 때만 멈출 수 있었다).
+// 그래서 루프와 함수 호출이 주기적으로 한 턴을 브라우저에 돌려준다. ASYNCIFY 덕에
+// wasm 한가운데서 양보할 수 있고, 양보하는 김에 화면도 칠해지므로 **긴 프로그램의 출력이
+// 끝날 때까지 한 줄도 안 보이던 것**도 같이 풀린다.
+EM_JS(int, js_stop_requested, (), { return Module.venosStopRequested ? 1 : 0; });
+static unsigned long g_pumpTick = 0;
+static double g_pumpLast = 0;
+static void pumpWeb() {
+    // 값싼 쪽부터: 1024번에 한 번만 시계를 보고, 실제 양보는 100ms에 한 번.
+    // (양보 한 번은 이벤트 루프 한 바퀴라 수 ms 씩 드는 반면, 카운터 증가는 공짜에 가깝다)
+    if ((++g_pumpTick & 0x3FF) != 0) return;
+    double now = emscripten_get_now();
+    if (now - g_pumpLast < 100) return;
+    g_pumpLast = now;
+    emscripten_sleep(0);
+    // exit() 와 같은 길로 끝낸다 — 출력 버퍼와 호출 프레임이 그래야 정리된다
+    if (js_stop_requested()) { g_stopped = true; throw ExitSignal{}; }
+}
+#else
+static inline void pumpWeb() {}
 #endif
 
 // ============================================================
@@ -1396,6 +1419,7 @@ struct WhileStmt : Stmt {
         long long guard = 0;
 #endif
         while (cond->eval(env).truthy()) {
+            pumpWeb();
             Flow f = body->exec(env);
             if (f == Flow::BREAK)  break;
             if (f == Flow::RETURN) return f;
@@ -1431,6 +1455,7 @@ struct ForStmt : Stmt {
         env.vars[var] = Value::number(0);
         Value* slot = &env.vars[var];
         for (double i = s.num; stepv > 0 ? i <= e.num : i >= e.num; i += stepv) {
+            pumpWeb();
             *slot = Value::number(i);
             Flow f = body->exec(env);
             if (f == Flow::BREAK)  break;
@@ -1457,6 +1482,7 @@ struct ForEachStmt : Stmt {
         env.vars[var] = Value::number(0);
         Value* slot = &env.vars[var];
         for (auto& e : items) {
+            pumpWeb();
             *slot = e;
             Flow f = body->exec(env);
             if (f == Flow::BREAK)  break;
@@ -1521,6 +1547,8 @@ static Value deepCopy(const Value& v, int depth, int line) {
 // 재귀 깊이 카운터 — 생성 시 +1, 소멸 시 -1 (예외로 빠져나가도 자동 복원)
 struct DepthGuard {
     DepthGuard(int line, const string& name) {
+        pumpWeb();   // 루프 없이 재귀만 도는 프로그램(fib)도 멈출 수 있게. 프레임을
+                     // 건드리기 전에 부른다 — 여기서 ExitSignal 이 나가도 셈이 어긋나지 않는다
         if (++g_callDepth > MAX_RECURSION) {
             --g_callDepth;
             throw LangError(lineTag(line) + "함수 호출이 너무 깊습니다 (재귀 "
@@ -5014,6 +5042,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_run(const char* code) {
         return;
     }
     g_stopped = false;
+    g_pumpTick = 0;
+    g_pumpLast = emscripten_get_now();   // 시작 직후부터 양보하지 않도록 시계를 맞춰 둔다
     try {
         runSource(src);
         std::cout << (g_stopped ? "=== 중단했습니다 / stopped ===\n" : "=== done ===\n");

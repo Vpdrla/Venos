@@ -204,12 +204,41 @@ const CHECKS = [
       if (out.includes('중단했습니다') && hidden) console.log(`✓ ${name}`);
       else { bad++; console.log(`✗ ${name}`); console.log('   ' + out.split('\n').slice(-3).join(' / ')); }
     }
+    // 입력 없이 계산만 도는 루프도 멈춰야 한다. 예전엔 여기가 안 됐다 — 브라우저는 한 가닥이라
+    // wasm 이 붙잡고 있으면 ⏹ 의 클릭조차 처리되지 않아서, 학생에게 남은 길은 새로고침뿐이었다.
+    // (venos.cpp 의 pumpWeb 이 100ms 마다 한 턴을 돌려준다)
+    for (const [name, stop] of [
+      ['계산 루프도 ⏹ 로 멈춤', async () => page.click('#stopBtn')],
+      ['계산 루프도 Esc 로 멈춤', async () => page.press('body', 'Escape')],
+    ]) {
+      await page.fill('#editor', 'let s = 0\nprint "시작"\nwhile true { s = s + 1 }\n');
+      await page.click('#runBtn');
+      // 출력이 화면에 칠해졌다는 것 자체가 양보가 돌고 있다는 증거다
+      await page.waitForFunction(
+        () => document.getElementById('output').textContent.includes('시작'), { timeout: 20000 });
+      await stop();
+      await page.waitForSelector('#runBtn:not([disabled])', { timeout: 20000 });
+      const out = await page.$eval('#output', e => e.textContent);
+      if (out.includes('중단했습니다')) console.log(`✓ ${name}`);
+      else { bad++; console.log(`✗ ${name}`); console.log('   ' + out.split('\n').slice(-3).join(' / ')); }
+    }
+
     // 중단한 다음 실행이 깨끗한가 (Asyncify 가 반쯤 풀린 채 남지 않는지)
     await page.fill('#editor', 'print "다음 실행"\nfor i = 1 to 3 { print i }\n');
     const after = (await runAndRead('#runBtn')).out;
     if (after.includes('다음 실행') && after.includes('=== done ===') && !after.includes('!!'))
       console.log('✓ 중단한 다음 실행도 멀쩡');
     else { bad++; console.log('✗ 중단한 다음 실행'); console.log('   ' + after.split('\n').join(' / ')); }
+
+    // hidden 속성은 브라우저 기본 스타일이라 작성자의 id 규칙에 그냥 진다. 빈 입력줄이
+    // 늘 떠 있던 게 그것 때문이었다 — 속성만 보면 "hidden=true" 라 눈치채기 어렵다.
+    // 그래서 여기서는 속성이 아니라 **실제 높이**를 본다.
+    const box = await page.evaluate(() => ({
+      입력줄: document.getElementById('inputLine').getBoundingClientRect().height,
+      중단버튼: document.getElementById('stopBtn').getBoundingClientRect().height,
+    }));
+    if (box.입력줄 === 0 && box.중단버튼 === 0) console.log('✓ 안 돌 때는 입력줄·⏹ 가 숨겨짐');
+    else { bad++; console.log('✗ 안 돌 때도 보이는 것이 있음 ' + JSON.stringify(box)); }
   }
 
   // 웹의 파일 입출력 — 메모리에만 남고 새로고침하면 사라진다고 툴바가 약속한다.

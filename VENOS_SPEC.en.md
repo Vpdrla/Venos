@@ -178,6 +178,11 @@ let b = copy(a)     # fully independent deep copy
 | Function recursion depth | 2000 desktop / 200 web | `함수 호출이 너무 깊습니다 (무한 재귀?)` |
 | Expression/block nesting | 200 levels | `식이나 블록이 너무 깊게 중첩되었습니다` — an unclosed bracket lands here |
 | List/dictionary nesting | 1000 levels | `자기 자신을 포함한 구조?` when printing, comparing or copying |
+| Iterations of one `while` | 10 million, web only (no limit on desktop) | `반복 횟수가 너무 많습니다 (무한 루프?)` |
+
+In the web playground you can **stop a running program at any time with ⏹ Stop (or Esc)** —
+whether it is waiting for input or just computing. Output appears as it is printed, too,
+instead of all at once when the program ends.
 
 Speed, against CPython running the same program via `topython`: **about 3× slower on
 loops and lists, 6× on recursion, slightly faster on dictionaries.** One exception:
