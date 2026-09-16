@@ -117,6 +117,12 @@ Python answers differently — an empty needle in `replace` and `find`, strings 
 all are: refused when literal, routed through a checking helper otherwise.
 `tests/nopython/` holds those refusals to their wording.
 
+Two operators went the same way. `list * 2` is `[1, 2, 1, 2]` in Python and `list < list`
+returns `0`, where Venos raises for both. Closing them means wrapping `*` and `<` in helpers,
+and those are the two most common operators in textbook code -- `i * 2` would emit as
+`_mul(i, 2)`, which hands back the readable Python this whole feature exists to produce. And
+reaching either one requires a program that already dies in Venos. So they stay open.
+
 `upper()` and `lower()` went the same way. Venos changes ASCII letters and leaves everything
 else alone; Python's `str.upper()` walks all of Unicode, so `café` becomes `CAFÉ`, Turkish
 dotless `ı` becomes `I`, and German `ß` becomes `SS` — **two characters where there was one**.
