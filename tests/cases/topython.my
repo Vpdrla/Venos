@@ -180,3 +180,9 @@ try { print (5).세기() } catch 오류 { print "숫자에 메서드" }
 try { print (7).필드 } catch 오류 { print "숫자에 필드" }
 try { print (2.5).x } catch 오류 { print "소수에 필드" }
 try { print "abc".세기() } catch 오류 { print "문자열에 메서드" }
+# 내장 함수도 점을 찍는다 — upper(0) 이 0.upper() 로 나가면 역시 문법 오류다.
+# (메서드·필드에서 한 번 고쳤는데 이 경로가 남아 있었다. 생성 퍼저가 찾았다.)
+try { print upper(0) } catch 오류 { print "upper 숫자" }
+try { print split(5, ",") } catch 오류 { print "split 숫자" }
+try { print lower(1.5) } catch 오류 { print "lower 소수" }
+try { print keys(7) } catch 오류 { print "keys 숫자" }

@@ -3957,6 +3957,15 @@ struct PyGen {
         if (dynamic_cast<NegExpr*>(e)) return P_UNARY;
         return P_ATOM;
     }
+    // **점을 찍기 전에는 무조건 이걸 통과시킬 것.** 숫자 리터럴 뒤의 점을 파이썬은
+    // 소수점으로 읽어서 `5.뭐()` 도 `0.upper()` 도 문법 오류다 — 틀린 답보다 나쁜,
+    // **파싱도 안 되는 .py** 가 나간다. 학생 프로그램에는 이상한 데가 하나도 없는데도.
+    // (메서드 호출·필드 접근에서 한 번 고쳤는데, 내장 함수의 `atom(0) + ".upper()"`
+    //  경로가 남아 있어 생성 퍼저가 다시 찾았다. 그래서 한 군데로 모았다.)
+    string dotted(Expr* e) {
+        string o = wrap(e, P_ATOM);
+        return dynamic_cast<NumExpr*>(e) ? "(" + o + ")" : o;
+    }
     string wrap(Expr* e, int parentPrec) {
         string s = expr(e);
         return precOf(e) < parentPrec ? "(" + s + ")" : s;
@@ -4301,13 +4310,6 @@ struct PyGen {
         }
         if (auto* ix = dynamic_cast<IndexExpr*>(e))
             return indexGet(ix->target.get(), ix->index.get(), ix->line);
-        // 숫자 리터럴 뒤의 점은 파이썬에서 소수점으로 읽힌다 — `5.뭐()` 는 **문법 오류**라
-        // 아예 파싱도 안 되는 파이썬이 나갔다. 괄호를 씌워야 한다. (Venos 에서도 파이썬에서도
-        // 숫자에 메서드·필드는 에러지만, 틀린 답보다 나쁜 건 아예 안 돌아가는 파일이다.)
-        auto dotted = [&](Expr* t) {
-            string o = wrap(t, P_ATOM);
-            return dynamic_cast<NumExpr*>(t) ? "(" + o + ")" : o;
-        };
         if (auto* f = dynamic_cast<FieldExpr*>(e))
             return dotted(f->target.get()) + "." + pyName(f->field);
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
@@ -4397,7 +4399,8 @@ struct PyGen {
         auto A = [&](size_t i) { return expr(c->args[i].get()); };
         // .메서드() 를 붙일 인자는 원자로 만들어야 한다.
         // upper(a + b) → (a + b).upper()  (괄호가 없으면 b.upper() 가 되어 조용히 틀린다)
-        auto atom = [&](size_t i) { return wrap(c->args[i].get(), P_ATOM); };
+        // atom 뒤에는 거의 항상 `.메서드()` 가 붙는다 — dotted 를 거쳐야 한다
+        auto atom = [&](size_t i) { return dotted(c->args[i].get()); };
         size_t n = c->args.size();
         const string& f = c->name;
         auto argsJoined = [&]() {
