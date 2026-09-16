@@ -186,3 +186,7 @@ try { print upper(0) } catch 오류 { print "upper 숫자" }
 try { print split(5, ",") } catch 오류 { print "split 숫자" }
 try { print lower(1.5) } catch 오류 { print "lower 소수" }
 try { print keys(7) } catch 오류 { print "keys 숫자" }
+# 문장으로 쓴 push/sort/reverse 도 점을 찍는다 — 네 번째 경로였다.
+try { push(5, 1) } catch 오류 { print "push 숫자" }
+try { sort(7) } catch 오류 { print "sort 숫자" }
+try { reverse(2) } catch 오류 { print "reverse 숫자" }

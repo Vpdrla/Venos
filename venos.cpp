@@ -4617,23 +4617,25 @@ struct PyGen {
         if (auto* es = dynamic_cast<ExprStmt*>(s)) {
             // 값을 안 쓰는 자리라면 파이썬이 실제로 쓰는 모양으로 낸다
             // (_push(xs, v) 가 아니라 xs.append(v))
+            // 여기도 점을 찍는 자리다 — dotted 를 거치지 않으면 push(5, 1) 이
+            // 5.append(1) 로 나가 파일이 통째로 파싱되지 않는다 (네 번째 경로였다).
             if (auto* c = dynamic_cast<CallExpr*>(es->e.get())) {
                 if (!funcs.count(c->name) && !classes.count(c->name)) {
                     if (c->name == "push" && c->args.size() == 2) {
                         sawList = true;
-                        o << pad(d) << wrap(c->args[0].get(), P_ATOM)
+                        o << pad(d) << dotted(c->args[0].get())
                           << ".append(" << expr(c->args[1].get()) << ")\n";
                         return;
                     }
                     if (c->name == "sort" && c->args.size() == 1) {
                         sawList = true;
-                        o << pad(d) << wrap(c->args[0].get(), P_ATOM) << ".sort()\n";
+                        o << pad(d) << dotted(c->args[0].get()) << ".sort()\n";
                         return;
                     }
                     if (c->name == "reverse" && c->args.size() == 1
                         && !stringish(c->args[0].get())) {
                         sawList = true;
-                        o << pad(d) << wrap(c->args[0].get(), P_ATOM) << ".reverse()\n";
+                        o << pad(d) << dotted(c->args[0].get()) << ".reverse()\n";
                         return;
                     }
                 }
