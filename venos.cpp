@@ -5001,12 +5001,21 @@ struct PyGen {
              {"idx",
              "def _idx(c, k):\n"
              "    if isinstance(c, dict): return c[k]\n"
+             // int("2") 는 파이썬에서 2 다. 그대로 두면 xs["2"] 가 여기서는 에러,
+             // 파이썬에서는 값을 돌려준다 (대입 쪽 _k 는 리스트를 조용히 고치기까지 했다).
+             "    if not isinstance(k, (int, float)):\n"
+             "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
              "    i = int(k)\n"
              "    if i < 1 or i > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(i))\n"
              "    return c[i - 1]\n"},
+            // 대입 좌변의 번호. _idx 와 같은 이유로 숫자만 받는다 — 여기를 빼먹으면
+            // xs["2"] = 9 가 파이썬에서만 리스트를 고친다 (에러가 아니라 **다른 프로그램**이다).
             {"k",
              "def _k(c, i):\n"
-             "    return i if isinstance(c, dict) else int(i) - 1\n"},
+             "    if isinstance(c, dict): return i\n"
+             "    if not isinstance(i, (int, float)):\n"
+             "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
+             "    return int(i) - 1\n"},
             {"push",  "def _push(xs, v):\n    xs.append(v)\n    return xs\n"},
             // Venos 의 sort() 는 숫자만 있거나 문자열만 있는 리스트만 받는다. 파이썬은
             // 리스트끼리·딕셔너리끼리도 사전순으로 정렬해 버려서 **에러가 답으로 바뀐다**.
@@ -5025,7 +5034,13 @@ struct PyGen {
                       "    if not isinstance(xs, list):\n"
                       "        raise Exception(\"join() 의 첫 인자는 리스트여야 합니다\")\n"
                       "    return sep.join(_show(x) for x in xs)\n"},
+            // 파이썬은 리스트도 잘라내므로 substr([1,2,3], 2, 2) 가 [2, 3] 이 된다.
+            // 시작·개수도 "2" 같은 문자열을 int() 가 받아 준다 — Venos 는 둘 다 에러다.
             {"substr","def _substr(s, start, n):\n"
+                       "    if not isinstance(s, str):\n"
+                       "        raise Exception(\"substr() 의 1번째 인자는 문자열이어야 합니다\")\n"
+                       "    if not all(isinstance(x, (int, float)) for x in (start, n)):\n"
+                       "        raise Exception(\"substr() 의 시작 위치와 개수는 숫자여야 합니다\")\n"
                        "    i = int(start) - 1\n"
                        "    if i < 0: raise Exception(\"substr() 의 시작 위치는 1부터입니다\")\n"
                        "    return s[i:i + int(n)]\n"},
@@ -5033,8 +5048,13 @@ struct PyGen {
              "def _remove(c, k):\n"
              "    if isinstance(c, dict):\n"
              "        return int(c.pop(k, None) is not None)\n"
+             "    if not isinstance(k, (int, float)):\n"
+             "        raise Exception(\"remove() 의 위치는 숫자여야 합니다\")\n"
              "    return c.pop(int(k) - 1)\n"},
-            {"round", "def _round(x, n=0):\n    p = 10 ** int(n)\n"
+            {"round", "def _round(x, n=0):\n"
+                      "    if not all(isinstance(v, (int, float)) for v in (x, n)):\n"
+                      "        raise Exception(\"round() 에는 수만 넣을 수 있습니다\")\n"
+                      "    p = 10 ** int(n)\n"
                       "    r = math.floor(x * p + 0.5) if x >= 0 else math.ceil(x * p - 0.5)\n"
                       "    return r if n == 0 else r / p\n"},
             {"reverse","def _reverse(x):\n    if isinstance(x, str): return x[::-1]\n"
@@ -5053,7 +5073,11 @@ struct PyGen {
                       "    if not isinstance(a, list):\n"
                       "        raise Exception(\"find() 의 1번째 인자는 리스트나 문자열이어야 합니다\")\n"
                       "    return a.index(b) + 1 if b in a else 0\n"},
-            {"random","def _random(a, b):\n    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
+            // int("5") 는 파이썬에서 5 다 — Venos 는 숫자만 받으므로 문자열은 에러여야 한다.
+            {"random","def _random(a, b):\n"
+                      "    if not all(isinstance(x, (int, float)) for x in (a, b)):\n"
+                      "        raise Exception(\"random() 에는 수만 넣을 수 있습니다\")\n"
+                      "    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
             {"rng",
              // step 을 안 쓴 for 는 Venos 가 실행할 때 방향을 정한다 (for i = 3 to n 에서
              // n 이 1 이면 내려간다). s=None 이 그 "방향은 그때 정함"을 뜻한다 —

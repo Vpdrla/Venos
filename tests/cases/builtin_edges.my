@@ -68,3 +68,21 @@ print {"k": o}
 print join([o], "-")
 print join([1, "가", [2], {"a": 1}], "|")
 print "보간: {o}"
+
+print ""
+print "=== 숫자 자리에 숫자처럼 생긴 문자열 ==="
+# 파이썬의 int("2") 는 2 다. 도우미가 그걸 그대로 받으면 Venos 가 거절하는 호출이
+# 파이썬에서는 **값을 돌려주고, 대입이면 리스트를 조용히 고친다.**
+let 목록2 = [10, 20, 30]
+let 둘 = "2"
+try { print 목록2[둘] } catch 오류 { print "읽기: 에러" }
+try { 목록2[둘] = 99  print 목록2 } catch 오류 { print "쓰기: 에러" }
+print 목록2
+try { print remove(목록2, 둘) } catch 오류 { print "remove: 에러" }
+try { print round(1.567, 둘) } catch 오류 { print "round: 에러" }
+try { print random(둘, 둘) } catch 오류 { print "random: 에러" }
+try { print substr("abcdef", 둘, 2) } catch 오류 { print "substr 시작: 에러" }
+try { print substr([1,2,3], 2, 2) } catch 오류 { print "substr 리스트: 에러" }
+# 딕셔너리 키는 문자열이 맞다 — 여기서 막으면 안 된다
+let 표3 = {"2": 5}
+print 표3[둘]
