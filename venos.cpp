@@ -4450,7 +4450,14 @@ struct PyGen {
         if (f == "pop")   { need2(1); return atom(0) + ".pop()"; }
         if (f == "sort")  { need2(1); sawList = true; return need("sort") + "(" + A(0) + ")"; }
         if (f == "keys")  { need2(1); sawMap = true; sawList = true; return "sorted(" + atom(0) + ".keys())"; }
+        // Venos 의 has() 는 딕셔너리와 리스트에만 된다. 파이썬의 `in` 은 문자열에도 되어서
+        // has("abc", "b") 가 여기서는 에러, 파이썬에서는 1 이다 — 에러가 답으로 바뀌는 쪽이다.
+        // 문자열인 줄 알 수 있으면 거절한다. `int(x in d)` 라는 표기는 그대로 남는다.
         if (f == "has")   { need2(2); sawMap = true;
+                            if (stringish(c->args[0].get()))
+                                throw nope(c->line, "has() 는 딕셔너리나 리스트에만 쓸 수 있습니다"
+                                                    " (파이썬의 in 은 문자열에도 되어 다른 답을 냅니다"
+                                                    " — 문자열 안을 찾으려면 find(문자열, 조각) 을 쓰세요)");
                             return "int(" + wrap(c->args[1].get(), P_CMP + 1) + " in "
                                           + wrap(c->args[0].get(), P_CMP + 1) + ")"; }
         if (f == "remove"){ need2(2); return need("remove") + "(" + A(0) + ", " + A(1) + ")"; }
@@ -5160,7 +5167,15 @@ bool cmdBuild(const string& arg) {
         std::cout << "----- run -----\n" << std::flush;
         // 경로에 공백이 있으면 셸이 두 낱말로 읽는다 ("내 과제/정렬.my")
         int rrc = runShell("\"" + runCmd + "\"");
-        if (rrc != 0) { std::cout << "(program exited with code " << rrc << ")\n"; return false; }
+        if (rrc != 0) {
+            // system() 이 주는 건 종료 코드가 아니라 wait 상태다 — 1 로 끝난 프로그램이
+            // 256 으로 찍히고 있었다. POSIX 에서는 위쪽 바이트를 벗겨야 한다.
+#ifndef _WIN32
+            if ((rrc & 0x7F) == 0) rrc = (rrc >> 8) & 0xFF;
+#endif
+            std::cout << "(program exited with code " << rrc << ")\n";
+            return false;
+        }
     }
     return true;
 }
