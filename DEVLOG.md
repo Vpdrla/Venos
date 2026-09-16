@@ -340,6 +340,34 @@ wraps the iterable in `list(...)` only if that body mentions the name — across
 the sixteen algorithm examples, that is zero loops. `for 점수 in 점수들:` stays
 exactly as it was, which is the whole point of the feature.
 
+### And then again, the same day
+
+Days later, poking at builtins by hand, I found two more. `has("abc", "b")` is an
+error in Venos and `1` in Python. `sort([[2],[1]])` is the same trade, an error
+for an answer. I fixed both, and only afterwards had the thought I should have
+had first: **anything I can find by poking, the generator should find while
+nobody is watching.**
+
+So it got one more kind of line: nineteen builtins crossed with twenty-two
+deliberately awkward arguments -- empty strings, nested lists, `"0x10"`, a list
+where a dictionary belongs -- wrapped in `try/catch` and collapsed to the single
+character `"E"`. The wording stays invisible; "error or value" becomes
+comparable. Generated programs had always been constrained to run without
+errors, because comparing error text across backends produces nothing but false
+failures. This unties that knot in exactly one place.
+
+**Its fifteenth program** was `join("abc", "-")`. Python's `str.join` iterates
+its argument and a string iterates by character, so a call Venos rejects comes
+back holding `"a-b-c"`. I had walked down the same table by hand and gone
+straight past it.
+
+The new instrument also brought a new false positive with it. When the generator
+wrote `max([[1],[2]], "1e3")`, `topython` refused it **by design**, and the
+comparison counted the refusal as a mismatch. CI went red and all three of that
+run's mismatches were exactly that. It is the same mistake as `fuzz.py` counting
+every timeout as a hang, made twice in one day -- **before you switch an
+instrument on, you cannot see what it will get wrong either.**
+
 Two bugs, both of the kind nothing else I had built could see. Which is the
 argument of this essay arriving on schedule, and I would rather report that
 than pretend I planned it.
