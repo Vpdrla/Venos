@@ -12,5 +12,3 @@ writefile(한글경로, "가나다")
 print exists(한글경로), readfile(한글경로)
 appendfile(한글경로, "라마")
 print readfile(한글경로), len(readfile(한글경로))
-
-try { readfile("tests/.없는파일.txt") } catch e { print "없는 파일:", e }

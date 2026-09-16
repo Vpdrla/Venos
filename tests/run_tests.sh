@@ -24,7 +24,7 @@ trap cleanup EXIT
 # 전부 "Venos 고유의 에러 문구/런타임 가드"를 출력으로 만드는 케이스다. 파이썬은 같은 상황에서
 # 자기 예외 메시지(division by zero, FileNotFoundError, RecursionError ...)를 내므로 문구가 다르다.
 # topython 은 "읽을 수 있는 파이썬"을 목표로 하지 에러 문구까지 흉내내지 않는다.
-PY_SKIP="errors bugfixes fileio listops_errors"
+PY_SKIP="errors bugfixes fileio_errors listops_errors"
 
 if [ ! -x "$VENOS" ] || [ venos.cpp -nt "$VENOS" ]; then
     echo "venos 빌드 중..."

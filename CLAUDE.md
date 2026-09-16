@@ -48,7 +48,7 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 언어 기능을 추가/수정하면 **반드시 인터프리터와 트랜스파일러(RUNTIME 문자열 + CodeGen) 양쪽에 구현**하고, 같은 프로그램을 두 방식으로 실행해 출력을 diff로 비교한다 (differential testing — 지금까지 코드젠 버그를 여러 개 잡아준 핵심 검증법). **`PyGen`(topython)도 같이 갱신**한다 — 못 옮기는 문법이면 틀린 파이썬을 내지 말고 줄 번호와 함께 거절할 것.
 
 **자동화됨**: `tests/run_tests.sh` 가 `tests/cases/*.my` 와 `examples/algorithms/*.my` 전체를 **세 방식**(인터프리터 / C++ 빌드본 / topython → python3)으로 실행해 비교하고, CI(`.github/workflows/ci.yml`)가 푸시마다 돌린다. 허용 차이는 러너가 정규화로 흡수: 인터프리터 전용 `=== ===` 배너, catch 메시지의 `[줄 N]` 접두사, 소수 표기(양쪽을 `%g` 로 통일 — 파이썬은 `91.66666666666667`, Venos 는 `91.6667`).
-- 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio/listops_errors). 에러 문구에 기대는 줄만 별도 케이스로 떼어내면 나머지는 파이썬까지 검증할 수 있다 — `listops` 를 그렇게 쪼갰다.
+- 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio_errors/listops_errors). **에러 문구에 기대는 줄만 별도 케이스로 떼어내면 나머지는 파이썬까지 검증할 수 있다** — `listops` 와 `fileio` 를 그렇게 쪼갰다. `fileio` 는 마지막 한 줄 때문에 파일 입출력 전체가 파이썬 비교 밖에 있었다.
 ```bash
 tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + 셸 + topython 거절
                      #             + REPL + 종료 코드 + 내장함수 대조 + 레슨 트랙
