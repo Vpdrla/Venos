@@ -128,3 +128,27 @@ print 안전나눗셈(10, 2), 안전나눗셈(10, 0)
 func 아무것도() { return }
 func 빈함수() { let x = 1 }
 print 아무것도(), 빈함수()
+
+# --- catch 안에서 다시 에러를 내면 바깥 try 가 받는다 ---
+# (안쪽 catch 가 끝나기 전에 난 에러라, 같은 try 가 다시 잡으면 무한히 돈다)
+try {
+    try {
+        error("안쪽")
+    } catch 안 {
+        print "안쪽 잡음:", 안
+        error("바깥으로")
+    }
+    print "!! 여기는 안 나와야 한다"
+} catch 밖 {
+    print "바깥 잡음:", 밖
+}
+
+# --- 함수 안의 함수 (트랜스파일러는 전부 최상위로 끌어올린다) + 재귀 속 try ---
+func 겉() {
+    func 속(n) {
+        if n == 0 { error("바닥") }
+        try { return 속(n - 1) } catch 오류 { return "바닥에서 잡음 (" + str(n) + ")" }
+    }
+    return 속(3)
+}
+print 겉()

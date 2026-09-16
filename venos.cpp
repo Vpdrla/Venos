@@ -4301,10 +4301,17 @@ struct PyGen {
         }
         if (auto* ix = dynamic_cast<IndexExpr*>(e))
             return indexGet(ix->target.get(), ix->index.get(), ix->line);
+        // 숫자 리터럴 뒤의 점은 파이썬에서 소수점으로 읽힌다 — `5.뭐()` 는 **문법 오류**라
+        // 아예 파싱도 안 되는 파이썬이 나갔다. 괄호를 씌워야 한다. (Venos 에서도 파이썬에서도
+        // 숫자에 메서드·필드는 에러지만, 틀린 답보다 나쁜 건 아예 안 돌아가는 파일이다.)
+        auto dotted = [&](Expr* t) {
+            string o = wrap(t, P_ATOM);
+            return dynamic_cast<NumExpr*>(t) ? "(" + o + ")" : o;
+        };
         if (auto* f = dynamic_cast<FieldExpr*>(e))
-            return wrap(f->target.get(), P_ATOM) + "." + pyName(f->field);
+            return dotted(f->target.get()) + "." + pyName(f->field);
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
-            string o = wrap(mc->target.get(), P_ATOM) + "." + pyName(mc->method) + "(";
+            string o = dotted(mc->target.get()) + "." + pyName(mc->method) + "(";
             for (size_t i = 0; i < mc->args.size(); i++) {
                 if (i) o += ", ";
                 o += expr(mc->args[i].get());

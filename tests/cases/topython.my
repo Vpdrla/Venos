@@ -170,3 +170,13 @@ for 소수시작 = 반쪽 to 4 step 1 { print "소수시작", 소수시작 }
 # 시작이 확실한 정수면 range 로 나가도 된다
 let 목록 = [1, 2, 3]
 for 길이부터 = len(목록) to 6 step 2 { print "길이부터", 길이부터 }
+
+# --- 숫자 뒤의 점 ---
+# 파이썬에서 `5.뭐()` 는 소수점으로 읽혀 **문법 오류**다. 괄호를 안 씌우면
+# 아예 파싱도 안 되는 .py 가 나갔다 — 틀린 답보다 나쁜 건 안 돌아가는 파일이다.
+# (Venos·파이썬 둘 다 숫자에 메서드·필드는 에러라, 잡아서 같은 문구로 바꾼다.)
+class 점찍기 { func 세기() { return 1 } }
+try { print (5).세기() } catch 오류 { print "숫자에 메서드" }
+try { print (7).필드 } catch 오류 { print "숫자에 필드" }
+try { print (2.5).x } catch 오류 { print "소수에 필드" }
+try { print "abc".세기() } catch 오류 { print "문자열에 메서드" }
