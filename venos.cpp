@@ -5001,7 +5001,16 @@ struct PyGen {
              "def _k(c, i):\n"
              "    return i if isinstance(c, dict) else int(i) - 1\n"},
             {"push",  "def _push(xs, v):\n    xs.append(v)\n    return xs\n"},
-            {"sort",  "def _sort(xs):\n    xs.sort()\n    return xs\n"},
+            // Venos 의 sort() 는 숫자만 있거나 문자열만 있는 리스트만 받는다. 파이썬은
+            // 리스트끼리·딕셔너리끼리도 사전순으로 정렬해 버려서 **에러가 답으로 바뀐다**.
+            // (숫자와 문자열이 섞인 건 파이썬도 TypeError 라 그쪽은 이미 같다.)
+            {"sort",  "def _sort(xs):\n"
+                      "    if not (all(isinstance(x, (int, float)) for x in xs)\n"
+                      "            or all(isinstance(x, str) for x in xs)):\n"
+                      "        raise Exception(\"sort() 는 숫자만 있거나 문자열만 있는 리스트만"
+                      " 정렬할 수 있습니다\")\n"
+                      "    xs.sort()\n"
+                      "    return xs\n"},
             {"join",  "def _join(xs, sep):\n    return sep.join(_show(x) for x in xs)\n"},
             {"substr","def _substr(s, start, n):\n"
                        "    i = int(start) - 1\n"
