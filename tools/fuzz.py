@@ -9,7 +9,9 @@
 
   - 세그폴트·abort (시그널 사망)
   - 새니타이저 보고 (메모리 오류, UB)
-  - 멈춤 (타임아웃)
+  - 멈춤 (타임아웃인데 **한 글자도 안 찍고** 멈춘 것 — 렉서·파서가 걸린 자리)
+    출력을 내면서 계속 도는 건 세기만 한다: 변이가 만든 무한 반복문은
+    올바른 프로그램이지 버그가 아니다 (씨앗에 while 이 있으면 쉽게 나온다)
   - "내부 에러" (우리가 예상 못 한 예외가 새어 나온 것)
 
 문법 에러 자체는 정상이다. `!! 에러: [줄 3] ...` 는 언어가 제대로 일한 것이다.
@@ -28,6 +30,7 @@ import hashlib
 import os
 import random
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -68,16 +71,46 @@ def mutate(src, rng):
     return bytes(b[:200000])
 
 
+# venos 자신이 찍는 안내줄. "프로그램이 뭔가 내고 있다"를 판정할 때는 빼야 한다 —
+# 안 그러면 `build` 의 파서가 걸려도 배너 한 줄 때문에 "도는 중"으로 보인다.
+BANNERS = (b'=== running:', b'=== build:', b'=== done', b'C++ generated:',
+           b'compiling with g++', b'Python generated:', b'----- run -----', b'build OK:')
+
+
+def spoke(out):
+    """안내줄 말고 **프로그램의 출력**이 있었는가."""
+    return any(l.strip() and not l.lstrip().startswith(BANNERS) for l in out.splitlines())
+
+
 def run(args, stdin, timeout):
     env = dict(os.environ, ASAN_OPTIONS='detect_leaks=0', UBSAN_OPTIONS='print_stacktrace=1')
+    # 자기 프로세스 그룹에서 돌린다. `venos build` 는 g++ 를 손자 프로세스로 띄우는데,
+    # 시간 초과 때 venos 만 죽이면 g++ 가 살아남아 파이프를 붙들고 communicate() 가
+    # 제한 시간을 한참 넘겨 기다린다 (퍼저가 예산의 몇 배를 도는 원인이었다).
+    group = {'start_new_session': True} if hasattr(os, 'killpg') else {}
+    p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, env=env, **group)
     try:
-        p = subprocess.run(args, input=stdin, capture_output=True, timeout=timeout, env=env)
+        out, err = p.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return '멈춤', b''
-    out = p.stdout + p.stderr
+        try:
+            os.killpg(p.pid, signal.SIGKILL)       # venos + sh + g++ + cc1plus 한꺼번에
+        except (OSError, AttributeError):
+            p.kill()
+        out, err = p.communicate()
+        # 시간 초과에는 두 종류가 있고 하나만 버그다.
+        #  - 한 글자도 못 낸 채 멈춘 것 → 렉서·파서가 걸린 것. 진짜 수확은 늘 이쪽이었다.
+        #  - 뭔가 찍으면서 계속 도는 것 → 변이가 끝나지 않는 반복문을 만든 것뿐이다.
+        #    씨앗에 while 이 있으면 변이 한 번으로 쉽게 만들어진다. 무한 루프는
+        #    **올바른 프로그램**이지 언어의 버그가 아니다.
+        partial = (out or b'') + (err or b'')
+        if spoke(partial):
+            return '오래', partial
+        return '멈춤', partial
+    out = (out or b'') + (err or b'')
     if b'runtime error:' in out or b'ERROR: AddressSanitizer' in out:
         return '새니타이저', out
-    if p.returncode < 0:
+    if p.returncode is not None and p.returncode < 0:
         return '시그널%d' % -p.returncode, out
     if '!! 내부 에러'.encode('utf8') in out:
         return '내부에러', out
@@ -110,7 +143,7 @@ def main():
 
     rng = random.Random(args.seed)
     deadline = time.time() + args.minutes * 60 if args.minutes else None
-    seen, found, n = set(), 0, 0
+    seen, found, n, slow = set(), 0, 0, 0
 
     print('씨앗 %d개, 최대 %d회%s' % (
         len(seeds), args.rounds, ', %.1f분 예산' % args.minutes if deadline else ''))
@@ -120,12 +153,23 @@ def main():
         src = mutate(rng.choice(seeds), rng)
         with open(case, 'wb') as f:
             f.write(src)
+        # topython 을 먼저 돌린다. 그게 끝났다면 **파서는 멀쩡하다**는 뜻이고,
+        # 그러면 실행이 시간 초과로 끝나도 그건 변이가 만든 끝나지 않는 반복문이다 —
+        # 올바른 프로그램이지 언어의 버그가 아니다. 파서가 걸린 자리는 topython 도 같이 멈춘다.
+        parsed = True
         for label, argv in (
-            ('실행',   [args.venos, case]),
             ('topython', [args.venos, 'topython', case]),
+            ('실행',   [args.venos, case]),
             ('build',  [args.venos, 'build', case]),
         ):
             kind, out = run(argv, b'1\n2\n3\n' * 50, args.timeout)
+            if label == 'topython' and kind == '멈춤':
+                parsed = False
+            if kind == '멈춤' and label != 'topython' and parsed:
+                kind = '오래'      # 파스는 됐다 — 끝나지 않는 프로그램일 뿐이다
+            if kind == '오래':
+                slow += 1          # 버그가 아니다 — 세어만 둔다
+                continue
             if not kind:
                 continue
             # 같은 자리에서 난 것끼리 묶는다 (스택 맨 위 몇 줄로 지문을 만든다)
@@ -143,7 +187,9 @@ def main():
                 if any(m in line for m in ('runtime error:', 'ERROR:', '#1 ', '#2 ', '#3 ')):
                     print('    ' + line[:200], flush=True)
 
-    print('%d회 실행, 고유 %d종' % (n, len(seen)))
+    print('%d회 실행, 고유 %d종%s' % (
+        n, len(seen),
+        ', 오래 돈 변이 %d회 (무한 루프를 만든 것 — 버그 아님)' % slow if slow else ''))
     if seen:
         print('입력은 %s 에 남겼습니다.' % out_dir)
         return 1

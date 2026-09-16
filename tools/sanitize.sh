@@ -92,7 +92,10 @@ done
 
 echo "== 퍼징 (${FUZZ_MIN}분)"
 # 퍼저의 입력은 파스 도중에 죽는 프로그램이라 누수 보고가 의미 없다 (fuzz.py 가 0 으로 둔다)
-if python3 tools/fuzz.py "$TMP/venos-asan" --rounds 100000 --minutes "$FUZZ_MIN" --out "$TMP/fuzz"; then
+# 새니타이저 빌드는 보통의 열 배쯤 느리다 — 기본 10초로는 멀쩡히 도는 프로그램도
+# 시간 초과로 잡힌다 (CI 가 실제로 그렇게 한 번 빨간불이 났다).
+if python3 tools/fuzz.py "$TMP/venos-asan" --rounds 100000 --minutes "$FUZZ_MIN" \
+        --timeout 30 --out "$TMP/fuzz"; then
     :
 else
     # 죽인 입력은 지워지기 전에 꺼내 둔다

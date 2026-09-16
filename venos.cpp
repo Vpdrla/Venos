@@ -189,6 +189,41 @@ static bool readLine(string& out) {
     return (bool)std::getline(std::cin, out);
 }
 
+// 문자열이 "학생이 숫자라고 생각하는 것"인가.
+//
+// std::stod 를 그냥 쓰면 안 된다 — C++ 는 `0x10`(16), `inf`, `nan` 까지 받아 주는데
+// 파이썬의 float() 은 셋 다 거절한다. 반대로 파이썬은 `1_000` 을 1000 으로 받는다.
+// 어느 쪽이든 같은 프로그램이 백엔드에 따라 다른 답을 낸다 (실제로 그랬다).
+// 그래서 세 백엔드가 공통으로 이 문법만 받는다:
+//     [공백] [+-] ( 숫자+ [ . 숫자* ] | . 숫자+ ) ( [eE] [+-] 숫자+ )? [공백]
+// 여기에 무한대·NaN 은 결과에서 걸러낸다 (1e999 는 어차피 stod 가 던진다).
+static bool strToNum(const string& s, double& out) {
+    size_t i = 0, n = s.size();
+    auto skipSpace = [&] {
+        while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n'
+                         || s[i] == '\r' || s[i] == '\v' || s[i] == '\f')) i++;
+    };
+    auto digits = [&] {
+        size_t k = 0;
+        while (i < n && s[i] >= '0' && s[i] <= '9') { i++; k++; }
+        return k;
+    };
+    skipSpace();
+    if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+    size_t whole = digits(), frac = 0;
+    if (i < n && s[i] == '.') { i++; frac = digits(); }
+    if (whole == 0 && frac == 0) return false;
+    if (i < n && (s[i] == 'e' || s[i] == 'E')) {
+        i++;
+        if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+        if (digits() == 0) return false;          // "1e" 는 숫자가 아니다
+    }
+    skipSpace();
+    if (i != n) return false;
+    try { out = std::stod(s); } catch (...) { return false; }
+    return out == out && out < HUGE_VAL && out > -HUGE_VAL;   // inf/nan 거르기
+}
+
 // UTF-8 문자열 → 파일 경로 (Windows는 와이드 변환 필수)
 static fs::path toPath(const string& utf8) {
 #ifdef _WIN32
@@ -1243,11 +1278,10 @@ struct InputExpr : Expr {
         if (!readLine(line))
             throw LangError("입력을 읽을 수 없습니다");
         line = trim(line);   // 앞뒤 공백 제거 (공백 때문에 숫자 인식 실패 방지)
-        try {
-            size_t used = 0;
-            double d = std::stod(line, &used);
-            if (used == line.size()) return Value::number(d);
-        } catch (...) {}
+        // num() 과 같은 문법만 숫자로 본다 — `0x10` 이나 `inf` 를 숫자로 받아 버리면
+        // 같은 입력에 파이썬 버전이 다른 답을 낸다 (파이썬은 그걸 문자열로 둔다)
+        double d;
+        if (strToNum(line, d)) return Value::number(d);
         return Value::text(line);
     }
 };
@@ -1673,13 +1707,9 @@ struct CallExpr : Expr {
             needArgs(1, "num(값)");
             if (vals[0].kind == Value::NUM) return vals[0];
             if (vals[0].kind == Value::STR) {
-                string s = trim(vals[0].str);
-                try {
-                    size_t used = 0;
-                    double d = std::stod(s, &used);
-                    if (used == s.size()) return Value::number(d);
-                } catch (...) {}
-                throw err("숫자로 바꿀 수 없는 문자열: \"" + vals[0].str + "\"");
+                double d;
+                if (strToNum(vals[0].str, d)) return Value::number(d);
+                throw err("숫자로 바꿀 수 없는 문자열: \"" + ellipsize(vals[0].str, 40) + "\"");
             }
             throw err("리스트는 숫자로 바꿀 수 없습니다");
         }
@@ -2955,12 +2985,42 @@ static bool rt_readline(string& out) {
 #endif
     return (bool)std::getline(std::cin, out);
 }
+// 문자열이 "학생이 숫자라고 생각하는 것"인가 (본체의 strToNum 과 같은 문법).
+// std::stod 는 0x10·inf·nan 까지 받는데 파이썬의 float() 은 셋 다 거절한다 —
+// 그대로 두면 세 백엔드가 다른 답을 낸다.
+static bool rt_strToNum(const std::string& s, double& out) {
+    size_t i = 0, n = s.size();
+    auto skipSpace = [&] {
+        while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n'
+                         || s[i] == '\r' || s[i] == '\v' || s[i] == '\f')) i++;
+    };
+    auto digits = [&] {
+        size_t k = 0;
+        while (i < n && s[i] >= '0' && s[i] <= '9') { i++; k++; }
+        return k;
+    };
+    skipSpace();
+    if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+    size_t whole = digits(), frac = 0;
+    if (i < n && s[i] == '.') { i++; frac = digits(); }
+    if (whole == 0 && frac == 0) return false;
+    if (i < n && (s[i] == 'e' || s[i] == 'E')) {
+        i++;
+        if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+        if (digits() == 0) return false;
+    }
+    skipSpace();
+    if (i != n) return false;
+    try { out = std::stod(s); } catch (...) { return false; }
+    return out == out && out < HUGE_VAL && out > -HUGE_VAL;
+}
 static Value my_input(const string& prompt) {
     if (!prompt.empty()) std::cout << prompt << std::flush;
     string line;
     if (!rt_readline(line)) throw RunErr("입력을 읽을 수 없습니다");
     line = trimS(line);
-    try { size_t u = 0; double d = std::stod(line, &u); if (u == line.size()) return Value(d); } catch (...) {}
+    double d;
+    if (rt_strToNum(line, d)) return Value(d);
     return Value(line);
 }
 static size_t u8len(const string& s) { size_t n = 0; for (unsigned char c : s) if ((c & 0xC0) != 0x80) n++; return n; }
@@ -2992,9 +3052,9 @@ static Value b_max(const Value& a, const Value& b) { return Value(std::max(needN
 static Value b_num(const Value& v) {
     if (v.kind == Value::NUM) return v;
     if (v.kind == Value::STR) {
-        string s = trimS(v.str);
-        try { size_t u = 0; double d = std::stod(s, &u); if (u == s.size()) return Value(d); } catch (...) {}
-        throw RunErr("숫자로 바꿀 수 없는 문자열: \"" + v.str + "\"");
+        double d;
+        if (rt_strToNum(v.str, d)) return Value(d);
+        throw RunErr("숫자로 바꿀 수 없는 문자열: \"" + rt_cut(v.str, 40) + "\"");
     }
     throw RunErr("리스트는 숫자로 바꿀 수 없습니다");
 }
@@ -4834,6 +4894,8 @@ struct PyGen {
             out << "#   " << ++noteN << ") 밑줄로 시작하는 _이름 함수들은 Venos 와 똑같이 보이게 하려고"
                    " 붙인 것뿐이니\n"
                    "#      파이썬을 배울 때는 신경 쓰지 않아도 됩니다.\n";
+        // _isnum 이 정규식을 쓴다 (num/input 을 쓴 프로그램에만 붙는다)
+        if (helpers.count("num") || helpers.count("input")) imports.insert("re");
         if (!imports.empty()) {
             out << "\n";
             for (auto& m : imports) out << "import " << m << "\n";
@@ -4882,10 +4944,20 @@ struct PyGen {
                     "    return '\"' + v + '\"' if isinstance(v, str) else _show(v)\n";
 
         std::map<string, const char*> SRC = {
+            // 파이썬의 float() 은 Venos 가 안 받는 것을 받는다: 1_000 은 1000 이 되고
+            // inf/nan 도 통과한다. 그대로 두면 같은 프로그램이 다른 답을 낸다 —
+            // 세 백엔드가 같은 문법만 받도록 여기서도 한 번 거른다.
+            {"isnum",
+             "_NUM_RE = re.compile(r\"[ \\t\\n\\r\\v\\f]*[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?[ \\t\\n\\r\\v\\f]*\\Z\")\n"
+             "def _isnum(s):\n"
+             "    return bool(_NUM_RE.match(s))\n"},
             {"num",
              "def _num(s):\n"
              "    if isinstance(s, (int, float)): return s\n"
-             "    f = float(str(s).strip())\n"
+             "    t = str(s)\n"
+             "    if not _isnum(t):\n"
+             "        raise Exception(\"숫자로 바꿀 수 없는 문자열: \\\"\" + t + \"\\\"\")\n"
+             "    f = float(t)\n"
              "    return int(f) if f == int(f) else f\n"},
             {"input",
              "def _input(prompt=\"\"):\n"
@@ -4895,11 +4967,10 @@ struct PyGen {
              "        s = input(prompt).strip()\n"
              "    except EOFError:\n"
              "        raise Exception(\"입력을 읽을 수 없습니다\")\n"
-             "    try:\n"
-             "        f = float(s)\n"
-             "        return int(f) if f == int(f) else f\n"
-             "    except ValueError:\n"
-             "        return s\n"},
+             "    if not _isnum(s):\n"
+             "        return s\n"
+             "    f = float(s)\n"
+             "    return int(f) if f == int(f) else f\n"},
             // Venos 는 리스트 인덱스가 1부터다. int(k)-1 을 그대로 쓰면 0 이 파이썬의
              // 음수 인덱스가 되어 "에러" 가 "마지막 원소" 로 조용히 바뀐다.
              {"idx",
@@ -4971,6 +5042,8 @@ struct PyGen {
         // _q 는 _show 안에서만 쓰이고, join/writefile 등도 _show 에 기댄다
         std::set<string> want = helpers;
         if (want.count("join") || want.count("writefile") || want.count("appendfile")) want.insert("show");
+        // _num 과 _input 은 _isnum 으로 "숫자처럼 보이는가"를 판정한다
+        if (want.count("num") || want.count("input")) want.insert("isnum");
         string o;
         for (auto& h : want) {
             if (h == "show") { o += show; continue; }
