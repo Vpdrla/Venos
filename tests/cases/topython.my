@@ -190,3 +190,19 @@ try { print keys(7) } catch 오류 { print "keys 숫자" }
 try { push(5, 1) } catch 오류 { print "push 숫자" }
 try { sort(7) } catch 오류 { print "sort 숫자" }
 try { reverse(2) } catch 오류 { print "reverse 숫자" }
+
+# --- 마지막 원소는 파이썬 관용구로 ---
+# xs[len(xs)] 는 Venos 에서 마지막 원소고, 파이썬 사람은 그걸 xs[-1] 이라고 쓴다.
+# 뜻이 정확히 같아서(빈 리스트에서 둘 다 에러인 것까지) 여기만 관용구로 낸다.
+# 이름이 다르거나(ys[len(xs)]) 대상이 호출이면 손대지 않는다 — 두 번 평가하게 되므로.
+let 끝xs = [10, 20, 30]
+print 끝xs[len(끝xs)], 끝xs[len(끝xs) - 1]
+let 끝s = "가나다"
+print 끝s[len(끝s)]
+class 끝통 { func init() { self.것 = [1, 2, 3] } }
+let 끝t = 끝통()
+print 끝t.것[len(끝t.것)]
+let 끝빈 = []
+try { print 끝빈[len(끝빈)] } catch 오류 { print "빈 리스트: 에러" }
+func 끝목록() { return [7, 8, 9] }
+print 끝목록()[len(끝목록())]

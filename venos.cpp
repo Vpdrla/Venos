@@ -4379,9 +4379,25 @@ struct PyGen {
 
     // xs[1] 은 첫 번째, d["키"] 는 키 조회 — 리터럴이면 그 자리에서 정하고,
     // 변수라서 알 수 없으면 도우미로 넘긴다.
+    // 부작용 없이 두 번 적어도 되는 식인가 (호출이 끼면 안 된다 — 두 번 도는 셈이 된다)
+    static bool pureRef(Expr* e) {
+        if (dynamic_cast<VarExpr*>(e)) return true;
+        if (auto* f = dynamic_cast<FieldExpr*>(e)) return pureRef(f->target.get());
+        return false;
+    }
+
     string indexGet(Expr* target, Expr* index, int line) {
         sawIndex = true;
         string T = wrap(target, P_ATOM);
+        // xs[len(xs)] 는 "마지막 원소"다. 파이썬 사람은 그걸 xs[-1] 이라고 쓴다 —
+        // 교과서의 스택 맨 위·마지막 원소가 전부 이 모양이라 여기만 관용구로 낸다.
+        // 두 뜻은 정확히 같다 (빈 리스트에서 둘 다 에러인 것까지). 대상에 호출이 끼면
+        // 두 번 평가하는 셈이라 손대지 않는다.
+        if (auto* c = dynamic_cast<CallExpr*>(index))
+            if (c->name == "len" && c->args.size() == 1 && !funcs.count("len")
+                && pureRef(target) && pureRef(c->args[0].get())
+                && wrap(c->args[0].get(), P_ATOM) == T)
+                return T + "[-1]";
         if (dynamic_cast<StrExpr*>(index)) return T + "[" + expr(index) + "]";
         if (auto* n = dynamic_cast<NumExpr*>(index)) {
             // 1부터를 0부터로 옮기므로 0 은 파이썬에서 [-1] 이 된다 — 에러가 아니라
