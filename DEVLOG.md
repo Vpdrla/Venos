@@ -128,6 +128,29 @@ four real bugs on its first four runs, and every one of them is invisible on Lin
 Four bugs, all in the same place: the boundary between my UTF-8 world and the platform's.
 They had been shipping in releases for weeks. The runner cost twenty lines of YAML.
 
+### The fifth one the runner saw, and passed anyway
+
+Much later, while fixing something unrelated, a fifth turned up. The interpreter was returning
+**exit code 0 for an uncaught error** — where the compiled build of the same program returned 1. A
+grading script would read a dead program as a pass. I fixed it, pushed, and the Windows job went
+red for the first time.
+
+That job **already had** a step running `tests/.tmp_한글 폴더/정렬.my` through all three paths.
+And the `venos build` step had been failing every single time — `cc1plus: fatal error: í•œê¸€ ...:
+No such file or directory`. Of course it was: g++ gets its argv through the ANSI code page too. But
+cmdBuild returned 0 no matter what, so the error text sat in the CI log under a green check.
+
+So this one was not hidden for want of an instrument. The instrument existed, ran on every push, and
+was pointing straight at it. I had flattened its signal to zero. If the lesson of the nine chapters
+around this one is *build the next instrument*, the lesson here is cheaper: **check that the
+instruments you already have can say the word "failed."** Green means it passed, not that anyone
+looked.
+
+(The fix: when the path has non-ASCII in it, step into the folder and call g++ with ASCII-only
+temporary names, then rename the result into place. I cannot fix g++, so I stopped putting Korean in
+its argv. The CI step now also checks that the built program printed the number it was meant to
+compute.)
+
 ## 6. The Python it emitted was a different program
 
 `venos topython` rewrites a Venos program as Python. It is the reason the language can
@@ -349,6 +372,10 @@ fuzzer said it inside its first fifty mutated programs.
 The corollary, which I like less: whatever is broken in Venos right now is broken in a way
 I cannot currently see, and the way to find it is not to look harder. It is to build the
 next instrument.
+
+The coda to chapter 5 is the cheap corollary to the expensive one. Building the instrument is not
+the end of it — you also have to check that it can **say the word "failed."** One green check sat on
+top of an error message for the better part of a year.
 
 Section 10 is that corollary being tested while the essay was still open, which is the
 most convincing version of it I could have hoped for and the least deliberate. Ten

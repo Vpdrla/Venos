@@ -200,7 +200,7 @@ every example in `examples/algorithms/` — runs on all three backends (the inte
 native binary, and the Python emitted by `topython`) and the outputs must match. This is what has
 caught most of the code-generation bugs.
 
-Five more phases run alongside it:
+Seven more phases run alongside it:
 
 - **Error messages.** `tests/diag/*.my` are wrong on purpose and their output must match `.expected`
   character for character. What a beginner reads when something breaks is a feature, so it is tested
@@ -210,6 +210,11 @@ Five more phases run alongside it:
 - **Refusals.** `tests/nopython/*.my` are the places Python would answer differently from Venos, and
   `topython` must refuse them with a line number. Emitting wrong Python is worse than refusing,
   because the student has no way to know it is wrong.
+- **The REPL.** A few lines are piped into `repl` to check that a value prints on its own, that an
+  error does not end the session, and that `:q` gets out.
+- **Exit codes.** 0 on success, 1 for an uncaught error, input that ran out, a refused conversion, a
+  missing file or an unknown argument. Reporting failure as 0 means a grading script or a Makefile
+  reads a dead program as a pass — which is exactly what the interpreter used to do.
 - **Name cross-check.** `tools/check-builtins.js` pulls the builtin list out of all five places it
   lives (three backends, the typo-suggestion table, and the VS Code grammar) plus the keywords, and
   fails if they disagree. Every way of forgetting one of them is silent.
