@@ -88,7 +88,15 @@ class Gen:
             o = r.choice(OBJ_VARS)
             return r.choice(['%s.값' % o, '%s.더하기(%s)' % (o, self.int_expr(d + 1)),
                              '%s.센것()' % o])
-        return '(%s %s %s)' % (self.int_expr(d + 1), r.choice(['+', '-', '*']), self.int_expr(d + 1))
+        op = r.choice(['+', '-', '*'])
+        both = (self.int_expr(d + 1), self.int_expr(d + 1))
+        # 곱은 금방 2^53 을 넘긴다. 넘어가면 Venos(실수 하나)는 1.67445e+26 으로,
+        # 파이썬(무한 정수)은 167445455488729388610101297 로 찍는다 — **명세에 적힌 차이**지
+        # 버그가 아니다. 여기서 잡히면 거짓 실패다. 그래서 곱한 값은 범위 안으로 접는다.
+        # (이 %% 를 지우면 CI 가 씨앗에 따라 가끔 빨개진다. 실제로 그랬다.)
+        if op == '*':
+            return '((%s * %s) %% 100003)' % both
+        return '(%s %s %s)' % (both[0], op, both[1])
 
     def str_expr(self, d=0):
         r = self.r
