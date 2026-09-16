@@ -192,8 +192,11 @@ In the web playground you can **stop a running program at any time with ⏹ Stop
 whether it is waiting for input or just computing. Output appears as it is printed, too,
 instead of all at once when the program ends.
 
-Speed, against CPython running the same program via `topython`: **about 3× slower on
-loops and lists, 6× on recursion, slightly faster on dictionaries.** One exception:
+Speed, against CPython running the same program via `topython`: **2-3× slower on
+loops and lists, 6× on recursion, about even on dictionaries.** These come from one
+machine and one CPython build, so they move around; measuring a different number does not
+mean something broke. What matters is the order of magnitude: **at textbook sizes both
+finish before you look up.** One exception:
 growing a string with `s = s + ch` in a loop is **quadratic in Venos** where CPython
 extends in place and stays near-linear. 20,000 characters take 0.07s, so it is invisible
 at textbook sizes; 160,000 take 5s. Assembling a very long string is a reason to reach
