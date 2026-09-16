@@ -5055,8 +5055,11 @@ bool cmdBuild(const string& arg) {
             if (ec) { std::cout << "!! 만든 실행 파일을 제자리로 옮기지 못했습니다\n"; rc = -1; }
         }
         std::error_code ec2;
-        fs::remove(fs::path(TMP_CPP), ec2);
-        fs::remove(fs::path(TMP_EXE), ec2);
+        // 학생 파일이 하필 venos_build_tmp.my 라면 임시 이름이 결과물 이름과 같아진다 —
+        // 그때 지우면 방금 만든 것을 지우는 꼴이다.
+        string cppHere = dir.empty() ? cppName : cppName.substr(dir.size() + 1);
+        if (cppHere != TMP_CPP) fs::remove(fs::path(TMP_CPP), ec2);
+        if (exeHere != TMP_EXE) fs::remove(fs::path(TMP_EXE), ec2);
         if (!prev.empty()) fs::current_path(prev, ec2);
     } else
 #endif
