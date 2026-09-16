@@ -312,7 +312,7 @@ def main():
     rng = random.Random(args.seed)
     deadline = time.time() + args.minutes * 60 if args.minutes else None
     tmp = tempfile.mkdtemp(prefix='venos-genfuzz-')
-    bad = n = skipped = 0
+    bad = n = skipped = refused = 0
     print('무작위 프로그램으로 3중 비교 (seed %d)' % args.seed)
     try:
         while n < args.rounds and (deadline is None or time.time() < deadline):
@@ -331,6 +331,12 @@ def main():
 
             built = norm(run([venos, 'build', 'case.my', 'run'], tmp, 120))
             conv = run([venos, 'topython', 'case.my'], tmp)
+            # **거절은 틀린 답이 아니다.** topython 은 파이썬이 다르게 답하는 자리를 일부러
+            # 줄 번호와 함께 거절한다 (min("a","b") 처럼). 생성기가 그런 줄을 만들면 여기로
+            # 오는데, 그걸 어긋남으로 세면 설계대로 동작한 것을 실패로 읽는 꼴이다.
+            if 'python conversion failed' in conv:
+                refused += 1
+                continue
             pyout = norm(run([sys.executable, 'case.py'], tmp)) if 'Python generated' in conv else '<<변환 실패>>'
 
             for label, got in (('빌드본', built), ('파이썬', pyout)):
@@ -352,12 +358,13 @@ def main():
                         print('  입력: %s' % dst)
                     break
             if n % 25 == 0:
-                print('... %d회 (건너뜀 %d, 어긋남 %d)' % (n, skipped, bad), file=sys.stderr, flush=True)
+                print('... %d회 (건너뜀 %d, 거절 %d, 어긋남 %d)' % (n, skipped, refused, bad),
+                      file=sys.stderr, flush=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-    print('\n%d회 생성 · %d회 비교 (에러로 끝나 건너뜀 %d) · 어긋남 %d건'
-          % (n, n - skipped, skipped, bad))
+    print('\n%d회 생성 · %d회 비교 (에러로 끝나 건너뜀 %d, topython 이 일부러 거절 %d)'
+          ' · 어긋남 %d건' % (n, n - skipped - refused, skipped, refused, bad))
     return 1 if bad else 0
 
 

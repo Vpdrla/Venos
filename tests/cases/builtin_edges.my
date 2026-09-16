@@ -41,3 +41,16 @@ let q = copy(p)
 q.x = 9
 print p.x, q.x
 print p == 점(1), p == q
+
+print ""
+print "=== 내장 함수에 엉뚱한 타입을 넣으면 ==="
+# 파이썬 쪽 기본 동작이 Venos 와 다른 자리들. 전부 "여기서는 에러, 저기서는 답" 이라
+# 도우미가 같은 검사를 한다 (생성 퍼저가 join 을 이렇게 찾았다).
+try { print join("abc", "-") } catch 오류 { print "join 문자열: 에러" }
+try { print join("nan", "") } catch 오류 { print "join 빈구분자: 에러" }
+try { print lower([3, 1, 2]) } catch 오류 { print "lower 리스트: 에러" }
+try { print len(5) } catch 오류 { print "len 숫자: 에러" }
+try { print reverse(5) } catch 오류 { print "reverse 숫자: 에러" }
+try { print split([1, 2], ",") } catch 오류 { print "split 리스트: 에러" }
+try { print sqrt("abc") } catch 오류 { print "sqrt 문자열: 에러" }
+try { print abs("가") } catch 오류 { print "abs 문자열: 에러" }

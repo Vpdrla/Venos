@@ -5018,7 +5018,13 @@ struct PyGen {
                       " 정렬할 수 있습니다\")\n"
                       "    xs.sort()\n"
                       "    return xs\n"},
-            {"join",  "def _join(xs, sep):\n    return sep.join(_show(x) for x in xs)\n"},
+            // Venos 의 join() 은 리스트만 받는다. 파이썬에서 문자열을 넘기면 글자 단위로
+            // 돌아서 join("abc", "-") 이 "a-b-c" 가 된다 — 여기서는 에러인데 저기서는 답이다.
+            // (생성 퍼저가 15번째 프로그램에서 찾았다.)
+            {"join",  "def _join(xs, sep):\n"
+                      "    if not isinstance(xs, list):\n"
+                      "        raise Exception(\"join() 의 첫 인자는 리스트여야 합니다\")\n"
+                      "    return sep.join(_show(x) for x in xs)\n"},
             {"substr","def _substr(s, start, n):\n"
                        "    i = int(start) - 1\n"
                        "    if i < 0: raise Exception(\"substr() 의 시작 위치는 1부터입니다\")\n"
