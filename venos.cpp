@@ -456,6 +456,12 @@ static const std::vector<string> BUILTIN_NAMES = {
     "split", "join", "upper", "lower", "find", "replace", "substr",
     "readfile", "writefile", "appendfile", "exists", "time", "exit", "copy", "error",
 };
+// 내장 함수와 같은 이름으로 함수·클래스를 만들면 백엔드마다 답이 달랐다:
+// 인터프리터는 내장을 썼고, build 는 거절했고, 파이썬은 학생의 함수를 썼다.
+// 파서에서 한 번 막으면 세 곳이 같아진다 (메서드 이름은 obj.len() 으로 구분되므로 제외).
+static bool isBuiltinName(const string& name) {
+    return std::find(BUILTIN_NAMES.begin(), BUILTIN_NAMES.end(), name) != BUILTIN_NAMES.end();
+}
 static string methodHint(const string& method) {
     if (std::find(BUILTIN_NAMES.begin(), BUILTIN_NAMES.end(), method) != BUILTIN_NAMES.end())
         return "  (" + method + "(x) 처럼 앞에 붙여 쓰세요)";
@@ -1983,6 +1989,7 @@ struct NestGuard {
 struct Parser {
     std::vector<Token> toks;
     size_t pos = 0;
+    bool inClassBody = false;   // 메서드 이름만은 내장 함수와 겹쳐도 된다 (obj.len() 로 부르니까)
     Parser(std::vector<Token> t) : toks(std::move(t)) {}
 
     const Token& peek(size_t ahead = 0) {
@@ -2082,8 +2089,14 @@ struct Parser {
         }
         if (match(Tok::CLASS)) {
             auto node = std::make_unique<ClassStmt>();
-            node->name = expect(Tok::IDENT, "클래스 이름").text;
+            Token nameTok = expect(Tok::IDENT, "클래스 이름");
+            node->name = nameTok.text;
+            if (isBuiltinName(node->name))
+                throw LangError(lineTag(nameTok.line) + "클래스 이름 '" + node->name
+                                + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요)");
             expect(Tok::LBRACE, "{");
+            bool wasInClass = inClassBody;
+            inClassBody = true;                 // 메서드 이름은 내장과 겹쳐도 된다 (obj.len() 로 부른다)
             while (!check(Tok::RBRACE) && !check(Tok::END)) {
                 if (!check(Tok::FUNC))
                     throw LangError(lineTag(peek().line) + "클래스 안에는 " + KW_FUNC + " (메서드)만 쓸 수 있습니다");
@@ -2092,12 +2105,17 @@ struct Parser {
                 node->methods[fp->name] = fp;
                 node->methodList.emplace_back(fp);
             }
+            inClassBody = wasInClass;
             expect(Tok::RBRACE, "}");
             return node;
         }
         if (match(Tok::FUNC)) {
             auto node = std::make_unique<FuncStmt>();
-            node->name = expect(Tok::IDENT, "함수 이름").text;
+            Token nameTok = expect(Tok::IDENT, "함수 이름");
+            node->name = nameTok.text;
+            if (!inClassBody && isBuiltinName(node->name))
+                throw LangError(lineTag(nameTok.line) + "함수 이름 '" + node->name
+                                + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요 — 내장 함수는 가릴 수 없습니다)");
             expect(Tok::LPAREN, "(");
             if (!check(Tok::RPAREN)) {
                 do {
@@ -3839,7 +3857,11 @@ struct PyGen {
 
     // ---- 우선순위 (Venos 와 파이썬이 같은 순서라 괄호를 최소로 낼 수 있다) ----
     enum { P_OR = 0, P_AND, P_NOT, P_CMP, P_ADD, P_MUL, P_UNARY, P_ATOM };
-    static int precOf(Expr* e) {
+    // floor(a / b) 는 파이썬에서 a // b 로 낸다 (아래 floorDiv). 그러면 그 자리의
+    // 우선순위가 원자가 아니라 곱셈이 되므로 여기서도 그렇게 답해야 한다 —
+    // 안 그러면 2 * floor(x/2) 가 2 * x // 2 로 나가 (2*x)//2 가 된다.
+    int precOf(Expr* e) {
+        if (floorDiv(e)) return P_MUL;
         // not/and/or 는 int(...) 로 감싸서 내보내므로 밖에서 보면 원자다 (괄호가 필요 없다)
         if (dynamic_cast<LogicalExpr*>(e)) return P_ATOM;
         if (dynamic_cast<NotExpr*>(e))     return P_ATOM;
@@ -4320,7 +4342,14 @@ struct PyGen {
         if (f == "abs")   { need2(1); return "abs(" + A(0) + ")"; }
         if (f == "min")   { need2(2); numbersOnly(0); numbersOnly(1); return "min(" + A(0) + ", " + A(1) + ")"; }
         if (f == "max")   { need2(2); numbersOnly(0); numbersOnly(1); return "max(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "floor") { need2(1); imports.insert("math"); return "math.floor(" + A(0) + ")"; }
+        if (f == "floor") {
+            need2(1);
+            // 교과서의 중간값 계산 floor((왼쪽+오른쪽)/2) 는 파이썬에서 // 로 쓴다.
+            if (auto* d = floorDiv(c))
+                return wrap(d->lhs.get(), P_MUL) + " // " + wrap(d->rhs.get(), P_MUL + 1);
+            imports.insert("math");
+            return "math.floor(" + A(0) + ")";
+        }
         if (f == "ceil")  { need2(1); imports.insert("math"); return "math.ceil("  + A(0) + ")"; }
         if (f == "sqrt")  { need2(1); imports.insert("math"); sawFloat = true; return "math.sqrt("  + A(0) + ")"; }
         if (f == "round") {
@@ -4615,6 +4644,18 @@ struct PyGen {
         return need("rng") + "(" + a + ", " + b + ", " + expr(f->step.get()) + ")";
     }
     // 파이썬에서 정수로 나오는 게 확실한 식인가 (range() 에 그대로 넣어도 되는가)
+    // floor(a / b) 를 파이썬의 a // b 로 낼 수 있는가. **양쪽이 정수로 보일 때만** 이다 —
+    // 소수끼리면 파이썬의 // 는 3.0 같은 소수를 내고, 그게 인덱스 자리에 오면 TypeError 다
+    // (math.floor 는 늘 정수를 낸다). 학생이 floor 라는 함수를 직접 만들었으면 손대지 않는다.
+    BinExpr* floorDiv(Expr* e) {
+        auto* c = dynamic_cast<CallExpr*>(e);
+        if (!c || c->name != "floor" || c->args.size() != 1 || funcs.count("floor")) return nullptr;
+        auto* b = dynamic_cast<BinExpr*>(c->args[0].get());
+        if (!b || b->op != Tok::SLASH || b->interpN > 0) return nullptr;
+        if (!intish(b->lhs.get()) || !intish(b->rhs.get())) return nullptr;
+        return b;
+    }
+
     bool intish(Expr* e) {
         double k;
         if (constInt(e, k)) return true;
@@ -4828,7 +4869,12 @@ struct PyGen {
              "    return int(f) if f == int(f) else f\n"},
             {"input",
              "def _input(prompt=\"\"):\n"
-             "    s = input(prompt).strip()\n"
+             // 입력이 끊기면(파이프 끝, Ctrl+D) 파이썬은 EOFError 역추적을 쏟아낸다.
+             // Venos 는 한 줄로 말하고 끝내므로 같은 문구로 맞춘다 — 세 백엔드가 같아야 한다.
+             "    try:\n"
+             "        s = input(prompt).strip()\n"
+             "    except EOFError:\n"
+             "        raise Exception(\"입력을 읽을 수 없습니다\")\n"
              "    try:\n"
              "        f = float(s)\n"
              "        return int(f) if f == int(f) else f\n"
@@ -4918,8 +4964,10 @@ struct PyGen {
 // build 명령: .my → .cpp 변환 후 g++ 로 컴파일
 static string currentFile;   // 현재 choose 된 파일 (셸 전역)
 
-void cmdBuild(const string& arg) {
-    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return; }
+// 성공이면 true. main 은 이걸 그대로 종료 코드로 바꾼다 — 실패를 0 으로 알리면
+// 채점 스크립트나 Makefile 이 죽은 프로그램을 성공으로 읽는다.
+bool cmdBuild(const string& arg) {
+    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return false; }
     string fname = currentFile;
 
     string base = fname.substr(0, fname.size() - FILE_EXT.size());
@@ -4944,7 +4992,7 @@ void cmdBuild(const string& arg) {
         cppCode = gen.generate(program);
     } catch (const LangError& e) {
         printError(e.what(), "!! codegen error: ");
-        return;
+        return false;
     }
     {
         std::ofstream out(toPath(cppName));
@@ -4969,21 +5017,22 @@ void cmdBuild(const string& arg) {
     if (rc != 0) {
         std::cout << "!! g++ failed (is g++ installed?)\n";
         std::cout << "   the generated C++ is still there, you can compile it yourself: " << cppName << "\n";
-        return;
+        return false;
     }
     std::cout << "build OK: " << exeName << "  (run: " << runCmd << ")\n";
     if (arg == "run") {
         std::cout << "----- run -----\n" << std::flush;
         // 경로에 공백이 있으면 셸이 두 낱말로 읽는다 ("내 과제/정렬.my")
         int rrc = std::system(("\"" + runCmd + "\"").c_str());
-        if (rrc != 0) std::cout << "(program exited with code " << rrc << ")\n";
+        if (rrc != 0) { std::cout << "(program exited with code " << rrc << ")\n"; return false; }
     }
+    return true;
 }
 
 // topython 명령: .my → 읽을 수 있는 .py
 // build 와 달리 컴파일하지 않는다 — 학생이 읽고 다음 언어로 넘어가라고 내주는 파일이다.
-void cmdTopython() {
-    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return; }
+bool cmdTopython() {
+    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return false; }
     string fname = currentFile;
     string pyName = fname.substr(0, fname.size() - FILE_EXT.size()) + ".py";
 
@@ -4996,13 +5045,14 @@ void cmdTopython() {
         pyCode = gen.generate(program);
     } catch (const LangError& e) {
         printError(e.what(), "!! python conversion failed: ");
-        return;
+        return false;
     }
     {
         std::ofstream out(toPath(pyName));
         out << pyCode;
     }
     std::cout << "Python generated: " << pyName << "  (run: python3 " << pyName << ")\n";
+    return true;
 }
 
 
@@ -5361,17 +5411,20 @@ void cmdCode() {
     std::cout << "저장됨: " << currentFile << " (" << lines.size() << "줄)\n";
 }
 
-void cmdRun() {
-    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return; }
+bool cmdRun() {
+    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return false; }
     std::cout << "=== running: " << currentFile << " ===\n";
     try {
         runSourceBigStack(expandImports(currentFile));
         std::cout << "=== done ===\n";
     } catch (const LangError& e) {
         printError(e);
+        return false;
     } catch (const std::exception& e) {
         std::cout << "!! 내부 에러: " << e.what() << "\n";
+        return false;
     }
+    return true;
 }
 
 void cmdList() {
@@ -5498,8 +5551,7 @@ int main(int argc, char** argv) {
             string f = withExt(argv[2]);
             if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
             currentFile = f;
-            cmdTopython();
-            return 0;
+            return cmdTopython() ? 0 : 1;
         }
         if (a1 == "build" && argc >= 3) {
             bool wantRun = (argc >= 4 && string(argv[3]) == "run");
@@ -5507,16 +5559,14 @@ int main(int argc, char** argv) {
             string f = withExt(argv[2]);
             if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
             currentFile = f;
-            cmdBuild(wantRun ? "run" : "");
-            return 0;
+            return cmdBuild(wantRun ? "run" : "") ? 0 : 1;
         }
         bool viaRun = (a1 == "run" && argc >= 3);
         if (extra(viaRun ? 3 : 2, "venos 파일.my   (또는 venos run 파일.my)")) return 1;
         string f = withExt(viaRun ? argv[2] : a1);
         if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
         currentFile = f;
-        cmdRun();
-        return 0;
+        return cmdRun() ? 0 : 1;
     }
     clearScreen();
     drawBanner();

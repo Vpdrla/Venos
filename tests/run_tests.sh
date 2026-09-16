@@ -186,6 +186,34 @@ for case_file in tests/nopython/*.my; do
     fi
 done
 
+# ---- 종료 코드 ----
+# 실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다.
+# 인터프리터가 오래 0 만 돌려줬다 — 빌드본은 1 을 돌려주는데 (백엔드가 어긋나 있었다).
+exitpass=0
+exitfail=0
+check_exit() {  # 설명, 기대 코드, 명령…
+    local what="$1" want="$2"; shift 2
+    "$@" > "$TMP/exit.txt" 2>&1 < /dev/null
+    local got=$?
+    if [ "$got" = "$want" ]; then
+        echo "PASS  종료코드/$what  ($got)"; exitpass=$((exitpass+1))
+    else
+        echo "FAIL  종료코드/$what  (기대 $want, 받음 $got)"
+        cat "$TMP/exit.txt"; exitfail=$((exitfail+1)); dfail=$((dfail+1))
+    fi
+}
+printf 'print "안녕"\n'                > "$TMP/ec_ok.my"
+printf 'let xs = [1]\nprint xs[9]\n'   > "$TMP/ec_err.my"
+printf 'let x = input "? "\nprint x\n' > "$TMP/ec_eof.my"
+printf 'let xs = [1]\nprint xs[0]\n'   > "$TMP/ec_nopy.my"
+check_exit "정상 실행"     0 "$VENOS" "$TMP/ec_ok.my"
+check_exit "잡히지 않은 에러" 1 "$VENOS" "$TMP/ec_err.my"
+check_exit "입력이 끊김"   1 "$VENOS" "$TMP/ec_eof.my"
+check_exit "topython 정상" 0 "$VENOS" topython "$TMP/ec_ok.my"
+check_exit "topython 거절" 1 "$VENOS" topython "$TMP/ec_nopy.my"
+check_exit "모르는 인자"   1 "$VENOS" "$TMP/ec_ok.my" --뭐지
+check_exit "없는 파일"     1 "$VENOS" "$TMP/없는파일.my"
+
 # ---- 내장 함수·키워드가 모든 곳에 있는가 (tools/check-builtins.js) ----
 # 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —
 # topython 이 거절하면서 다리가 끊긴다. 소스와 VSCode 문법에서 목록을 뽑아 대조한다.
@@ -218,6 +246,7 @@ echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pyte
 [ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
 echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
+echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
 echo "이름 대조: $builtins"
 echo "레슨 트랙: $lessons"
 echo "에러 메시지: 통과 $dpass / 실패 $dfail"

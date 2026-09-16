@@ -50,7 +50,7 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 **자동화됨**: `tests/run_tests.sh` 가 `tests/cases/*.my` 와 `examples/algorithms/*.my` 전체를 **세 방식**(인터프리터 / C++ 빌드본 / topython → python3)으로 실행해 비교하고, CI(`.github/workflows/ci.yml`)가 푸시마다 돌린다. 허용 차이는 러너가 정규화로 흡수: 인터프리터 전용 `=== ===` 배너, catch 메시지의 `[줄 N]` 접두사, 소수 표기(양쪽을 `%g` 로 통일 — 파이썬은 `91.66666666666667`, Venos 는 `91.6667`).
 - 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio/listops_errors). 에러 문구에 기대는 줄만 별도 케이스로 떼어내면 나머지는 파이썬까지 검증할 수 있다 — `listops` 를 그렇게 쪼갰다.
 ```bash
-tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + topython 거절 + 내장함수 대조 + 레슨 트랙
+tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + topython 거절 + 종료 코드 + 내장함수 대조 + 레슨 트랙
 tools/sanitize.sh    # ASan+UBSan+Leak 으로 두 백엔드 훑기 + 퍼징 (약 4분, CI 의 sanitize 잡)
                      # 누수 검출은 켜져 있고, 일부러 순환을 만드는 두 케이스(bugfixes,
                      # listops_errors)만 빼 준다 — 전체를 끄면 진짜 누수도 같이 가려진다
@@ -62,13 +62,14 @@ python3 tools/genfuzz.py --rounds 100         # 올바른 프로그램을 만들
                                               #  매번 다른 씨앗으로 돌린다. --keep 으로
                                               #  어긋난 입력을 genfuzz-diffs/ 에 남긴다)
 ```
-러너는 여섯 단계다:
+러너는 일곱 단계다:
 1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교
 2. **에러 메시지 회귀** — `tests/diag/*.my` 는 일부러 틀린 프로그램이고 출력이 `.expected` 와 글자까지 같아야 한다. 문구를 고쳤으면 `./venos tests/diag/X.my > tests/diag/X.expected 2>&1` 로 다시 만들 것
 3. **셸 편집 모드** — `create`/`code`/`:d`/`:q` 로 파일이 제대로 저장되고 셸의 `run`·`topython` 이 도는지. 화면 문구는 보지 않는다 (사소한 변경에 깨지므로). **`:run` 뒤에는 "엔터를 누르면" 프롬프트가 한 줄을 더 먹는다** — 스크립트로 몰 때 여기 걸린다
 4. **topython 거절** — `tests/nopython/*.my` 는 **파이썬이 Venos 와 다르게 답하는** 프로그램이다. `venos topython` 이 줄 번호를 대고 거절해야 하고 출력이 `.expected` 와 같아야 한다. 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다
-5. **이름 대조** — `node tools/check-builtins.js` (내장 함수는 BUILTIN_NAMES·인터프리터·CodeGen·PyGen·`vscode-venos` 다섯 곳, 키워드는 `KW_*` 상수와 `vscode-venos` 양쪽에서 뽑아 비교. 한 곳만 빠뜨리는 실수가 전부 조용해서 정적 대조로 잡는다)
-6. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지)
+5. **종료 코드** — 정상 0, 잡히지 않은 에러·입력 끊김·`topython` 거절·모르는 인자·없는 파일은 1. **실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다**
+6. **이름 대조** — `node tools/check-builtins.js` (내장 함수는 BUILTIN_NAMES·인터프리터·CodeGen·PyGen·`vscode-venos` 다섯 곳, 키워드는 `KW_*` 상수와 `vscode-venos` 양쪽에서 뽑아 비교. 한 곳만 빠뜨리는 실수가 전부 조용해서 정적 대조로 잡는다)
+7. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지)
 
 ## 릴리스 내는 법
 버전을 올렸으면 태그만 밀면 된다. `.github/workflows/release.yml` 이 세 플랫폼 바이너리를 만들어 GitHub Releases 에 올린다.
@@ -130,6 +131,10 @@ git tag v0.6.0 && git push origin v0.6.0
 - **선언 없는 대입은 백엔드마다 시점이 다르다** — 인터프리터는 그 줄이 돌 때 잡을 수 있는 에러, `build` 와 `topython` 은 아예 거절(정적으로 알 수 있으니까). 파이썬은 그냥 새 변수를 만들어 버리므로 `topython` 이 통과시키면 **다른 프로그램**이 된다 (생성 퍼저가 찾았다). 인터프리터도 거절하게 바꾸면 세 곳이 같아지지만 그건 언어 의미를 바꾸는 일이라 사용자 판단으로 남겨 뒀다.
 - **`for x in xs` 는 루프에 들어갈 때의 값을 돈다.** 파이썬의 `for` 는 살아 있는 객체를 돌기 때문에 몸통에서 `push` 하면 무한 루프가 된다 — PyGen 이 **몸통이 그 이름을 건드릴 때만** `list(...)` 로 감싼다 (몸통을 먼저 만들어 이름이 나오는지 보는 방식. 예제집 16개에서는 한 줄도 안 감싼다). `_iter` 는 딕셔너리·리스트 모두 사본을 주므로 그쪽은 덧씌우지 않는다.
 - **파이썬이 Venos 와 다르게 답하는 자리**를 조용히 넘기지 말 것. 실제로 다섯 군데가 그랬다: `xs[0]`(파이썬은 마지막 원소), `replace(s,"",r)`·`find(s,"")`(글자 사이마다), `min("a","b")`(사전순), `substr(s,0,n)`. **인자가 리터럴이면 변환을 거절**하고(`noEmptyStr`/`numbersOnly`/`indexGet` 의 숫자 검사), 아니면 검사하는 도우미(`_replace`/`_find`/`_substr`/`_idx`)로 보낸다. 변수 인덱스 `A[i-1]` 만은 예외로 그대로 둔다 — 읽히는 파이썬이 이 기능의 존재 이유라서다 (근거는 `STRATEGY.md` §6, 생성 파일 머리말에 한계를 적어 둔다).
+- **내장 함수와 같은 이름의 함수·클래스는 파서에서 막는다.** 예전엔 세 백엔드가 서로 다른 답을 냈다 — `func floor(n) { return n * 100 }` 에서 인터프리터는 내장을 써서 `4`, `build` 는 거절, `topython` 은 학생의 함수를 써서 `450`. 검사가 `CodeGen::collectFuncs` 에만 있었기 때문이다. 지금은 `Parser` 가 `isBuiltinName()` 으로 막아 셋이 같다 (`CodeGen` 의 검사는 그물로 남겨 뒀다). **메서드 이름은 예외** — `obj.len()` 은 이름으로 구분되므로 `inClassBody` 동안은 통과시킨다.
+- **`floor(a / b)` 는 파이썬에서 `a // b` 로 낸다** (`floorDiv`) — 교과서의 중간값 계산이 그 모양이라 `//` 가 학생이 배워야 할 표기다. **양쪽이 정수로 보일 때만** 바꾼다: 소수끼리면 `//` 의 결과가 `3.0` 같은 소수라 인덱스 자리에서 `TypeError` 가 난다 (`math.floor` 는 늘 정수). `precOf` 도 이 모양을 `P_MUL` 로 답해야 한다 — 안 그러면 `2 * floor(x/2)` 가 `2 * x // 2` 로 나가 `(2*x)//2` 가 된다. `intish` 가 아는 정수는 리터럴·`len`·`floor`·`ceil`·`round`·`random`·`for i = a to b` 의 변수뿐이라, `let 왼쪽 = 1` 같은 변수는 아직 `math.floor` 로 남는다 (변수까지 넓히려면 전 프로그램 고정점 분석이 필요한데, 틀리면 **조용히 틀린 파이썬**이 나오는 쪽이라 하지 않았다).
+- **종료 코드로 실패를 알릴 것.** `cmdRun`/`cmdBuild`/`cmdTopython` 은 `bool` 을 돌려주고 `main` 이 그걸 0/1 로 바꾼다. 예전엔 인터프리터가 **잡히지 않은 에러에도 0** 을 돌려줬다 — 같은 프로그램의 빌드본은 1 을 돌려줬으니 백엔드가 어긋나 있었고, 채점 스크립트나 Makefile 은 죽은 프로그램을 성공으로 읽었다. 새 CLI 경로를 만들면 `return cmd...() ? 0 : 1;` 꼴을 지킬 것 (러너 5단계가 지킨다).
+- **파이썬 쪽 에러 문구도 맞춰 둘 것.** 입력이 끊기면(파이프 끝, Ctrl+D) 파이썬은 `EOFError` 역추적을 쏟는다 — `_input` 이 `except EOFError` 로 받아 Venos 와 같은 `입력을 읽을 수 없습니다` 를 낸다.
 - CLI 가 **남는 인자를 조용히 버리지 않게 할 것**. `venos topython 정렬.my -o 결과.py` 가 `-o` 를 무시하고 엉뚱한 곳에 쓰고 있었다 (`extra()` 로 거절한다).
 - `venos build` 의 실행 명령에 무조건 `./` 를 붙이지 말 것 — 절대 경로면 `.//home/...` 이 되어 "not found" 다. 경로에 `/` 가 없을 때만 붙이고, 실행할 때는 따옴표로 감싼다(공백 있는 폴더).
 - `docs/index.html` 에 NUL 바이트를 넣지 말 것. `pristine` 센티널로 `'\0'` 을 쓰다가 파일이 grep 에 "binary" 로 잡혔다 (지금은 `null`).

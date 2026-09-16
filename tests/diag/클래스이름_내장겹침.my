@@ -1,0 +1,5 @@
+# 클래스 이름도 마찬가지
+class len {
+    func init() { self.v = 1 }
+}
+print len([1,2])

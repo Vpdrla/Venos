@@ -16,6 +16,10 @@ venos --help               # usage; venos --version prints the version
 ```
 Inside the shell, `repl` starts a line-by-line REPL — type a bare expression to see its value.
 
+Exit status is 0 on success and 1 on failure (an uncaught error, input that ran out, a program
+`topython` refused, a missing file, an unknown argument), so it drops straight into a grading
+script or a Makefile.
+
 ## Types
 Numbers (no integer/float distinction), strings, lists, dictionaries, objects (class instances).
 Numbers are a single real type, so **integers are exact up to about 9 quadrillion (2^53)** — `factorial(20)` is exact, `factorial(25)` is an approximation. When you need bigger, `topython` is the answer: Python's integers have no limit.
@@ -205,3 +209,4 @@ write instead.
 6. Check `exists()` before `readfile` (or wrap in try/catch)
 7. Don't write `input =` — it's `x = input "Question: "`
 8. Logical negation is `not`, not `!`
+9. A function or class cannot take a built-in's name (`func floor(n) { }` is an error) — method names are fine
