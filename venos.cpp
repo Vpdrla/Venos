@@ -2269,12 +2269,12 @@ struct Parser {
             }
             // 대입이 아니면: 호출 문장만 허용 (경로가 있으면 원래 표현식으로 복원 불가하므로 검사 먼저)
             if (!path.empty())
-                throw LangError(lineTag(line) + "문법 오류: = 이(가) 필요합니다");
+                throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다");
             if (dynamic_cast<CallExpr*>(e.get()) || dynamic_cast<MethodCallExpr*>(e.get()))
                 return std::make_unique<ExprStmt>(std::move(e));
-            // "elif x == 2 {" 나 "def f():" 는 여기로 떨어진다 — 그냥 "= 가 필요합니다"
+            // "elif x == 2 {" 나 "def f():" 는 여기로 떨어진다 — 그냥 "= 기호가 필요합니다"
             // 라고 하면 학생은 자기가 어느 언어의 버릇을 썼는지 모른다.
-            throw LangError(lineTag(line) + "문법 오류: = 이(가) 필요합니다"
+            throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다"
                             + (root ? foreignHint(root->name) : string()));
         }
         if (check(Tok::INKW))
