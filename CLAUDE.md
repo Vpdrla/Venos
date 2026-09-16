@@ -50,7 +50,8 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 **자동화됨**: `tests/run_tests.sh` 가 `tests/cases/*.my` 와 `examples/algorithms/*.my` 전체를 **세 방식**(인터프리터 / C++ 빌드본 / topython → python3)으로 실행해 비교하고, CI(`.github/workflows/ci.yml`)가 푸시마다 돌린다. 허용 차이는 러너가 정규화로 흡수: 인터프리터 전용 `=== ===` 배너, catch 메시지의 `[줄 N]` 접두사, 소수 표기(양쪽을 `%g` 로 통일 — 파이썬은 `91.66666666666667`, Venos 는 `91.6667`).
 - 파이썬 비교를 건너뛰는 케이스는 러너의 `PY_SKIP` 에 이유와 함께 적혀 있다 (Venos 고유 에러 문구에 기대는 케이스들: errors/bugfixes/fileio/listops_errors). 에러 문구에 기대는 줄만 별도 케이스로 떼어내면 나머지는 파이썬까지 검증할 수 있다 — `listops` 를 그렇게 쪼갰다.
 ```bash
-tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + topython 거절 + 종료 코드 + 내장함수 대조 + 레슨 트랙
+tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + 셸 + topython 거절
+                     #             + REPL + 종료 코드 + 내장함수 대조 + 레슨 트랙
 tools/sanitize.sh    # ASan+UBSan+Leak 으로 두 백엔드 훑기 + 퍼징 (약 4분, CI 의 sanitize 잡)
                      # 누수 검출은 켜져 있고, 일부러 순환을 만드는 두 케이스(bugfixes,
                      # listops_errors)만 빼 준다 — 전체를 끄면 진짜 누수도 같이 가려진다
@@ -62,14 +63,15 @@ python3 tools/genfuzz.py --rounds 100         # 올바른 프로그램을 만들
                                               #  매번 다른 씨앗으로 돌린다. --keep 으로
                                               #  어긋난 입력을 genfuzz-diffs/ 에 남긴다)
 ```
-러너는 일곱 단계다:
+러너는 여덟 단계다:
 1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교
 2. **에러 메시지 회귀** — `tests/diag/*.my` 는 일부러 틀린 프로그램이고 출력이 `.expected` 와 글자까지 같아야 한다. 문구를 고쳤으면 `./venos tests/diag/X.my > tests/diag/X.expected 2>&1` 로 다시 만들 것
 3. **셸 편집 모드** — `create`/`code`/`:d`/`:q` 로 파일이 제대로 저장되고 셸의 `run`·`topython` 이 도는지. 화면 문구는 보지 않는다 (사소한 변경에 깨지므로). **`:run` 뒤에는 "엔터를 누르면" 프롬프트가 한 줄을 더 먹는다** — 스크립트로 몰 때 여기 걸린다
 4. **topython 거절** — `tests/nopython/*.my` 는 **파이썬이 Venos 와 다르게 답하는** 프로그램이다. `venos topython` 이 줄 번호를 대고 거절해야 하고 출력이 `.expected` 와 같아야 한다. 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다
-5. **종료 코드** — 정상 0, 잡히지 않은 에러·입력 끊김·`topython` 거절·모르는 인자·없는 파일은 1. **실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다**
-6. **이름 대조** — `node tools/check-builtins.js` (내장 함수는 BUILTIN_NAMES·인터프리터·CodeGen·PyGen·`vscode-venos` 다섯 곳, 키워드는 `KW_*` 상수와 `vscode-venos` 양쪽에서 뽑아 비교. 한 곳만 빠뜨리는 실수가 전부 조용해서 정적 대조로 잡는다)
-7. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지)
+5. **REPL** — 셸의 `repl` 에 몇 줄을 흘려 넣어 값이 바로 찍히는지, **에러 뒤에도 이어지는지**, 나갈 수 있는지를 본다 (오래 스위트에 없던 자리다). 화면 문구는 보지 않는다
+6. **종료 코드** — 정상 0, 잡히지 않은 에러·입력 끊김·`topython` 거절·모르는 인자·없는 파일은 1. **실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다**
+7. **이름 대조** — `node tools/check-builtins.js` (내장 함수는 BUILTIN_NAMES·인터프리터·CodeGen·PyGen·`vscode-venos` 다섯 곳, 키워드는 `KW_*` 상수와 `vscode-venos` 양쪽에서 뽑아 비교. 한 곳만 빠뜨리는 실수가 전부 조용해서 정적 대조로 잡는다)
+8. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지)
 
 ## 릴리스 내는 법
 버전을 올렸으면 태그만 밀면 된다. `.github/workflows/release.yml` 이 세 플랫폼 바이너리를 만들어 GitHub Releases 에 올린다.
@@ -100,6 +102,7 @@ git tag v0.6.0 && git push origin v0.6.0
 
 ## 지뢰밭 (이미 밟고 고친 것들 — 재발 금지)
 - **윈도우는 `main` 의 argv 를 ANSI 코드페이지로 준다** → 한글 파일 이름이 `?` 로 뭉개져 "파일 없음: ??.my" 가 된다. `useUtf8Argv()` 가 `CommandLineToArgvW` 로 명령줄을 다시 받아 UTF-8 로 바꿔 끼운다. 새로 argv 를 읽는 코드를 넣을 때 이 변환 뒤라는 걸 전제할 것.
+- **윈도우에서 g++ 에 한글 경로를 넘길 수 없다.** venos 자신은 `_wfopen` 으로 잘 열지만, **g++ 의 `argv` 는 ANSI 코드페이지로 변환돼 들어가서** `cc1plus: fatal error: ... No such file or directory` 로 죽는다 (우리가 g++ 를 고칠 수는 없다). 그래서 `cmdBuild` 는 경로에 non-ASCII 가 있으면 **그 폴더로 잠깐 들어가 `venos_build_tmp.cpp/.exe` 라는 ASCII 이름으로만 g++ 를 부르고**, 만들어진 exe 를 제자리 이름으로 옮긴다 (`fs::rename` 은 넓은 API 라 한글 이름이 된다). 학생이 받는 `.cpp`/`.exe` 이름은 그대로다. **이 버그는 `venos build` 가 실패해도 0 을 돌려주는 바람에 CI 에서 오래 조용했다** — 종료 코드를 고치자마자 드러났다. 명령 실행은 전부 `runShell()` 로 (윈도우에서 `_wsystem`, 그 외 `std::system`) — `system()` 은 명령줄을 ANSI 로 넘겨서 만든 exe 를 바로 돌리는 것조차 한글 경로면 실패한다.
 - **`venos build` 는 윈도우에서 `-static` 으로 링크한다.** 안 그러면 만들어진 exe 가 `libstdc++-6.dll` 을 PATH 에서 찾아야 하고, 다른 MinGW 의 libstdc++ 이 먼저 걸리면 표준 라이브러리가 조용히 오동작한다. 학생이 친구에게 exe 를 그냥 건넬 수 있는 효과도 있다.
 - **언어의 파일 내장함수(`readfile`/`writefile`/`appendfile`/`exists`)는 `openFile()`(본체) / `rt_open()`(RUNTIME) 으로만 열 것.** (셸의 `create`/`show`/`code` 와 import 로더는 `std::ifstream` 을 쓴다 — 윈도우 CI 의 `진단/import_없는파일` 케이스와 "Korean filenames, end to end" 단계가 그 경로를 지키므로 그대로 둔다. 새 파일 접근을 만들 때는 둘 중 어느 쪽인지 먼저 정할 것.) 둘 다 윈도우에서 `_wfopen` + 넓은 경로, 바이너리 모드다. `std::ifstream(문자열)` 은 윈도우에서 한글 경로를 못 열고, **`std::ifstream(std::filesystem::path)` 는 MinGW 빌드에서 없는 파일도 "열렸다"고 답한다** — 트랜스파일 빌드본의 `exists()` 가 전부 참이 되고 `readfile()` 이 에러를 안 냈다 (윈도우 CI 가 잡음). `exists()` 는 양쪽 다 `filesystem::is_regular_file`. 바이너리 모드인 이유는 텍스트 모드의 CRLF 변환이 백엔드마다 다르게 걸리지 않게 하려는 것.
 - **생성 파이썬의 출력 인코딩**: 윈도우 파이썬은 stdout 을 로케일 코드페이지로 인코딩해서 한글 print 가 `UnicodeEncodeError` 로 죽는다. 비-ASCII 문자열 리터럴이 있으면 PyGen 이 `sys.stdout.reconfigure(encoding="utf-8")` 를 넣는다 (`sawNonAscii`).

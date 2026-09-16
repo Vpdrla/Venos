@@ -186,6 +186,20 @@ for case_file in tests/nopython/*.my; do
     fi
 done
 
+# ---- REPL ----
+# 셸의 `repl` 은 스위트 어디에도 없었다. 값이 바로 찍히는지, **에러 뒤에도 이어지는지**,
+# 나갈 수 있는지만 본다 — 화면 문구는 사소한 변경에 깨지므로 보지 않는다.
+repl_ok="통과"
+printf 'repl\nlet x = 3\nx * 7\n"안녕" + str(x)\nlet xs = [1, 2, 3]\nlen(xs)\n없는변수\nx + 1\nfor i = 1 to 2 { print i }\nxs\n:q\nexit\n' \
+    | "$VENOS" > "$TMP/repl.txt" 2>&1
+for want in '21' '안녕3' '정의되지 않은 변수' '\[1, 2, 3\]'; do
+    grep -q -- "$want" "$TMP/repl.txt" || { repl_ok="실패 ($want 없음)"; dfail=$((dfail+1)); }
+done
+# 에러 뒤에도 이어지는가 — 다음 줄의 x + 1 이 4 를 내야 한다 (여기 말고 4 가 나올 데는 없다)
+grep -qE '(^|[^0-9])4([^0-9]|$)' "$TMP/repl.txt" \
+    || { repl_ok="실패 (에러 뒤에 이어지지 않습니다)"; dfail=$((dfail+1)); }
+[ "$repl_ok" = "통과" ] || cat "$TMP/repl.txt"
+
 # ---- 종료 코드 ----
 # 실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다.
 # 인터프리터가 오래 0 만 돌려줬다 — 빌드본은 1 을 돌려주는데 (백엔드가 어긋나 있었다).
@@ -247,6 +261,7 @@ echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pyte
 echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
 echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
+echo "REPL: $repl_ok"
 echo "이름 대조: $builtins"
 echo "레슨 트랙: $lessons"
 echo "에러 메시지: 통과 $dpass / 실패 $dfail"

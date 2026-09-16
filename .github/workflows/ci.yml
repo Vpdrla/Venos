@@ -92,7 +92,12 @@ jobs:
           ./venos.exe topython "tests/.tmp_한글 폴더/정렬.my"
           python "tests/.tmp_한글 폴더/정렬.py"
           echo "--- build + run"
-          ./venos.exe build "tests/.tmp_한글 폴더/정렬.my" run
+          # 여기가 오래 조용히 깨져 있었다: g++ 의 argv 는 ANSI 로 변환돼 한글 경로를 못 열었는데,
+          # cmdBuild 가 실패해도 0 을 돌려주는 바람에 이 단계가 통과로 보였다.
+          # 이제 종료 코드도 보고, 실제로 계산한 값이 나왔는지도 본다.
+          ./venos.exe build "tests/.tmp_한글 폴더/정렬.my" run | tee "$RUNNER_TEMP/built.txt"
+          grep -q "평균: 86.3333" "$RUNNER_TEMP/built.txt" \
+            || { echo "::error::한글 경로로 빌드한 실행 파일이 값을 못 냈습니다"; exit 1; }
           echo "--- 없는 한글 파일은 에러여야 한다"
           ./venos.exe "tests/.tmp_없는한글.my" && { echo "::error::없는 파일인데 성공했습니다"; exit 1; } || echo "OK"
           rm -rf "tests/.tmp_한글 폴더" tests/.tmp_없는한글.my

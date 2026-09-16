@@ -283,6 +283,20 @@ const CHECKS = [
     const ok = !m.가로스크롤 && m.버튼 >= 44 && m.편집기글꼴 >= 16;
     if (ok) console.log('✓ 태블릿 화면 (터치 크기·가로 스크롤)');
     else { bad++; console.log('✗ 태블릿 화면', JSON.stringify(m)); }
+
+    // ⏹ 는 교실 태블릿의 비상구다 — 실수로 무한 루프를 돌린 학생이 손끝으로 눌러야 한다.
+    // #stopBtn 의 id 규칙이 padding 을 덮어쓰므로 min-height 가 살아 있는지 실제로 잰다.
+    await tp.fill('#editor', 'let s = 0\nprint "시작"\nwhile true { s = s + 1 }\n');
+    await tp.click('#runBtn');
+    await tp.waitForFunction(
+      () => document.getElementById('output').textContent.includes('시작'), { timeout: 30000 });
+    const 중단크기 = await tp.evaluate(
+      () => Math.round(document.getElementById('stopBtn').getBoundingClientRect().height));
+    await tp.tap('#stopBtn');                      // 손가락으로 (클릭이 아니라)
+    await tp.waitForSelector('#runBtn:not([disabled])', { timeout: 30000 });
+    const 멈췄나 = (await tp.$eval('#output', e => e.textContent)).includes('중단했습니다');
+    if (중단크기 >= 44 && 멈췄나) console.log('✓ 태블릿에서 ⏹ 로 무한 루프 탈출');
+    else { bad++; console.log(`✗ 태블릿의 ⏹ (높이 ${중단크기}px, 멈춤 ${멈췄나})`); }
     await touch.close();
   }
 

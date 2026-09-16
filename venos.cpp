@@ -201,6 +201,26 @@ static fs::path toPath(const string& utf8) {
 #endif
 }
 
+[[maybe_unused]] static bool hasNonAscii(const string& s) {   // 윈도우의 g++ 호출에서만 쓴다
+    for (unsigned char c : s) if (c >= 0x80) return true;
+    return false;
+}
+
+// 셸 명령 실행. 윈도우의 system() 은 명령줄을 ANSI 코드페이지로 넘기므로 한글 경로가
+// 뭉개진다 — 만든 exe 를 "venos build 숙제/정렬.my run" 으로 바로 돌릴 때 걸렸다.
+// _wsystem 은 넓은 명령줄을 그대로 넘기고 cmd.exe 는 유니코드를 온전히 다룬다.
+static int runShell(const string& cmd) {
+    std::cout << std::flush;
+#ifdef _WIN32
+    int len = MultiByteToWideChar(CP_UTF8, 0, cmd.c_str(), (int)cmd.size(), nullptr, 0);
+    std::wstring w(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, cmd.c_str(), (int)cmd.size(), w.data(), len);
+    return _wsystem(w.c_str());
+#else
+    return std::system(cmd.c_str());
+#endif
+}
+
 // \033[2J: 보이는 화면 지우기, \033[3J: 스크롤백(위로 올린 기록)까지 지우기, \033[H: 커서 맨 위로
 static void clearScreen() { std::cout << "\033[2J\033[3J\033[H" << std::flush; }
 
@@ -4999,21 +5019,50 @@ bool cmdBuild(const string& arg) {
         out << cppCode;
     }
     std::cout << "C++ generated: " << cppName << "\n";
-    bool nonAscii = false;
-    for (unsigned char ch : fname) if (ch >= 0x80) nonAscii = true;
-    if (nonAscii)
-        std::cout << "(note: non-ASCII filenames can break the g++ call on Windows — ASCII names recommended)\n";
     std::cout << "compiling with g++...\n";
     // 윈도우는 정적 링크한다. 그러지 않으면 만들어진 exe 가 libstdc++-6.dll 등을 PATH 에서
     // 찾아야 해서 친구에게 건네면 안 열리고, PATH 에 다른 MinGW 의 libstdc++ 이 먼저
     // 걸리면 표준 라이브러리가 조용히 오동작한다 (파일 열기가 늘 성공하는 걸 본 적 있다).
-    string compile = string("g++ -std=c++17 -O2")
+    const string FLAGS = string("g++ -std=c++17 -O2")
 #ifdef _WIN32
-                   + " -static"
+                       + " -static"
 #endif
-                   + " -o \"" + exeName + "\" \"" + cppName + "\"";
-    std::cout << std::flush;
-    int rc = std::system(compile.c_str());
+                       ;
+    int rc;
+#ifdef _WIN32
+    // 한글 경로면 g++ 를 그냥 부를 수 없다. venos 자신은 _wfopen 으로 열지만 **g++ 의 argv 는
+    // ANSI 코드페이지로 변환돼 들어가서** "No such file or directory" 로 죽는다 (윈도우 CI 가 잡음).
+    // 우리가 g++ 를 고칠 수는 없으니, 그 폴더로 잠깐 들어가 ASCII 이름으로만 부르고
+    // 결과를 제자리에 돌려놓는다. 학생이 받는 .cpp/.exe 이름은 그대로다.
+    if (hasNonAscii(cppName) || hasNonAscii(exeName)) {
+        const string TMP_CPP = "venos_build_tmp.cpp";
+        const string TMP_EXE = "venos_build_tmp.exe";
+        string dir = dirOf(cppName);
+        std::error_code ec;
+        fs::path prev = fs::current_path(ec);
+        if (!ec && !dir.empty()) fs::current_path(toPath(dir), ec);
+        if (ec) {
+            std::cout << "!! 폴더로 들어갈 수 없습니다: " << (dir.empty() ? "." : dir) << "\n";
+            return false;
+        }
+        // 이제 CWD 가 그 폴더이므로 파일 이름만 쓴다 (폴더 이름에도 한글이 있을 수 있다)
+        string exeHere = dir.empty() ? exeName : exeName.substr(dir.size() + 1);
+        { std::ofstream out(TMP_CPP, std::ios::binary); out << cppCode; }
+        rc = runShell(FLAGS + " -o " + TMP_EXE + " " + TMP_CPP);
+        if (rc == 0) {
+            fs::remove(toPath(exeHere), ec);
+            fs::rename(fs::path(TMP_EXE), toPath(exeHere), ec);
+            if (ec) { std::cout << "!! 만든 실행 파일을 제자리로 옮기지 못했습니다\n"; rc = -1; }
+        }
+        std::error_code ec2;
+        fs::remove(fs::path(TMP_CPP), ec2);
+        fs::remove(fs::path(TMP_EXE), ec2);
+        if (!prev.empty()) fs::current_path(prev, ec2);
+    } else
+#endif
+    {
+        rc = runShell(FLAGS + " -o \"" + exeName + "\" \"" + cppName + "\"");
+    }
     if (rc != 0) {
         std::cout << "!! g++ failed (is g++ installed?)\n";
         std::cout << "   the generated C++ is still there, you can compile it yourself: " << cppName << "\n";
@@ -5023,7 +5072,7 @@ bool cmdBuild(const string& arg) {
     if (arg == "run") {
         std::cout << "----- run -----\n" << std::flush;
         // 경로에 공백이 있으면 셸이 두 낱말로 읽는다 ("내 과제/정렬.my")
-        int rrc = std::system(("\"" + runCmd + "\"").c_str());
+        int rrc = runShell("\"" + runCmd + "\"");
         if (rrc != 0) { std::cout << "(program exited with code " << rrc << ")\n"; return false; }
     }
     return true;
