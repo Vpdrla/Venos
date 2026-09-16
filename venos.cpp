@@ -5048,6 +5048,10 @@ struct PyGen {
                       "    if isinstance(a, str):\n"
                       "        if b == \"\": raise Exception(\"find() 로 찾을 문자열은 비어 있을 수 없습니다\")\n"
                       "        return a.find(b) + 1\n"
+                      // 딕셔너리는 Venos 에서 에러인데, 파이썬은 `b in a` 가 키를 보고
+                      // 없으면 0 을 돌려준다 — 에러가 답으로 바뀐다 (생성 퍼저가 찾았다).
+                      "    if not isinstance(a, list):\n"
+                      "        raise Exception(\"find() 의 1번째 인자는 리스트나 문자열이어야 합니다\")\n"
                       "    return a.index(b) + 1 if b in a else 0\n"},
             {"random","def _random(a, b):\n    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
             {"rng",

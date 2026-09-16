@@ -54,6 +54,10 @@ try { print reverse(5) } catch 오류 { print "reverse 숫자: 에러" }
 try { print split([1, 2], ",") } catch 오류 { print "split 리스트: 에러" }
 try { print sqrt("abc") } catch 오류 { print "sqrt 문자열: 에러" }
 try { print abs("가") } catch 오류 { print "abs 문자열: 에러" }
+let 표2 = {"가": 1}
+try { print find(표2, "가") } catch 오류 { print "find 딕셔너리: 에러" }
+try { print find(표2, "없음") } catch 오류 { print "find 없는키: 에러" }
+try { print find(5, 1) } catch 오류 { print "find 숫자: 에러" }
 
 print ""
 print "=== 객체가 리스트·딕셔너리·join 안에 들어갔을 때 ==="
