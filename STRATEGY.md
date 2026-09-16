@@ -117,6 +117,15 @@ Python answers differently — an empty needle in `replace` and `find`, strings 
 all are: refused when literal, routed through a checking helper otherwise.
 `tests/nopython/` holds those refusals to their wording.
 
+`upper()` and `lower()` went the same way. Venos changes ASCII letters and leaves everything
+else alone; Python's `str.upper()` walks all of Unicode, so `café` becomes `CAFÉ`, Turkish
+dotless `ı` becomes `I`, and German `ß` becomes `SS` — **two characters where there was one**.
+Wrapping both in helpers would close it, at the cost of a student never meeting `s.upper()`,
+which is the notation they are here to learn. Korean, digits and emoji are untouched by either
+one, so the textbook programs that use these (a Caesar cipher, a base converter) agree exactly.
+So the difference stays, and the generated file's header names it — the same trade the index
+made, for the same reason.
+
 The same judgement came up on performance. Measured against CPython running the same
 program via `topython`, Venos is **about 3× slower on loops and lists, 6× on recursion,
 and slightly faster on dictionaries** — with one exception: `s = s + ch` in a loop is

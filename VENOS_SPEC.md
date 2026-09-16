@@ -131,7 +131,7 @@ print p                       # 사람{"나이": 15, "이름": "미르"}
 공통:    len(리스트/문자열/딕셔너리)  reverse(리스트/문자열)
 리스트:  push(xs,값) pop(xs) sort(xs) remove(xs,위치)  has(xs,값)  find(xs,값)→위치(없으면 0)
 딕셔너리: keys(d) has(d,키) remove(d,키)
-문자열:  split(s,구분자) join(xs,구분자) upper(s) lower(s)
+문자열:  split(s,구분자) join(xs,구분자) upper(s) lower(s)   # 영문자만 바꾼다
         find(s,찾을것)→위치(없으면 0)  replace(s,바꿀것,새것)  substr(s,시작,개수)
         s[1] 인덱싱 가능 (읽기만)
 파일:    readfile(경로) writefile(경로,내용) appendfile(경로,내용) exists(경로)

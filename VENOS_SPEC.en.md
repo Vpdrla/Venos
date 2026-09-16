@@ -132,7 +132,7 @@ convert: num("15")  str(3)
 common:  len(list/string/dict)  reverse(list/string)
 list:    push(xs,value) pop(xs) sort(xs) remove(xs,index)  has(xs,value)  find(xs,value)→position (0 if absent)
 dict:    keys(d) has(d,key) remove(d,key)
-string:  split(s,sep) join(xs,sep) upper(s) lower(s)
+string:  split(s,sep) join(xs,sep) upper(s) lower(s)   # ASCII letters only
          find(s,needle)→position (0 if absent)  replace(s,old,new)  substr(s,start,count)
          s[1] indexing works (read-only)
 file:    readfile(path) writefile(path,content) appendfile(path,content) exists(path)

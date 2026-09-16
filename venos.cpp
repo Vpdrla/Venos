@@ -3876,6 +3876,7 @@ struct PyGen {
     bool sawList = false;                    // 리스트가 존재할 수 있는가
     bool sawIndex = false;                   // [ ] 인덱싱을 쓰는가 (머리말에 1부터 얘기를 넣을지)
     bool sawFloat = false;                   // 소수가 나올 수 있는가 (/ · sqrt · 입력 등)
+    bool sawCase  = false;                   // upper()/lower() 를 썼는가 (머리말 주의 문구용)
     bool sawNonAscii = false;                // 문자열 리터럴에 ASCII 밖 글자가 있는가 (출력 인코딩)
     bool sawInput = false;                   // input 을 쓰는가 (입력 인코딩)
     bool lastRangeIsInt = false;             // 방금 만든 for 범위가 진짜 range() 인가 (rangeOf 가 설정)
@@ -4455,8 +4456,13 @@ struct PyGen {
         if (f == "remove"){ need2(2); return need("remove") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "split") { need2(2); sawList = true; return atom(0) + ".split(" + A(1) + ")"; }
         if (f == "join")  { need2(2); return need("join") + "(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "upper") { need2(1); return atom(0) + ".upper()"; }
-        if (f == "lower") { need2(1); return atom(0) + ".lower()"; }
+        // Venos 의 upper()/lower() 는 영문자만 바꾼다. 파이썬의 str.upper() 는 유니코드
+        // 전체를 바꿔서 é→É, ß→SS(길이가 늘어난다!), 터키어 ı→I 까지 간다.
+        // 한글·이모지·숫자에는 둘 다 손대지 않으므로 교과서 프로그램에서는 같은 답이 나온다.
+        // 도우미로 감싸면 s.upper() 라는 표기를 못 배우게 되므로, 리스트 인덱스와 같은
+        // 판단으로 그대로 두고 **생성 파일 머리말에 차이를 적는다** (STRATEGY §6).
+        if (f == "upper") { need2(1); sawCase = true; return atom(0) + ".upper()"; }
+        if (f == "lower") { need2(1); sawCase = true; return atom(0) + ".lower()"; }
         // find 는 + 1 이 붙으므로 통째로 괄호를 씌운다 (find(s,x) * 10 이 s.find(x) + 1 * 10 이 되면 안 된다)
         // 찾을 문자열이 리터럴이면 s.find(x) + 1 이 그대로 읽힌다. 변수면 빈 문자열이
         // 들어올 수 있고, 그때 파이썬은 0 을 주지만 Venos 는 에러다 — 검사하는 쪽으로 보낸다.
@@ -4886,6 +4892,11 @@ struct PyGen {
             out << "#   " << ++noteN << ") 소수를 보여주는 방식이 다릅니다. Venos 는 5.0 을 5 로,"
                    " 91.66666...을 91.6667 로\n"
                    "#      줄여서 보여주지만 파이썬은 있는 그대로 보여줍니다.\n";
+        if (sawCase)
+            out << "#   " << ++noteN << ") upper()/lower() 가 바꾸는 범위가 다릅니다. Venos 는 영문자만"
+                   " 바꾸지만\n"
+                   "#      파이썬은 é→É 처럼 유니코드 글자도 바꿉니다 (독일어 ß 는 SS 가 되어 길이까지 늘어납니다).\n"
+                   "#      한글·숫자·이모지에는 둘 다 손대지 않습니다.\n";
         if (deepRecursion)
             out << "#   " << ++noteN << ") 재귀 깊이 한도가 다릅니다 — Venos 는 "
                 << RECURSION_DESKTOP << "번, 파이썬은 기본 1000번이라\n"
