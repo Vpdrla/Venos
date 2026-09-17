@@ -4037,23 +4037,72 @@ struct PyGen {
     // 함수 인자·for 범위 변수처럼 값을 알 수 없는 이름은 아예 후보에서 뺀다 (안전한 쪽).
     std::map<string, std::vector<Expr*>> strSites;   // nullptr = 무조건 문자열인 자리
     std::set<string> strBanned;
+    // 정수 쪽도 같은 자리를 모은다. 규칙만 다르다 — `let x` 는 0 이라 정수고(문자열에선 금지),
+    // catch 변수는 에러 메시지라 정수가 아니다(문자열에선 허용). for 의 루프 변수는
+    // **범위가 정수일 때만** 정수라서 고정점이 필요하다 (그래서 식이 아니라 ForStmt 를 담는다).
+    // 키는 이름이 아니라 **범위\x01이름** 이다. 한 이름이 어느 함수의 인자이면서
+    // 다른 함수의 지역일 수 있어서(실제로 selection-sort 의 n 이 그랬다), 이름으로만
+    // 묶으면 인자 하나가 전부를 막아 실익이 0 이 된다.
+    // 값에 범위를 같이 담는다 — 고정점이 그 식을 **그 식이 있던 범위**로 평가해야 하므로
+    std::map<string, std::vector<std::pair<string, Expr*>>> intSites;   // nullptr = 무조건 정수
+    std::map<string, std::vector<std::pair<string, ForStmt*>>> intLoops;
+    std::set<string> intBanned;
+    std::set<string> intStatic;                      // 대입이 전부 정수인 (범위,이름)
+    std::map<string, std::set<string>> scopeLocals;  // 함수 이름 → 그 안의 지역 이름 전부
+    string scanScope;                                // 걷는 중인 함수 (최상위는 "")
+    string curScope;                                 // 내보내는 중인 함수
+    string curClass;                                 // 내보내는 중인 클래스 (메서드 범위 이름용)
+    // 이 이름이 이 범위의 지역인가 — 걷는 쪽과 내보내는 쪽이 **같은 규칙**을 써야 한다.
+    // (방출 시점의 localSet 은 그 지점까지만 채워져 있어서 못 쓴다. 함수 전체를 미리 모은다.)
+    string scopeKey(const string& scope, const string& name) const {
+        auto it = scopeLocals.find(scope);
+        bool local = it != scopeLocals.end() && it->second.count(name) > 0;
+        return (local ? scope : string()) + "\x01" + name;
+    }
+    // 함수 본문에서 let 으로 묶이는 이름 모으기 (안쪽 함수는 자기 범위이므로 건너뛴다)
+    static void letNames(Stmt* s, std::set<string>& out) {
+        if (!s) return;
+        if (auto* l = dynamic_cast<LetStmt*>(s))  { out.insert(l->name); return; }
+        if (auto* f = dynamic_cast<ForStmt*>(s))  { out.insert(f->var); letNames(f->body.get(), out); return; }
+        if (auto* fe = dynamic_cast<ForEachStmt*>(s)) { out.insert(fe->var); letNames(fe->body.get(), out); return; }
+        if (auto* t = dynamic_cast<TryStmt*>(s))  { out.insert(t->var); letNames(t->tryB.get(), out);
+                                                    letNames(t->catchB.get(), out); return; }
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) { for (auto& c : b->stmts) letNames(c.get(), out); return; }
+        if (auto* i = dynamic_cast<IfStmt*>(s))   { letNames(i->thenB.get(), out); letNames(i->elseB.get(), out); return; }
+        if (auto* w = dynamic_cast<WhileStmt*>(s)){ letNames(w->body.get(), out); return; }
+        // FuncStmt·ClassStmt 는 자기 범위다 — 들어가지 않는다
+    }
+
     void scanStr(Stmt* s) {
         if (!s) return;
         if (auto* l = dynamic_cast<LetStmt*>(s)) {
-            if (l->val) strSites[l->name].push_back(l->val.get());
-            else        strBanned.insert(l->name);          // let x  → 0
+            if (l->val) { strSites[l->name].push_back(l->val.get());
+                          intSites[scopeKey(scanScope, l->name)].push_back({scanScope, l->val.get()}); }
+            else        { strBanned.insert(l->name);          // let x  → 0
+                          intSites[scopeKey(scanScope, l->name)].push_back({scanScope, nullptr}); }   // 0 은 정수다
             return;
         }
-        if (auto* a = dynamic_cast<AssignStmt*>(s)) { strSites[a->name].push_back(a->val.get()); return; }
-        if (auto* f = dynamic_cast<ForStmt*>(s))   { strBanned.insert(f->var); scanStr(f->body.get()); return; }
+        if (auto* a = dynamic_cast<AssignStmt*>(s)) {
+            strSites[a->name].push_back(a->val.get());
+            intSites[scopeKey(scanScope, a->name)].push_back({scanScope, a->val.get()});
+            return;
+        }
+        if (auto* f = dynamic_cast<ForStmt*>(s))   {
+            strBanned.insert(f->var);
+            intLoops[scopeKey(scanScope, f->var)].push_back({scanScope, f});   // 범위가 정수면 루프 변수도 정수
+            scanStr(f->body.get());
+            return;
+        }
         if (auto* fe = dynamic_cast<ForEachStmt*>(s)) {
             if (stringishLiteral(fe->iter.get())) strSites[fe->var].push_back(nullptr);
             else                                  strBanned.insert(fe->var);
+            intBanned.insert(scopeKey(scanScope, fe->var));   // 무엇이 나올지 모른다
             scanStr(fe->body.get());
             return;
         }
         if (auto* t = dynamic_cast<TryStmt*>(s)) {
             strSites[t->var].push_back(nullptr);            // catch 변수는 항상 에러 메시지(문자열)
+            intBanned.insert(scopeKey(scanScope, t->var));
             scanStr(t->tryB.get()); scanStr(t->catchB.get());
             return;
         }
@@ -4061,14 +4110,26 @@ struct PyGen {
         if (auto* i = dynamic_cast<IfStmt*>(s))    { scanStr(i->thenB.get()); scanStr(i->elseB.get()); return; }
         if (auto* w = dynamic_cast<WhileStmt*>(s)) { scanStr(w->body.get()); return; }
         if (auto* fn = dynamic_cast<FuncStmt*>(s)) {
-            for (auto& p : fn->params) strBanned.insert(p);
+            string outer = scanScope;
+            scanScope = fn->name;
+            auto& locals = scopeLocals[scanScope];
+            for (auto& p : fn->params) locals.insert(p);
+            letNames(fn->body.get(), locals);
+            for (auto& p : fn->params) { strBanned.insert(p); intBanned.insert(scopeKey(scanScope, p)); }
             scanStr(fn->body.get());
+            scanScope = outer;
             return;
         }
         if (auto* cl = dynamic_cast<ClassStmt*>(s)) {
             for (auto& m : cl->methodList) {
-                for (auto& p : m->params) strBanned.insert(p);
+                string outer = scanScope;
+                scanScope = cl->name + "." + m->name;
+                auto& locals = scopeLocals[scanScope];
+                for (auto& p : m->params) locals.insert(p);
+                letNames(m->body.get(), locals);
+                for (auto& p : m->params) { strBanned.insert(p); intBanned.insert(scopeKey(scanScope, p)); }
                 scanStr(m->body.get());
+                scanScope = outer;
             }
             return;
         }
@@ -4163,6 +4224,8 @@ struct PyGen {
 
     void inferStrVars(std::vector<StmtP>& program) {
         strSites.clear(); strBanned.clear(); strVars.clear();
+        // scanStr 이 정수 쪽도 같이 채운다 — 한 번에 걷으므로 비우는 것도 여기서 같이 한다
+        intSites.clear(); intLoops.clear(); intBanned.clear(); scopeLocals.clear(); scanScope.clear();
         for (auto& st : program) scanStr(st.get());
         for (auto& [n, sites] : strSites)
             if (!strBanned.count(n)) strVars.insert(n);
@@ -4175,6 +4238,48 @@ struct PyGen {
                 else { it = strVars.erase(it); changed = true; }
             }
         }
+    }
+
+    // 대입이 전부 정수인 변수 찾기 — inferStrVars 와 같은 모양의 최대 고정점.
+    //
+    // 이게 없으면 `let n = len(A)` 의 n 을 정수로 못 봐서, 그 뒤가 같이 무너진다:
+    //   "{i}번째"        →  f"{_show(i)}번째"        ({i} 면 된다)
+    //   floor((a+b)/2)   →  math.floor((a + b) / 2)  ((a + b) // 2 가 관용구다)
+    // 예제집에서 _show 182→169곳, math.floor 11→9 가 됐다. binary-search 의 출력 줄이
+    // _show 다섯 개짜리 벽에서 읽을 수 있는 f-string 으로 바뀌는 게 제일 큰 몫이다.
+    //
+    // `for i = 1 to n` 의 _rng 는 **여기서 못 고친다** — Venos 의 for 는 n < 1 이면
+    // 거꾸로 돌아서 방향이 실행할 때 정해지고, range(1, n+1) 은 그냥 틀린 번역이다.
+    //
+    // 건전성은 scanStr 이 **이름이 묶이는 자리를 전부** 지나는 데서 온다 (let·대입·for 변수·
+    // for-in 변수·catch 변수·인자). 문자열 추론이 이미 같은 자리에 기대고 있고, 거기서
+    // 잘못 짚으면 `+` 가 이어붙기로 바뀌므로 요구되는 건전성도 같다.
+    void inferIntVars(std::vector<StmtP>& program) {
+        (void)program;                              // 수집은 scanStr 이 이미 했다
+        intStatic.clear();
+        for (auto& [k, sites] : intSites) { (void)sites; if (!intBanned.count(k)) intStatic.insert(k); }
+        for (auto& [k, loops] : intLoops) { (void)loops; if (!intBanned.count(k)) intStatic.insert(k); }
+        string saved = curScope;
+        for (bool changed = true; changed; ) {      // 아닌 것부터 걷어낸다
+            changed = false;
+            for (auto it = intStatic.begin(); it != intStatic.end(); ) {
+                bool ok = true;
+                for (auto& [sc, e] : intSites[*it]) {
+                    if (!e) continue;               // 무조건 정수인 자리
+                    curScope = sc;                  // 그 식이 있던 범위로 본다
+                    if (!intish(e)) { ok = false; break; }
+                }
+                if (ok)
+                    for (auto& [sc, f] : intLoops[*it]) {
+                        curScope = sc;
+                        if (!intish(f->start.get()) || !intish(f->end.get())
+                            || (f->step && !intish(f->step.get()))) { ok = false; break; }
+                    }
+                if (ok) ++it;
+                else { it = intStatic.erase(it); changed = true; }
+            }
+        }
+        curScope = saved;
     }
 
     // 컴파일 시점에 값이 정해지는 정수인가. -1 은 NegExpr(NumExpr) 로 파싱되므로 같이 본다.
@@ -4199,7 +4304,8 @@ struct PyGen {
         if (dynamic_cast<NotExpr*>(e) || dynamic_cast<LogicalExpr*>(e)) return true;
         double k;
         if (constInt(e, k)) return true;
-        if (auto* v = dynamic_cast<VarExpr*>(e)) return intVars.count(v->name) > 0;
+        if (auto* v = dynamic_cast<VarExpr*>(e))
+            return intVars.count(v->name) > 0 || intStatic.count(scopeKey(curScope, v->name)) > 0;
         // len() 은 정수, has() 는 int(... in ...) 라 둘 다 파이썬에서도 정수로 찍힌다
         if (auto* c = dynamic_cast<CallExpr*>(e))
             return (c->name == "len" || c->name == "has") && !funcs.count(c->name);
@@ -4780,7 +4886,8 @@ struct PyGen {
     bool intish(Expr* e) {
         double k;
         if (constInt(e, k)) return true;
-        if (auto* v = dynamic_cast<VarExpr*>(e)) return intVars.count(v->name) > 0;
+        if (auto* v = dynamic_cast<VarExpr*>(e))
+            return intVars.count(v->name) > 0 || intStatic.count(scopeKey(curScope, v->name)) > 0;
         if (auto* n = dynamic_cast<NegExpr*>(e)) return intish(n->inner.get());
         if (auto* c = dynamic_cast<CallExpr*>(e)) {
             if (funcs.count(c->name) || classes.count(c->name)) return false;
@@ -4850,6 +4957,8 @@ struct PyGen {
 
     string defOf(FuncStmt* fn, const string& name, bool method, int d, bool ctor = false) {
         inFunc = true;
+        // 걷는 쪽(scanStr)이 쓴 것과 **같은 범위 이름**이어야 한다
+        curScope = method ? curClass + "." + fn->name : fn->name;
         localSet.clear();
         touchedGlobals.clear();
         if (method) localSet.insert("self");
@@ -4875,6 +4984,7 @@ struct PyGen {
         // 파이썬 __init__ 은 값을 돌려주면 TypeError 다. 그 밖에는 Venos 처럼 기본 0 을 돌려준다.
         if (!ctor && !endsWithReturn(fn->body.get())) o << pad(d + 1) << "return 0\n";
         inFunc = false;
+        curScope.clear();
         localSet.clear();
         touchedGlobals.clear();
         return o.str();
@@ -4884,6 +4994,7 @@ struct PyGen {
         for (auto& s : program) collect(s.get());
         for (auto& s : program) collectVars(s.get(), globalSet);
         inferStrVars(program);
+        inferIntVars(program);
 
         // 본문을 두 번 만든다. 1차는 딕셔너리가 등장하는지(sawMap)와 필요한 도우미를 알아내는 용도 —
         // 딕셔너리가 아예 없는 프로그램이면 _idx/_iter 같은 도우미 없이 훨씬 읽기 좋은 코드가 나온다.
@@ -4891,9 +5002,11 @@ struct PyGen {
         auto buildAll = [&](std::ostringstream& defsOut, std::ostringstream& mainOut) {
             for (auto& [cname, cls] : classes) {
                 defsOut << "class " << pyName(cname) << ":\n";
+                curClass = cname;
                 for (auto& m : cls->methodList)
                     defsOut << defOf(m.get(), m->name == "init" ? "__init__" : pyName(m->name),
                                      true, 1, m->name == "init") << "\n";
+                curClass.clear();
                 // Venos 는 객체를 내용으로 보여주고 내용으로 비교한다 — 파이썬 기본 동작과 달라 맞춰 준다
                 defsOut << pad(1) << "def __str__(self):\n"
                         << pad(2) << "return " << need("show") << "(self)\n\n"
