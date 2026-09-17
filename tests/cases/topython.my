@@ -56,8 +56,12 @@ remove(점수, "국어")
 print 점수
 
 # --- for: 방향·step·식으로 준 범위 ---
+# step 이 없으면 **항상 올라간다** — 시작이 끝보다 크면 한 번도 안 돈다.
+# 양끝이 상수인데 거꾸로면 파서가 거절하므로, 여기서는 식으로 준다.
 for a = 1 to 3 { print "a", a }
-for b = 3 to 1 { print "b", b }
+let 빈끝 = 0
+for b = 1 to 빈끝 { print "b", b }
+print "b 는 안 돈다"
 for c = 1 to 10 step 3 { print "c", c }
 for d = 10 to 1 step -4 { print "d", d }
 let 끝 = 3
@@ -155,15 +159,19 @@ let 한점 = 점(4)
 print "객체: {한점}"
 print "빈 리스트 {[]} 길이 {len(목록)}"
 
-# --- for 의 방향이 실행할 때 정해지는 경우 (range() 로는 못 내는 자리) ---
+# --- step 없는 for 는 시작이 끝보다 크면 한 번도 안 돈다 ---
+# 양끝이 상수면 파서가 거절하므로 여기서는 변수로 준다. 세 방식이 다 0번 돌아야 한다 —
+# 예전에는 거꾸로 돌았고, 그래서 `for i = 1 to len(A)` 가 빈 리스트에서 두 번 돌았다.
+print "-- 안 도는 반복"
 let 끝 = 1
 for 내림 = 3 to 끝 { print "내림", 내림 }
 let 시작 = 3
 for 내림2 = 시작 to 1 { print "내림2", 내림2 }
 let 영 = 0
 for 한칸 = 1 to 영 { print "한칸", 한칸 }
+print "-- 여기까지 한 줄도 없어야 한다"
 let 같음 = 2
-for 제자리 = 2 to 같음 { print "제자리", 제자리 }
+for 제자리 = 2 to 같음 { print "제자리", 제자리 }   # 양끝이 같으면 한 번
 # 시작이 소수인데 step 이 정수인 경우 (range 로 내면 파이썬이 TypeError)
 let 반쪽 = 1.5
 for 소수시작 = 반쪽 to 4 step 1 { print "소수시작", 소수시작 }

@@ -118,7 +118,7 @@ print "The score is {score}"
 
 `for i = 1 to 5` repeats from 1 to 5, **including both ends**.
 
-Use `step` to skip, and a negative step to count down.
+Use `step` to skip. **Counting down needs a negative `step`** — without one the loop always counts up, and it runs zero times when the start is past the end. That is why `for i = 1 to len(list)` simply does nothing on an empty list.
 
 `"*" * i` is a string of i stars, so a loop can draw with it.
 

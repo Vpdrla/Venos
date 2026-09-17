@@ -112,8 +112,8 @@ print "The score is {score}"`
     id: 'for',
     title: { ko: '반복 — for', en: 'Repeating with for' },
     desc: {
-      ko: '`for i = 1 to 5` 는 1부터 5까지 **양 끝을 포함해서** 반복합니다.\n\n`step` 으로 건너뛸 수도 있어요. 거꾸로 세려면 `step -1` 처럼 음수를 씁니다.\n\n`"*" * i` 는 별을 i 개 이어붙인 문자열이라 반복문으로 그림을 그릴 수 있어요.\n\n▶ 숫자를 바꿔 구구단을 다른 단으로 바꿔 보세요.',
-      en: '`for i = 1 to 5` repeats from 1 to 5, **including both ends**.\n\nUse `step` to skip, and a negative step to count down.\n\n`"*" * i` is a string of i stars, so a loop can draw with it.\n\nChange the numbers to print a different multiplication table.'
+      ko: '`for i = 1 to 5` 는 1부터 5까지 **양 끝을 포함해서** 반복합니다.\n\n`step` 으로 건너뛸 수도 있어요. **거꾸로 세려면 `step -1` 처럼 음수를 꼭 써야 합니다** — `step` 이 없으면 언제나 올라가고, 시작이 끝보다 크면 한 번도 돌지 않아요. 그래서 `for i = 1 to len(목록)` 이 빈 목록에서 그냥 넘어갑니다.\n\n`"*" * i` 는 별을 i 개 이어붙인 문자열이라 반복문으로 그림을 그릴 수 있어요.\n\n▶ 숫자를 바꿔 구구단을 다른 단으로 바꿔 보세요.',
+      en: '`for i = 1 to 5` repeats from 1 to 5, **including both ends**.\n\nUse `step` to skip. **Counting down needs a negative `step`** — without one the loop always counts up, and it runs zero times when the start is past the end. That is why `for i = 1 to len(list)` simply does nothing on an empty list.\n\n`"*" * i` is a string of i stars, so a loop can draw with it.\n\nChange the numbers to print a different multiplication table.'
     },
     code: {
       ko: `# 3단 구구단

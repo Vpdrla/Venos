@@ -1,0 +1,79 @@
+# step 없는 for 는 **항상 올라간다** — 시작이 끝보다 크면 한 번도 안 돈다.
+# 예전에는 방향을 자동으로 정해서, `for i = 1 to len(A)` 가 빈 리스트에서
+# i = 1, 0 으로 **두 번** 돌았다. 교과서 알고리즘이 경계에서 전부 깨지던 자리다.
+
+print "=== 교과서 알고리즘이 경계값에서 도는가 ==="
+func 선택정렬(A) {
+    let n = len(A)
+    for i = 1 to n - 1 {
+        let 최소 = i
+        for j = i + 1 to n { if A[j] < A[최소] { 최소 = j } }
+        let 임시 = A[i]  A[i] = A[최소]  A[최소] = 임시
+    }
+    return A
+}
+func 거품정렬(A) {
+    let n = len(A)
+    for i = 1 to n - 1 {
+        for j = 1 to n - i {
+            if A[j] > A[j + 1] { let t = A[j]  A[j] = A[j + 1]  A[j + 1] = t }
+        }
+    }
+    return A
+}
+func 삽입정렬(A) {
+    let n = len(A)
+    for i = 2 to n {
+        let 키 = A[i]
+        let j = i - 1
+        while j >= 1 and A[j] > 키 { A[j + 1] = A[j]  j = j - 1 }
+        A[j + 1] = 키
+    }
+    return A
+}
+func 순차탐색(A, x) {
+    for i = 1 to len(A) { if A[i] == x { return i } }
+    return 0
+}
+print 선택정렬([]), 선택정렬([7]), 선택정렬([3, 1, 2])
+print 거품정렬([]), 거품정렬([7]), 거품정렬([3, 1, 2])
+print 삽입정렬([]), 삽입정렬([7]), 삽입정렬([3, 1, 2])
+print 순차탐색([], 3), 순차탐색([7], 7), 순차탐색([1, 2, 3], 3)
+
+print ""
+print "=== 안 도는 반복 ==="
+let 영 = 0
+for i = 1 to 영 { print "돌면 안 된다 {i}" }
+let 하나 = 1
+for i = 2 to 하나 { print "돌면 안 된다 {i}" }
+for i = 1 to 하나 - 5 { print "돌면 안 된다 {i}" }
+print "여기까지 한 줄도 없어야 한다"
+
+print ""
+print "=== 양끝이 같으면 한 번 ==="
+let 둘 = 2
+for i = 2 to 둘 { print i }
+for i = 0 to 0 { print i }
+
+print ""
+print "=== 거꾸로는 step 으로만 ==="
+for i = 5 to 1 step -1 { print i }
+for i = 10 to 1 step -3 { print i }
+# 변수로 준 거꾸로 범위에 step 을 붙이면 그대로 내려간다
+let 위 = 4
+for i = 위 to 1 step -1 { print i }
+
+print ""
+print "=== 소수 범위 (range 로는 못 내는 자리) ==="
+let 반 = 1.5
+for i = 반 to 4 { print i }
+for i = 1 to 2 step 0.5 { print i }
+
+print ""
+print "=== 끝값이 식일 때 range 로 어떻게 나가는가 ==="
+# range(1, n) · range(1, n + 1) · range(2, n + 2) 가 되는 세 모양
+let n = 4
+for i = 1 to n - 1 { print "a{i}" }
+for i = 1 to n { print "b{i}" }
+for i = 2 to n + 1 { print "c{i}" }
+for i = 1 to n * 2 - 6 { print "d{i}" }

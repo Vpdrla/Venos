@@ -67,7 +67,8 @@ else { print "F" }
 while x > 0 do { x -= 1 }            # do is optional
 
 for i = 1 to 10 { print i }          # both ends inclusive
-for i = 10 to 1 step -2 { }          # step direction is inferred when omitted
+for i = 10 to 1 step -2 { }          # counting down needs a negative step
+for i = 1 to 0 { }                   # without step it always counts up → runs zero times
 for x in [1, 2, 3] { }               # iterate a list
 for ch in "안녕" { }                  # iterate string characters (UTF-8 aware)
 for k in dict { }                    # iterate keys (sorted order)

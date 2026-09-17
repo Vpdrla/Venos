@@ -1508,7 +1508,11 @@ struct ForStmt : Stmt {
                 throw err(KW_STEP + " 은 0이 아닌 숫자여야 합니다");
             stepv = sv.num;
         } else {
-            stepv = (s.num <= e.num) ? 1 : -1;
+            // step 이 없으면 **항상 올라간다** — 시작이 끝보다 크면 한 번도 안 돈다.
+            // 교과서의 "for i ← 1 to n" 과 같은 뜻이다. 예전엔 방향을 자동으로 정했는데,
+            // 그러면 `for i = 1 to len(A)` 가 빈 리스트에서 i = 1, 0 으로 **두 번** 돌아
+            // 교과서 알고리즘이 경계에서 전부 깨졌다 (지뢰밭 참고).
+            stepv = 1;
         }
         // 루프 변수는 항상 "현재 스코프"의 지역 변수
         // (find 로 부모 체인을 타면 재귀 호출끼리 전역 변수를 공유하는 버그가 생김)
@@ -2036,6 +2040,17 @@ struct NestGuard {
     ~NestGuard() { --g_parseNest; }
 };
 
+// 파싱 시점에 값이 정해지는 수인가 (-3 은 NegExpr(NumExpr) 로 파싱된다)
+static bool constNum(Expr* e, double& out) {
+    if (auto* n = dynamic_cast<NumExpr*>(e)) { out = n->v; return true; }
+    if (auto* g = dynamic_cast<NegExpr*>(e)) {
+        double v;
+        if (!constNum(g->inner.get(), v)) return false;
+        out = -v; return true;
+    }
+    return false;
+}
+
 struct Parser {
     std::vector<Token> toks;
     size_t pos = 0;
@@ -2126,6 +2141,18 @@ struct Parser {
             expect(Tok::TO, KW_TO);
             node->end = parseExpr();
             if (match(Tok::STEP)) node->step = parseExpr();
+            else {
+                // step 없는 for 는 항상 올라간다. 양끝이 상수인데 거꾸로면 학생이 거꾸로
+                // 세려던 것이므로, 조용히 0번 도는 대신 이름을 불러 준다. 한쪽이라도
+                // 식이면 `for i = 1 to n-1` 이 n=1 에서 0번 도는 **정상**인 경우라 막지 않는다.
+                double s, e;
+                if (constNum(node->start.get(), s) && constNum(node->end.get(), e) && s > e)
+                    throw LangError(lineTag(node->line) + KW_FOR + " 의 시작이 끝보다 큽니다: "
+                                    + KW_FOR + " " + node->var + " = "
+                                    + Value::number(s).toString() + " " + KW_TO + " "
+                                    + Value::number(e).toString()
+                                    + "  (거꾸로 세려면 " + KW_STEP + " -1 을 붙이세요)");
+            }
             node->body = parseBlock();
             return node;
         }
@@ -3639,7 +3666,7 @@ struct CodeGen {
                 ind(out, depth + 1);
                 out << "if (" << T << " == 0) throw RunErr(\"" << KW_STEP << " 은 0이 아닌 숫자여야 합니다\");\n";
             } else {
-                out << "double " << T << " = (" << S << " <= " << E << ") ? 1.0 : -1.0;\n";
+                out << "double " << T << " = 1.0;   // step 이 없으면 항상 올라간다\n";
             }
             ind(out, depth + 1);
             out << "for (double " << I << " = " << S << "; " << T << " > 0 ? " << I << " <= " << E
@@ -4844,22 +4871,38 @@ struct PyGen {
         throw LangError("파이썬으로 변환할 수 없는 문장이 있습니다");
     }
 
+    // 끝값 + 1 을 사람이 쓰듯 낸다 — Venos 의 for 는 양끝을 포함하고 range 는 끝을 빼므로
+    // 한 칸 밀어야 하는데, `n - 1 + 1` 을 그대로 내면 읽는 사람이 한 번 멈춘다.
+    // `for i = 1 to n - 1` 은 `range(1, n)` 이 되고, 그게 파이썬 교과서에 적힌 모양이다.
+    string endPlusOne(Expr* e) {
+        double k;
+        if (constInt(e, k)) return pyNum(k + 1);
+        if (auto* b = dynamic_cast<BinExpr*>(e))
+            if (b->interpN == 0 && constInt(b->rhs.get(), k)) {
+                if (b->op == Tok::MINUS)
+                    return k == 1 ? wrap(b->lhs.get(), P_ADD)
+                                  : wrap(b->lhs.get(), P_ADD) + " - " + pyNum(k - 1);
+                if (b->op == Tok::PLUS)
+                    return wrap(b->lhs.get(), P_ADD) + " + " + pyNum(k + 1);
+            }
+        return wrap(e, P_ADD) + " + 1";
+    }
+
     // for i = a to b step s  →  range. Venos 는 양끝을 포함하므로 끝값을 한 칸 민다.
     string rangeOf(ForStmt* f) {
         string a = expr(f->start.get()), b = expr(f->end.get());
         double sa, sb, st;
         bool ka = constInt(f->start.get(), sa), kb = constInt(f->end.get(), sb);
+        (void)sa;
         lastRangeIsInt = true;
         if (!f->step) {
-            if (ka && kb)                       // 둘 다 상수면 방향이 확정된다
-                return sa <= sb ? "range(" + a + ", " + pyNum(sb + 1) + ")"
-                                : "range(" + a + ", " + pyNum(sb - 1) + ", -1)";
-            // 방향이 실행할 때 정해지므로 range() 로는 못 낸다 (_rng 가 정해 준다).
-            // 그래도 양 끝이 정수인 게 확실하면 _rng 는 range 를 돌려주므로 i 는 정수다
-            // (_rng 는 a, b, s 가 모두 정수일 때만 range 를 낸다). for i = 1 to len(xs)
-            // 가 교과서에서 제일 흔한 모양이라, 여기서 정수라고 말해 주면 "{i}번" 이
-            // _show(i) 없이 그대로 나간다.
-            lastRangeIsInt = intish(f->start.get()) && intish(f->end.get());
+            // step 이 없으면 **항상 올라간다** — 방향이 실행할 때 정해지지 않으므로
+            // 양끝이 정수인 것만 알면 그대로 range() 다. 교과서에서 제일 흔한 모양
+            // (`for i = 1 to len(A)`)이 여기 걸려서 `range(1, len(A) + 1)` 로 나간다.
+            if ((ka || intish(f->start.get())) && (kb || intish(f->end.get())))
+                return "range(" + a + ", " + endPlusOne(f->end.get()) + ")";
+            // 소수가 섞일 수 있으면 range() 가 TypeError 다 — _rng 가 리스트로 펴 준다.
+            lastRangeIsInt = false;
             return need("rng") + "(" + a + ", " + b + ")";
         }
         // range() 는 정수만 받는다 — 시작값이 정수라고 확신할 수 있을 때만 쓴다.
@@ -5213,11 +5256,10 @@ struct PyGen {
                       "        raise Exception(\"random() 에는 수만 넣을 수 있습니다\")\n"
                       "    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
             {"rng",
-             // step 을 안 쓴 for 는 Venos 가 실행할 때 방향을 정한다 (for i = 3 to n 에서
-             // n 이 1 이면 내려간다). s=None 이 그 "방향은 그때 정함"을 뜻한다 —
-             // 1 로 두면 내려가야 할 반복이 파이썬에서 조용히 한 번도 안 돈다.
-             "def _rng(a, b, s=None):\n"
-             "    if s is None: s = 1 if a <= b else -1\n"
+             // step 을 안 쓴 for 는 **항상 올라간다** (a > b 면 한 번도 안 돈다) — 그래서
+             // 양끝이 정수라고 아는 자리에서는 아예 range(a, b+1) 로 낸다. 여기 남는 건
+             // 소수가 섞일 수 있는 범위뿐이고, range() 는 소수를 못 받아서 리스트로 편다.
+             "def _rng(a, b, s=1):\n"
              "    if a == int(a) and b == int(b) and s == int(s):\n"
              "        a, b, s = int(a), int(b), int(s)\n"
              "        return range(a, b + (1 if s > 0 else -1), s)\n"
