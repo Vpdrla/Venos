@@ -74,7 +74,7 @@ python3 tools/genfuzz.py --rounds 100         # 올바른 프로그램을 만들
 5. **REPL** — 셸의 `repl` 에 몇 줄을 흘려 넣어 값이 바로 찍히는지, **에러 뒤에도 이어지는지**, 나갈 수 있는지를 본다 (오래 스위트에 없던 자리다). 화면 문구는 보지 않는다
 6. **종료 코드** — 정상 0, 잡히지 않은 에러·입력 끊김·`topython` 거절·모르는 인자·없는 파일은 1. **실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다**
 7. **이름 대조** — `node tools/check-builtins.js` (내장 함수는 BUILTIN_NAMES·인터프리터·CodeGen·PyGen·`vscode-venos` 다섯 곳, 키워드는 `KW_*` 상수와 `vscode-venos` 양쪽에서 뽑아 비교. 한 곳만 빠뜨리는 실수가 전부 조용해서 정적 대조로 잡는다)
-8. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지)
+8. **레슨 트랙** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, **세 방식에서 같은 답을 내고**, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지). 레슨 26벌(13×ko/en)은 학생이 실제로 돌리는 코드인데 오래 3중 비교 밖에 있었다 — 마지막 레슨이 `topython` 으로 건너가는 것인데도. 파이썬 비교를 건너뛰는 둘은 체커의 `PY_SKIP` 에 이유가 적혀 있다 (`errors` 는 catch 문구, `project` 는 난수)
 
 ## 릴리스 내는 법
 버전을 올렸으면 태그만 밀면 된다. `.github/workflows/release.yml` 이 세 플랫폼 바이너리를 만들어 GitHub Releases 에 올린다.

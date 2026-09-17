@@ -4,17 +4,37 @@
 //
 //   node tools/check-lessons.js
 //
-// 세 가지를 본다:
+// 네 가지를 본다:
 //   1) 레슨 코드(ko·en)가 에러 없이 끝나는가 — 입력을 다 써서 끝나는 건 봐준다
-//   2) 설명이 백틱으로 가리키는 이름이 그 언어의 코드에 실제로 있는가
+//   2) 같은 코드가 **세 방식에서 같은 답을 내는가** (인터프리터 / build / topython).
+//      레슨은 학생이 실제로 돌리는 코드인데 오래 differential 밖에 있었다. 마지막 레슨이
+//      "topython 으로 파이썬에 건너가기" 인 마당에, 그 파이썬이 같은 답을 내는지는
+//      아무도 안 보고 있었다.
+//   3) 설명이 백틱으로 가리키는 이름이 그 언어의 코드에 실제로 있는가
 //      (desc.en 은 `factorial` 이라는데 영어 코드에는 그 이름이 없는 상태를 잡는다)
-//   3) TUTORIAL.md / TUTORIAL.ko.md 가 지금 lessons.js 로 다시 만든 것과 같은가
+//   4) TUTORIAL.md / TUTORIAL.ko.md 가 지금 lessons.js 로 다시 만든 것과 같은가
 //      (손으로 고치면 다음 생성 때 조용히 사라지므로)
 'use strict';
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync, spawnSync } = require('child_process');
+
+// 파이썬 비교를 건너뛰는 레슨과 그 이유 (러너의 PY_SKIP 과 같은 성격).
+const PY_SKIP = {
+    errors: 'catch 가 받는 문구가 Venos 것과 파이썬 것으로 다르다 (topython 은 에러 문구까지 흉내내지 않는다)',
+    project: 'random() 을 쓴다 — 파이썬의 난수는 우리 것과 수열이 다르다',
+};
+// 배너·호출 경로·소스 줄 표시는 인터프리터에만 있다. catch 문구의 [줄 N] 도 마찬가지.
+function normalize(text) {
+    return String(text).replace(/\r/g, '')
+        .split('\n')
+        .filter((l) => !l.startsWith('=== ') && !l.startsWith('    부른 순서: ')
+                       && !/^ *줄 \d+ \| /.test(l))
+        .map((l) => l.replace(/\[[^\]]*줄 \d+\] /g, ''))
+        .map((l) => l.replace(/-?\d+\.\d+/g, (m) => String(parseFloat(m))))
+        .join('\n');
+}
 
 const ROOT = path.join(__dirname, '..');
 // 윈도우에서는 g++ 가 확장자 없는 -o 에 .exe 를 붙인다
@@ -48,6 +68,18 @@ const KEYWORDS = new Set([
 let fails = 0;
 const fail = (msg) => { console.log('  ✗ ' + msg); fails++; };
 
+// 어긋난 첫 줄만 보여 준다 — 레슨 출력은 길어서 전부 쏟으면 정작 다른 줄이 안 보인다
+function firstDiff(want, got) {
+    const a = want.split('\n'), b = got.split('\n');
+    for (let i = 0; i < Math.max(a.length, b.length); i++)
+        if (a[i] !== b[i])
+            return `      ${i + 1}번째 줄\n        인터프리터: ${a[i] === undefined ? '(없음)' : a[i]}\n        저쪽:       ${b[i] === undefined ? '(없음)' : b[i]}`;
+    return '      (줄 수만 다릅니다)';
+}
+
+// python3 이 없으면 파이썬 비교만 건너뛴다 (윈도우 CI 등)
+const PY = ['python3', 'python'].find((c) => spawnSync(c, ['-c', 'pass'], { timeout: 10000 }).status === 0);
+
 if (!fs.existsSync(VENOS)) {
     console.error('venos 실행 파일이 없습니다.  g++ -std=c++17 -O2 -o venos venos.cpp  먼저 실행하세요.');
     process.exit(2);
@@ -75,6 +107,37 @@ for (const lesson of lessons) {
             // 준비한 입력을 다 쓴 것뿐이면 레슨 잘못이 아니다
             .filter((l) => !l.includes('입력을 읽을 수 없습니다'));
         if (errs.length) fail(`${label}: 실행 중 에러\n      ${errs[0].trim()}`);
+
+        // ---- 2) 세 방식이 같은 답을 내는가 ----
+        // random 을 쓰는 레슨은 씨앗을 고정해야 인터프리터와 빌드본이 같은 수열을 돈다.
+        const env = Object.assign({}, process.env, { VENOS_SEED: '20260917' });
+        const again = spawnSync(VENOS, [file], { input: STDIN, encoding: 'utf8', timeout: 20000, env });
+        const want = normalize((again.stdout || '') + (again.stderr || ''));
+        const exe = file.replace(/\.my$/, '') + (process.platform === 'win32' ? '.exe' : '');
+        const built = spawnSync(VENOS, ['build', file], { encoding: 'utf8', timeout: 120000 });
+        if (!fs.existsSync(exe)) {
+            fail(`${label}: build 가 실행 파일을 만들지 못했습니다\n      ${((built.stdout || '') + (built.stderr || '')).split('\n')[0]}`);
+        } else {
+            const ran = spawnSync(exe, [], { input: STDIN, encoding: 'utf8', timeout: 20000, env });
+            const got = normalize((ran.stdout || '') + (ran.stderr || ''));
+            if (got !== want) fail(`${label}: 빌드본의 출력이 인터프리터와 다릅니다\n${firstDiff(want, got)}`);
+            fs.rmSync(exe, { force: true });
+        }
+        fs.rmSync(file.replace(/\.my$/, '') + '.cpp', { force: true });
+
+        if (!PY_SKIP[lesson.id] && PY) {
+            const py = file.replace(/\.my$/, '') + '.py';
+            fs.rmSync(py, { force: true });
+            const conv = spawnSync(VENOS, ['topython', file], { encoding: 'utf8', timeout: 20000 });
+            if (!fs.existsSync(py)) {
+                fail(`${label}: topython 이 레슨을 변환하지 못했습니다\n      ${((conv.stdout || '') + (conv.stderr || '')).split('\n')[0]}`);
+            } else {
+                const ran = spawnSync(PY, [py], { input: STDIN, encoding: 'utf8', timeout: 20000 });
+                const got = normalize((ran.stdout || '') + (ran.stderr || ''));
+                if (got !== want) fail(`${label}: 파이썬 변환본의 출력이 인터프리터와 다릅니다\n${firstDiff(want, got)}`);
+                fs.rmSync(py, { force: true });
+            }
+        }
 
         // ---- 2) 설명이 가리키는 이름이 코드에 있는가 ----
         const desc = (lesson.desc && lesson.desc[lang]) || '';
