@@ -126,3 +126,21 @@ try { print 표5[수키] } catch 오류 { print "읽기 숫자키: 에러" }
 try { print remove(표5, 수키) } catch 오류 { print "remove 숫자키: 에러" }
 try { print has(표5, 수키) } catch 오류 { print "has 숫자키: 에러" }
 print keys(표5), 표5["k1"]
+
+print ""
+print "=== 소수는 자리 번호가 될 수 없다 ==="
+# 파이썬의 int(1.5) 는 1 이다. 도우미가 그대로 자르면 Venos 가 거절하는 호출이
+# 파이썬에서는 **값을 돌려준다**. 한 줄에 여덟 군데가 같은 절단을 하고 있었다
+# (CI 의 생성 퍼저가 목록[1.5] 로 찾았다).
+let 목6 = [10, 20, 30]
+let 반6 = 1.5
+try { print 목6[반6] } catch 오류 { print "읽기: 에러" }
+try { 목6[반6] = 9  print 목6 } catch 오류 { print "쓰기: 에러" }
+try { print remove(목6, 반6) } catch 오류 { print "remove: 에러" }
+try { print substr("abcdef", 반6, 2) } catch 오류 { print "substr 시작: 에러" }
+try { print substr("abcdef", 2, 반6) } catch 오류 { print "substr 개수: 에러" }
+try { print substr("abcdef", 2, 0 - 1) } catch 오류 { print "substr 음수 개수: 에러" }
+try { print round(3.14159, 반6) } catch 오류 { print "round 자릿수: 에러" }
+try { print round(3.14159, 0 - 1) } catch 오류 { print "round 음수 자릿수: 에러" }
+try { print round(3.14159, 99) } catch 오류 { print "round 큰 자릿수: 에러" }
+print 목6, round(3.14159, 2), substr("abcdef", 2, 3)

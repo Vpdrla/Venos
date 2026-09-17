@@ -4657,6 +4657,10 @@ struct PyGen {
     // 1부터를 0부터로 옮기는 자리는 읽기와 쓰기 둘 다 이 함수를 거쳐야 한다.
     bool litIndex(Expr* e, double& out, int line) {
         if (!constNum(e, out)) return false;
+        // 소수 자리 번호는 Venos 에서 에러다. 그냥 내보내면 파이썬이 xs[0.5] 로 죽거나
+        // (문구가 다르다) 도우미가 int() 로 잘라 **값을 돌려준다**.
+        if (out != std::floor(out))
+            throw err(line, "리스트와 문자열의 인덱스는 정수여야 합니다 (지금 " + pyNum(out) + ")");
         if (out < 1)
             throw err(line, "리스트와 문자열의 인덱스는 1부터입니다 (지금 "
                             + pyNum(out) + ") — 파이썬으로 옮기면 뒤에서 세는 뜻이 되어 버립니다");
@@ -5396,6 +5400,9 @@ struct PyGen {
              // 파이썬에서는 값을 돌려준다 (대입 쪽 _k 는 리스트를 조용히 고치기까지 했다).
              "    if not isinstance(k, (int, float)):\n"
              "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
+             // int(1.5) 는 1 이다. 그대로 두면 xs[1.5] 가 여기서는 에러, 파이썬에서는 값이다
+             // (생성 퍼저가 CI 에서 찾았다 — 같은 절단이 _k·_remove·_substr·_round 에도 있었다).
+             "    if k != int(k): raise Exception(\"리스트의 번호는 정수여야 합니다\")\n"
              "    i = int(k)\n"
              "    if i < 1 or i > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(i))\n"
              "    return c[i - 1]\n"},
@@ -5408,6 +5415,7 @@ struct PyGen {
              "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
              // 범위 검사가 _idx(읽기)에만 있고 여기(쓰기)에 없었다 — xs[-1] = 9 가
              // 파이썬에서 xs[-2] = 9 로 나가 **뒤에서 두 번째를 조용히 고쳤다**.
+             "    if i != int(i): raise Exception(\"리스트의 번호는 정수여야 합니다\")\n"
              "    n = int(i)\n"
              "    if n < 1 or n > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(n))\n"
              "    return n - 1\n"},
@@ -5453,6 +5461,9 @@ struct PyGen {
                        "        raise Exception(\"substr() 의 1번째 인자는 문자열이어야 합니다\")\n"
                        "    if not all(isinstance(x, (int, float)) for x in (start, n)):\n"
                        "        raise Exception(\"substr() 의 시작 위치와 개수는 숫자여야 합니다\")\n"
+                       "    if start != int(start) or n != int(n):\n"
+                       "        raise Exception(\"substr() 의 시작/개수는 정수여야 합니다\")\n"
+                       "    if n < 0: raise Exception(\"substr() 의 개수는 0 이상이어야 합니다\")\n"
                        "    i = int(start) - 1\n"
                        "    if i < 0: raise Exception(\"substr() 의 시작 위치는 1부터입니다\")\n"
                        "    return s[i:i + int(n)]\n"},
@@ -5462,10 +5473,13 @@ struct PyGen {
              "        return int(c.pop(_dkey(k), None) is not None)\n"
              "    if not isinstance(k, (int, float)):\n"
              "        raise Exception(\"remove() 의 위치는 숫자여야 합니다\")\n"
+             "    if k != int(k): raise Exception(\"remove() 의 위치는 정수여야 합니다\")\n"
              "    return c.pop(int(k) - 1)\n"},
             {"round", "def _round(x, n=0):\n"
                       "    if not all(isinstance(v, (int, float)) for v in (x, n)):\n"
                       "        raise Exception(\"round() 에는 수만 넣을 수 있습니다\")\n"
+                      "    if n != int(n) or n < 0 or n > 15:\n"
+                      "        raise Exception(\"round() 의 자릿수는 0부터 15까지의 정수여야 합니다\")\n"
                       "    p = 10 ** int(n)\n"
                       "    r = math.floor(x * p + 0.5) if x >= 0 else math.ceil(x * p - 0.5)\n"
                       "    return r if n == 0 else r / p\n"},
