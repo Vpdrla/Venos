@@ -182,8 +182,8 @@ class Gen:
     def stmt(self, ind, d=0):
         r = self.r
         pad = '    ' * ind
-        k = r.randint(0, 13)
-        if k == 13 and d == 0:
+        k = r.randint(0, 14)
+        if k == 14 and d == 0:
             return self.odd_call(pad)
         if d > 2:
             k = r.choice([0, 1, 2, 3])
@@ -251,6 +251,20 @@ class Gen:
                               '%s%s.값 += %s' % (pad, o, self.int_expr()),
                               '%s%s.담기(%s)' % (pad, o, self.any_expr()),
                               '%sprint %s.값, %s.센것()' % (pad, o, o)])]
+        if k == 13:
+            # 접근자 체인과 복합 대입 — lvalue 의 idx_mid/idx_put 경로.
+            # 자리 번호는 늘 범위 안이고, 격자는 2x3 이라 안쪽 길이가 고정이다.
+            i = '((abs(%s) %% 2) + 1)' % self.int_expr(2)
+            j = '((abs(%s) %% 3) + 1)' % self.int_expr(2)
+            op = r.choice(['=', '+=', '-=', '*='])
+            rhs = self.int_expr(1) if op != '=' else self.any_expr(1)
+            return [r.choice([
+                '%s격자[%s][%s] %s %s' % (pad, i, j, op, rhs),
+                '%s묶음["k1"][%s] %s %s' % (pad, j, op, rhs),
+                '%s%s[%s] %s %s' % (pad, r.choice(LIST_VARS), self.index(r.choice(LIST_VARS)), op, rhs),
+                '%s%s["k1"] %s %s' % (pad, r.choice(DICT_VARS), op, self.int_expr(1)),
+                '%sprint 격자[%s][%s], 묶음["k1"][%s]' % (pad, i, j, j),
+            ])]
         c = r.choice(LIST_VARS)
         return ['%sprint %s[%s]' % (pad, c, self.index(c))]
 
@@ -283,6 +297,14 @@ class Gen:
             L.append('let %s = [%s]' % (v, ', '.join(str(r.randint(0, 9)) for _ in range(r.randint(2, 4)))))
         for v in DICT_VARS:
             L.append('let %s = {"k1": %d}' % (v, r.randint(0, 9)))
+        # 접근자 **체인**을 만들 자료 — 2차원 리스트와, 값이 리스트인 딕셔너리.
+        # PyGen 의 lvalue 는 여기서 idx/k 도우미를 줄줄이 엮는데, 한 줄짜리 자료만
+        # 만들면 그 경로가 한 번도 안 걸린다 (소수 자리 번호가 여기로 샜다).
+        L.append('let 격자 = [[%s], [%s]]'
+                 % (', '.join(str(r.randint(0, 9)) for _ in range(3)),
+                    ', '.join(str(r.randint(0, 9)) for _ in range(3))))
+        L.append('let 묶음 = {"k1": [%s]}'
+                 % ', '.join(str(r.randint(0, 9)) for _ in range(3)))
         for v in OBJ_VARS:
             L.append('let %s = 그릇(%d)' % (v, r.randint(0, 5)))
         for _ in range(r.randint(4, 10)):
@@ -292,6 +314,8 @@ class Gen:
             L.append('print "%s =", %s' % (v, v))
         for v in DICT_VARS:
             L.append('print "%s =", keys(%s)' % (v, v))
+        L.append('print "격자 =", 격자')
+        L.append('print "묶음 =", 묶음["k1"]')
         for v in OBJ_VARS:
             L.append('print "%s =", %s.값, %s.센것(), %s.담은것' % (v, v, v, v))
         return '\n'.join(L) + '\n'
