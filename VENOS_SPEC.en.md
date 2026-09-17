@@ -206,8 +206,8 @@ for `topython`.
 ## Common mistakes (emphasize these to an AI)
 
 Habits from other languages — `elif`, `!`, `**`, `//` comments, `;`, `:` blocks,
-`xs[1:3]`, `"abc".upper()`, `True`/`None` — are named in the error, along with what to
-write instead.
+`xs[1:3]`, `xs[-1]`, `"abc".upper()`, `True`/`None`, `f"..."`, `x is y`, `x in xs`,
+`import math` — are named in the error, along with what to write instead.
 
 1. **Indices start at 1** (not 0!)
 2. No `elif` → use `else if`
@@ -218,3 +218,7 @@ write instead.
 7. Don't write `input =` — it's `x = input "Question: "`
 8. Logical negation is `not`, not `!`
 9. A function or class cannot take a built-in's name (`func floor(n) { }` is an error) — method names are fine
+10. A `for` without `step` **always counts up** — `for i = 1 to len(A)` runs zero times on an
+    empty list. Counting down needs `step -1` (a constant range written backwards is an error)
+11. `min`/`max` take **numbers only** (unlike Python, they do not compare strings or lists)
+12. Dictionary keys are **strings only** — `d[1]` is an error

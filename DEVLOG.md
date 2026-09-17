@@ -374,6 +374,65 @@ than pretend I planned it.
 
 ---
 
+## 11. An instrument I already had, and a question I had never asked it
+
+The eleventh instrument was not built. It was a question I had never put to one I already had.
+
+The sixteen textbook algorithms had been in the suite for a long time. Run three ways, outputs
+compared, green on every push. But the only inputs they ever saw were the ones I had written
+down. I had watched `selection_sort([64, 25, 12, 22, 11])` a dozen times. I had never once run
+`selection_sort([7])`.
+
+    !! error: [line 6] index out of range: 2 (list size: 1, indices start at 1)
+
+**All seven** sorts and searches died on a one-element list. One cause, and it was not in any of
+the algorithms. In `for i = 1 to n - 1`, when `n` is 1 the range becomes `1 to 0` — and Venos's
+`for` was written to **flip direction** when the start is past the end. I had added the line as
+a convenience:
+
+    stepv = (s.num <= e.num) ? 1 : -1;
+
+So `for i = 1 to len(A)` on an empty list did not run zero times. It ran **twice**, with `i = 1`
+and then `i = 0`, and 0 is not an index here. A textbook's `for i ← 1 to n`, Pascal's `for` and
+Python's `range` all agree that `n < 1` means no iterations. Only mine disagreed, and my entire
+example collection was standing on the difference.
+
+The fix was three lines. Deciding to make it was the hard part, because it changes what the
+language means. Two facts made it easy. Every descending loop in the repository **already wrote
+`step -1`** — not one line relied on the inference. And the loops lesson already taught "counting
+down needs a negative `step`". A convenience nobody used was making every textbook algorithm
+wrong at its boundary.
+
+The bonus was larger than the fix. With direction settled at compile time, `topython` can emit a
+real `range()` instead of a helper call: `_rng` went from 42 sites to 10, and `for i = 1 to n - 1`
+now comes out as `range(1, n)`, which is the shape the Python textbook prints.
+
+Then I asked the same question of the other sixteen. Every function, at 0, at 1, at empty, at
+negative, and just outside its domain. Ten of them answered wrong.
+
+`to_base(7, 1)` **ran forever** — `n % 1` is 0 and `n / 1` is `n`, so the loop never advances.
+That is what a textbook's "2 ≤ base" is protecting. `sieve(0)` read `remaining[1]` of an empty
+list. `transpose([])` read `len(A[1])`. `moves(-3)` fell past its `n == 1` floor to the recursion
+limit.
+
+Three were worse than crashing. `multiply(2×3, 2×3)` **returned a plausible 2×3 of zeros** —
+nothing ever checked A's column count against B's row count. `to_base(-26, 2)` returned `""`.
+`from_base("9", 2)` returned `9`. There is no 9 in base 2.
+
+And three disagreed **with themselves**. `caesar(caesar("Hello", 5), -5)` gave `"hello"` — a file
+whose whole point is demonstrating decryption, and every character went through `lower()` and came
+back lowercase. `moves(0)` crashed while `moves_iterative(0)` returned 0, for the same quantity.
+`gcd(0, 5)` was 5 and `brute_force(0, 5)` was 1, in the same file.
+
+The last one was not a bug but a property of the algorithm, so instead of fixing it I said it out
+loud: run-length encoding cannot round-trip text containing digits. `compress("a1a")` is `"a111a1"`,
+which decodes to 112 characters. The file already checked its own round-trip — but not one of its
+five samples had a digit in it.
+
+All sixteen files now end with a boundary section. The call that was broken is in it, and the
+three-way suite holds it there. The collection is not decoration; it is the **specification** of
+"a textbook algorithm works here", and a specification only specifies what it actually runs.
+
 ## What the list adds up to
 
 Nine instruments, and each one found the class of bug only it could find:
@@ -409,5 +468,15 @@ Section 10 is that corollary being tested while the essay was still open, which 
 most convincing version of it I could have hoped for and the least deliberate. Ten
 instruments, ten kinds of blindness, and the tenth found two things nine could not.
 
-The eleventh is not something I can build. Nobody who is not me has written a Venos
+And section 11 turned the corollary over. The eleventh was **not an instrument.** It was one
+question, put to an example collection that had been green for the better part of a year — what
+happens when there is only one element? Ten of the sixteen answered wrong, and one of the answers
+was a rule of the language itself.
+
+So the lesson on the list needs a second line. Building the next instrument is one way. Counting
+**which inputs you have never handed to the instruments you already have** is another. My
+examples only ever saw the inputs I wrote down, and that list contained neither `[]` nor `[7]`.
+Nowhere in the code did it say so.
+
+The twelfth is not something I can build. Nobody who is not me has written a Venos
 program yet.
