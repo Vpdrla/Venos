@@ -42,3 +42,18 @@ print "=== 아주 긴 내용 ==="
 let 긴경로 = "tests/.tmp_긴.txt"
 writefile(긴경로, "가" * 20000)
 print len(readfile(긴경로))
+
+print "=== 다른 프로그램이 만든 CRLF 파일 ==="
+# 파이썬의 텍스트 모드는 읽을 때 \r\n 을 \n 으로 접고 쓸 때 늘린다. Venos 는 바이너리로
+# 열어 그런 변환이 없으므로, 생성 파이썬의 도우미도 newline="" 이어야 한다. 그냥 두면
+# **메모장으로 만든 파일 하나에 두 백엔드가 다른 길이를 답한다.**
+# Venos 에는 \r 이스케이프가 없어 리터럴로는 못 만들므로 고정 파일을 읽는다.
+let 씨 = "tests/cases/lib/crlf.txt"
+print exists(씨), len(readfile(씨))
+print len(split(readfile(씨), "\n"))
+# 읽은 내용을 그대로 다시 써도 길이가 같아야 한다 (쓸 때도 안 늘어난다)
+let 사본 = "tests/.tmp_crlf.txt"
+writefile(사본, readfile(씨))
+print len(readfile(사본)) == len(readfile(씨))
+appendfile(사본, readfile(씨))
+print len(readfile(사본))

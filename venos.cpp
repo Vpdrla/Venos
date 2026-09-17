@@ -5569,14 +5569,21 @@ struct PyGen {
                       "    return list(v) if isinstance(v, list) else v\n"},
             {"error", "def _error(m):\n    raise Exception(m)\n"},
             {"exit",  "def _exit():\n    sys.exit(0)\n"},
+            // newline="" 이 없으면 파이썬 텍스트 모드가 개행을 손댄다 — 읽을 때 \r\n 을
+            // \n 으로 접고, 윈도우에서 쓸 때 \n 을 \r\n 으로 늘린다. Venos 는 양쪽 다
+            // 바이너리로 열어 **그런 변환이 없다** (지뢰밭에 적힌 이유 그대로).
+            // 그냥 두면 메모장으로 만든 파일 하나에 두 백엔드가 다른 길이를 답한다.
             {"readfile",
-             "def _readfile(p):\n    with open(p, encoding=\"utf-8\") as f:\n        return f.read()\n"},
+             "def _readfile(p):\n"
+             "    with open(p, encoding=\"utf-8\", newline=\"\") as f:\n        return f.read()\n"},
             {"writefile",
              "def _writefile(p, s):\n"
-             "    with open(p, \"w\", encoding=\"utf-8\") as f:\n        f.write(_show(s))\n    return 1\n"},
+             "    with open(p, \"w\", encoding=\"utf-8\", newline=\"\") as f:\n"
+             "        f.write(_show(s))\n    return 1\n"},
             {"appendfile",
              "def _appendfile(p, s):\n"
-             "    with open(p, \"a\", encoding=\"utf-8\") as f:\n        f.write(_show(s))\n    return 1\n"},
+             "    with open(p, \"a\", encoding=\"utf-8\", newline=\"\") as f:\n"
+             "        f.write(_show(s))\n    return 1\n"},
         };
         // _q 는 _show 안에서만 쓰이고, join/writefile 등도 _show 에 기댄다
         std::set<string> want = helpers;
