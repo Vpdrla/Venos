@@ -17,14 +17,20 @@ VENOS=./venos
 EXE=""
 case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe" ;; esac
 TMP=$(mktemp -d)
-cleanup() { rm -rf "$TMP" tests/.tmp_* tests/cases/*.py tests/cases/*.exe examples/algorithms/*.py examples/algorithms/*.cpp examples/algorithms/*.exe ; }
+cleanup() { rm -rf "$TMP" tests/.tmp_* tests/cases/*.py tests/cases/*.exe examples/algorithms/*.py examples/algorithms/*.cpp examples/algorithms/*.exe examples/rpg.py examples/rpg.cpp examples/rpg examples/rpg.exe save.txt ; }
 trap cleanup EXIT
 
 # 파이썬 변환을 건너뛰는 케이스와 그 이유.
 # 전부 "Venos 고유의 에러 문구/런타임 가드"를 출력으로 만드는 케이스다. 파이썬은 같은 상황에서
 # 자기 예외 메시지(division by zero, FileNotFoundError, RecursionError ...)를 내므로 문구가 다르다.
 # topython 은 "읽을 수 있는 파이썬"을 목표로 하지 에러 문구까지 흉내내지 않는다.
-PY_SKIP="errors bugfixes fileio_errors listops_errors"
+PY_SKIP="errors bugfixes fileio_errors listops_errors rpg"
+
+# random() 을 쓰는 프로그램은 씨앗을 고정해야 백엔드끼리 비교할 수 있다.
+# 언어에 seed() 를 더하지 않고 **환경변수**로 둔 이유는 STRATEGY §6 에 적어 뒀다 —
+# 학생이 배울 표면은 늘지 않고, 러너만 쓴다. 파이썬은 난수 구현이 달라 못 낀다
+# (그래서 rpg 가 PY_SKIP 에 있다). 이걸 지우면 rpg 가 매번 다른 출력을 낸다.
+export VENOS_SEED=20260917
 
 if [ ! -x "$VENOS" ] || [ venos.cpp -nt "$VENOS" ]; then
     echo "venos 빌드 중..."
@@ -55,7 +61,10 @@ note_fail() { failed_names="$failed_names $1"; fail=$((fail+1)); }
 # tests/cases/*.my 는 언어 기능을, examples/algorithms/*.my 는 교과서 알고리즘을 본다.
 # 예제도 스위트에 넣는 이유: "같은 프로그램의 파이썬 버전을 준다"는 약속이 진짜인지는
 # 장난감 케이스가 아니라 실제 예제가 세 방식에서 같은 답을 낼 때만 증명된다.
-for case_file in tests/cases/*.my examples/algorithms/*.my; do
+# examples/rpg.my 는 이 언어로 쓴 제일 큰 프로그램(222줄)이고, random 을 쓴다는 이유로
+# 오래 스위트 밖에 있었다 — 클래스·상속 없는 다형성·문자열 보간·파일 저장이 한꺼번에
+# 도는 유일한 자리인데도. VENOS_SEED 로 수열을 고정하니 들어올 수 있게 됐다.
+for case_file in tests/cases/*.my examples/algorithms/*.my examples/rpg.my; do
     [ -e "$case_file" ] || continue
     dir=$(dirname "$case_file")
     name=$(basename "$case_file" .my)
@@ -91,7 +100,30 @@ for case_file in tests/cases/*.my examples/algorithms/*.my; do
     skip=no
     for s in $PY_SKIP; do [ "$s" = "$name" ] && skip=yes; done
     if [ -z "$PY" ] || [ "$skip" = yes ]; then
-        [ "$skip" = yes ] && pyskipped=$((pyskipped+1))
+        # PY_SKIP 은 **출력 비교**를 건너뛰는 것이지 파이썬을 안 보는 게 아니다.
+        # 변환본을 돌려서, 코드젠이 틀렸을 때만 나올 수 있는 예외가 있는지는 본다
+        # (NameError = 안 만든 이름, AttributeError = 없는 메서드, SyntaxError = 깨진 파일).
+        # 우리 도우미가 일부러 내는 Exception 은 여기 안 걸린다.
+        if [ -n "$PY" ] && [ "$skip" = yes ]; then
+            pyskipped=$((pyskipped+1))
+            # 이 케이스들은 Venos 고유 동작에 기대므로 topython 이 **일부러 거절**할 수도
+            # 있다 (errors.my 의 xs[0] 이 그렇다). 거절은 정상이고, .py 가 나왔을 때만 본다.
+            "$VENOS" topython "$case_file" > "$TMP/py.txt" 2>&1
+            if [ ! -f "$dir/$name.py" ]; then
+                echo "PASS  $label"
+                pass=$((pass+1)); continue
+            fi
+            rm -f tests/.tmp_*
+            "$PY" "$dir/$name.py" < "$input" > "$TMP/python.txt" 2>&1
+            rm -f "$dir/$name.py"
+            if grep -qE 'NameError|AttributeError|SyntaxError|IndentationError|UnboundLocalError|ImportError' "$TMP/python.txt"; then
+                echo "FAIL  $label  (생성 파이썬이 코드젠 오류로 죽음)"
+                grep -nE 'NameError|AttributeError|SyntaxError|IndentationError|UnboundLocalError|ImportError' "$TMP/python.txt" | head -3
+                note_fail "$label"; continue
+            fi
+        elif [ "$skip" = yes ]; then
+            pyskipped=$((pyskipped+1))
+        fi
         echo "PASS  $label"
         pass=$((pass+1)); continue
     fi

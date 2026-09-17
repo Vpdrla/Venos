@@ -151,6 +151,18 @@ decides which behaviours are bugs. A convenience that makes the textbook loop wr
 boundary is not a trade-off to document — it is a defect, and the example collection is what
 made it visible.
 
+Test infrastructure gets the same test, and it can answer differently. `examples/rpg.my` is the
+largest program written in this language — 222 lines, and the only place where classes,
+dictionary dispatch, string interpolation and file IO all run at once. It sat outside the
+differential suite because it calls `random()`, and a program whose output changes every run
+cannot be compared across backends. The fix was **not** to add `seed()` to the language:
+nothing in a textbook algorithm needs it, and every builtin added is one more thing to teach
+and one more thing that can never be removed. Instead `random()` reads an environment variable,
+`VENOS_SEED`, that only the test runner sets. The language surface is unchanged, the student
+never meets it, and the flagship program is now checked on every push — along with a 222-line
+copy of it that had been living in `tests/cases/` to dodge the randomness, free to drift from
+the original, which could finally be deleted.
+
 The same judgement came up on performance. Measured against CPython running the same
 program via `topython`, Venos is **about 3× slower on loops and lists, 6× on recursion,
 and slightly faster on dictionaries** — with one exception: `s = s + ch` in a loop is

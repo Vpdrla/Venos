@@ -505,6 +505,20 @@ static string foreignHint(const string& name) {
     return it == foreignNames().end() ? "" : "  (" + it->second + ")";
 }
 // 내장 함수 이름 — 오타 제안 후보로 쓴다 (인터프리터·트랜스파일러가 같이 본다)
+// random() 의 씨앗. 평소에는 진짜 무작위지만, 환경변수 VENOS_SEED 가 있으면 그 값으로
+// 고정한다. **언어 표면에는 아무것도 안 생긴다** — 학생이 배울 것도, 나중에 거절할 것도 없다.
+// 이게 필요한 이유는 하나다: random 을 쓰는 프로그램은 백엔드끼리 출력을 비교할 수 없어서,
+// 222줄짜리 examples/rpg.my 가 여태 differential 스위트 밖에 있었다. 같은 씨앗을 주면
+// 인터프리터와 빌드본이 같은 수열을 돈다 (같은 기계의 같은 libstdc++ 이므로).
+// 파이썬은 난수 구현이 달라 여기 못 낀다 — 러너의 PY_SKIP 에 이유를 적어 뒀다.
+static unsigned long long seedFromEnv() {
+    if (const char* e = std::getenv("VENOS_SEED")) {
+        char* end = nullptr;
+        unsigned long long v = std::strtoull(e, &end, 10);
+        if (end && end != e && *end == '\0') return v;
+    }
+    return std::random_device{}();
+}
 static const std::vector<string> BUILTIN_NAMES = {
     "random", "round", "floor", "ceil", "abs", "sqrt", "min", "max", "num", "str",
     "len", "push", "pop", "sort", "reverse", "remove", "keys", "has",
@@ -1699,7 +1713,7 @@ struct CallExpr : Expr {
             needArgs(2, "random(최소, 최대)");
             long long a = (long long)needNum(0), b = (long long)needNum(1);
             if (a > b) std::swap(a, b);
-            static std::mt19937_64 rng{ std::random_device{}() };
+            static std::mt19937_64 rng{ seedFromEnv() };
             std::uniform_int_distribution<long long> dist(a, b);
             return Value::number((double)dist(rng));
         }
@@ -3079,10 +3093,19 @@ static Value my_input(const string& prompt) {
     return Value(line);
 }
 static size_t u8len(const string& s) { size_t n = 0; for (unsigned char c : s) if ((c & 0xC0) != 0x80) n++; return n; }
+// 본체의 seedFromEnv() 와 같은 규칙 — 같은 씨앗이면 두 백엔드가 같은 수열을 돈다
+static unsigned long long rt_seedFromEnv() {
+    if (const char* e = std::getenv("VENOS_SEED")) {
+        char* end = nullptr;
+        unsigned long long v = std::strtoull(e, &end, 10);
+        if (end && end != e && *end == '\0') return v;
+    }
+    return std::random_device{}();
+}
 static Value b_random(const Value& a, const Value& b) {
     long long x = (long long)needNum(a, "random"), y = (long long)needNum(b, "random");
     if (x > y) std::swap(x, y);
-    static std::mt19937_64 rng{ std::random_device{}() };
+    static std::mt19937_64 rng{ rt_seedFromEnv() };
     std::uniform_int_distribution<long long> d(x, y);
     return Value((double)d(rng));
 }
@@ -3928,6 +3951,9 @@ struct PyGen {
     std::set<string> strVars;                // 대입이 전부 문자열인 변수 (inferStrVars 가 채운다)
     bool inFunc = false;
     bool sawMap = false;                     // 딕셔너리가 존재할 수 있는가 (1차 통과에서 알아낸다)
+    // sawMap 은 has() 처럼 "딕셔너리일 수도 있는" 자리에서도 켜진다. 딕셔너리를 **글자로
+    // 적은** 적이 있는지는 따로 세야, 리스트만 쓰는 프로그램의 has 가 도우미로 안 밀린다.
+    bool sawMapReal = false;
     bool sawList = false;                    // 리스트가 존재할 수 있는가
     bool sawIndex = false;                   // [ ] 인덱싱을 쓰는가 (머리말에 1부터 얘기를 넣을지)
     bool sawFloat = false;                   // 소수가 나올 수 있는가 (/ · sqrt · 입력 등)
@@ -4462,6 +4488,7 @@ struct PyGen {
         }
         if (auto* m = dynamic_cast<MapExpr*>(e)) {
             sawMap = true;
+            sawMapReal = true;
             string o = "{";
             for (size_t i = 0; i < m->items.size(); i++) {
                 if (i) o += ", ";
@@ -4572,8 +4599,11 @@ struct PyGen {
                 && wrap(c->args[0].get(), P_ATOM) == T)
                 return T + "[-1]";
         if (dynamic_cast<StrExpr*>(index)) return T + "[" + expr(index) + "]";
+        // 숫자를 글자로 적은 자리. 프로그램에 딕셔너리가 하나도 없으면 리스트가 확실하므로
+        // 그냥 0부터로 옮긴다. 딕셔너리가 있으면 **이게 어느 쪽인지 모른다** — 리스트로
+        // 단정하면 딕[1] 이 파이썬에서 딕[0] 이 되어 Venos 가 거절하는 자리에 키가 생긴다.
         double lit;
-        if (litIndex(index, lit, line)) return T + "[" + pyNum(lit - 1) + "]";
+        if (litIndex(index, lit, line) && !sawMap) return T + "[" + pyNum(lit - 1) + "]";
         if (!sawMap) return T + "[" + wrap(index, P_MUL) + " - 1]";   // 딕셔너리가 없으면 리스트뿐
         return need("idx") + "(" + expr(target) + ", " + expr(index) + ")";
     }
@@ -4657,17 +4687,30 @@ struct PyGen {
         if (f == "push")  { need2(2); sawList = true; return need("push") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "pop")   { need2(1); return atom(0) + ".pop()"; }
         if (f == "sort")  { need2(1); sawList = true; return need("sort") + "(" + A(0) + ")"; }
-        if (f == "keys")  { need2(1); sawMap = true; sawList = true; return "sorted(" + atom(0) + ".keys())"; }
+        if (f == "keys")  { need2(1); sawMap = true; sawMapReal = true; sawList = true; return "sorted(" + atom(0) + ".keys())"; }
         // Venos 의 has() 는 딕셔너리와 리스트에만 된다. 파이썬의 `in` 은 문자열에도 되어서
         // has("abc", "b") 가 여기서는 에러, 파이썬에서는 1 이다 — 에러가 답으로 바뀌는 쪽이다.
         // 문자열인 줄 알 수 있으면 거절한다. `int(x in d)` 라는 표기는 그대로 남는다.
         if (f == "has")   { need2(2); sawMap = true;
+                            // 딕셔너리를 글자로 적어 놓고 수로 찾는 자리. Venos 는 "키는
+                            // 문자열" 이라 에러인데 파이썬은 그냥 0 을 돌려준다. 담는 것이
+                            // 리스트면 has(자료, 23) 이 정상이라, **딕셔너리인 게 보일 때만**
+                            // 막는다. (담는 것이 변수면 못 본다 — STRATEGY §6 에 적어 뒀다)
+                            if (dynamic_cast<MapExpr*>(c->args[0].get())
+                                && numericSure(c->args[1].get()))
+                                throw nope(c->line, "딕셔너리의 키는 문자열이어야 합니다"
+                                                    " (파이썬은 없는 키로 보고 0 을 돌려줍니다)");
                             if (stringish(c->args[0].get()))
                                 throw nope(c->line, "has() 는 딕셔너리나 리스트에만 쓸 수 있습니다"
                                                     " (파이썬의 in 은 문자열에도 되어 다른 답을 냅니다"
                                                     " — 문자열 안을 찾으려면 find(문자열, 조각) 을 쓰세요)");
-                            return "int(" + wrap(c->args[1].get(), P_CMP + 1) + " in "
-                                          + wrap(c->args[0].get(), P_CMP + 1) + ")"; }
+                            // 키가 문자열로 보이거나(딕셔너리의 보통 모양) 프로그램에
+                            // 딕셔너리가 아예 없으면 리스트가 확실하므로 `in` 을 그대로 쓴다 —
+                            // 학생이 배워야 할 표기다. 나머지만 같은 검사를 하는 도우미로.
+                            if (stringish(c->args[1].get()) || !sawMapReal)
+                                return "int(" + wrap(c->args[1].get(), P_CMP + 1) + " in "
+                                              + wrap(c->args[0].get(), P_CMP + 1) + ")";
+                            return need("has") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "remove"){ need2(2); return need("remove") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "split") { need2(2); sawList = true; return atom(0) + ".split(" + A(1) + ")"; }
         if (f == "join")  { need2(2); return need("join") + "(" + A(0) + ", " + A(1) + ")"; }
@@ -4746,7 +4789,8 @@ struct PyGen {
             if (dynamic_cast<StrExpr*>(ix))            cur += "[" + expr(ix) + "]";
             // 읽는 쪽과 **같은 검사**를 해야 한다. 여기만 빠져 있어서 xs[0] = 9 가
             // 파이썬에서 xs[-1] = 9 로 나갔다 — 읽기보다 나쁘다, 리스트가 조용히 바뀐다.
-            else if (litIndex(ix, lit, line))          cur += "[" + pyNum(lit - 1) + "]";
+            // !sawMap 조건도 읽는 쪽과 같다 (딕셔너리가 있으면 어느 쪽인지 모른다).
+            else if (litIndex(ix, lit, line) && !sawMap) cur += "[" + pyNum(lit - 1) + "]";
             else if (!sawMap)                          cur += "[" + wrap(ix, P_MUL) + " - 1]";
             else                                       cur += "[" + need("k") + "(" + cur + ", " + expr(ix) + ")]";
         }
@@ -5250,9 +5294,17 @@ struct PyGen {
              "    return int(f) if f == int(f) else f\n"},
             // Venos 는 리스트 인덱스가 1부터다. int(k)-1 을 그대로 쓰면 0 이 파이썬의
              // 음수 인덱스가 되어 "에러" 가 "마지막 원소" 로 조용히 바뀐다.
+            // Venos 의 딕셔너리 키는 **문자열만** 된다. 파이썬은 아무 해시값이나 받으므로
+            // 그냥 넘기면 딕[-1] = 9 가 여기서는 에러, 파이썬에서는 **숫자 키가 하나 늘어난다**.
+            // 그러고 나면 keys() 의 sorted() 가 int 와 str 을 비교하다 TypeError 로 죽는다 —
+            // 틀린 답보다 나쁘다, 엉뚱한 줄에서 죽으니까. (생성 퍼저가 찾았다)
+            {"dkey",  "def _dkey(k):\n"
+                      "    if not isinstance(k, str):\n"
+                      "        raise Exception(\"딕셔너리 키는 문자열이어야 합니다\")\n"
+                      "    return k\n"},
              {"idx",
              "def _idx(c, k):\n"
-             "    if isinstance(c, dict): return c[k]\n"
+             "    if isinstance(c, dict): return c[_dkey(k)]\n"
              // int("2") 는 파이썬에서 2 다. 그대로 두면 xs["2"] 가 여기서는 에러,
              // 파이썬에서는 값을 돌려준다 (대입 쪽 _k 는 리스트를 조용히 고치기까지 했다).
              "    if not isinstance(k, (int, float)):\n"
@@ -5264,7 +5316,7 @@ struct PyGen {
             // xs["2"] = 9 가 파이썬에서만 리스트를 고친다 (에러가 아니라 **다른 프로그램**이다).
             {"k",
              "def _k(c, i):\n"
-             "    if isinstance(c, dict): return i\n"
+             "    if isinstance(c, dict): return _dkey(i)\n"
              "    if not isinstance(i, (int, float)):\n"
              "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
              // 범위 검사가 _idx(읽기)에만 있고 여기(쓰기)에 없었다 — xs[-1] = 9 가
@@ -5282,6 +5334,13 @@ struct PyGen {
                       "    if not all(isinstance(x, (int, float)) for x in (a, b)):\n"
                       "        raise Exception(\"max() 에는 수만 넣을 수 있습니다\")\n"
                       "    return max(a, b)\n"},
+            // has() 는 `int(k in c)` 로 내는 게 기본이다. 딕셔너리인데 키가 문자열이
+            // 아닐 수 있는 자리만 여기로 온다 — Venos 는 에러, 파이썬은 0 이었다.
+            {"has",   "def _has(c, k):\n"
+                      "    if isinstance(c, dict): return int(_dkey(k) in c)\n"
+                      "    if not isinstance(c, list):\n"
+                      "        raise Exception(\"has() 는 딕셔너리나 리스트에만 쓸 수 있습니다\")\n"
+                      "    return int(k in c)\n"},
             {"push",  "def _push(xs, v):\n    xs.append(v)\n    return xs\n"},
             // Venos 의 sort() 는 숫자만 있거나 문자열만 있는 리스트만 받는다. 파이썬은
             // 리스트끼리·딕셔너리끼리도 사전순으로 정렬해 버려서 **에러가 답으로 바뀐다**.
@@ -5313,7 +5372,7 @@ struct PyGen {
             {"remove",
              "def _remove(c, k):\n"
              "    if isinstance(c, dict):\n"
-             "        return int(c.pop(k, None) is not None)\n"
+             "        return int(c.pop(_dkey(k), None) is not None)\n"
              "    if not isinstance(k, (int, float)):\n"
              "        raise Exception(\"remove() 의 위치는 숫자여야 합니다\")\n"
              "    return c.pop(int(k) - 1)\n"},
@@ -5377,6 +5436,9 @@ struct PyGen {
         if (want.count("join") || want.count("writefile") || want.count("appendfile")) want.insert("show");
         // _num 과 _input 은 _isnum 으로 "숫자처럼 보이는가"를 판정한다
         if (want.count("num") || want.count("input")) want.insert("isnum");
+        // 딕셔너리를 건드리는 셋은 _dkey 로 "키가 문자열인가"를 본다
+        if (want.count("idx") || want.count("k") || want.count("remove")
+            || want.count("has")) want.insert("dkey");
         string o;
         for (auto& h : want) {
             if (h == "show") { o += show; continue; }

@@ -59,7 +59,7 @@ for f in tests/cases/*.my examples/algorithms/*.my tests/diag/*.my; do
     else                   out=$(ASAN_OPTIONS=$ASAN_OPTIONS "$TMP/venos-asan" "$f" < /dev/null 2>&1); fi
     report "실행/$name" "$out"
 done
-out=$("$TMP/venos-asan" examples/rpg.my < tests/cases/rpg_path.input 2>&1)
+out=$("$TMP/venos-asan" examples/rpg.my < examples/rpg.input 2>&1)
 report "실행/rpg" "$out"
 
 echo "== topython"

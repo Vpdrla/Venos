@@ -54,9 +54,14 @@ ODD = [
 ODD_CALLS = [
     ('num', 1), ('str', 1), ('len', 1), ('sort', 1), ('reverse', 1),
     ('upper', 1), ('lower', 1), ('abs', 1), ('floor', 1), ('ceil', 1), ('sqrt', 1),
+    ('keys', 1), ('copy', 1), ('round', 1), ('pop', 1),
     ('has', 2), ('find', 2), ('join', 2), ('split', 2), ('min', 2), ('max', 2),
+    ('round', 2), ('remove', 2), ('push', 2),
     ('substr', 3), ('replace', 3),
 ]
+# 자리 번호는 함수 호출이 아니라서 위 표로는 안 걸린다. 읽기와 **쓰기**를 따로 낸다 —
+# 쓰기 쪽이 더 나쁘다 (xs[-1] = 9 가 파이썬에서 뒤에서 두 번째를 조용히 고쳤다).
+ODD_INDEX = ['0', '(0 - 1)', '(0 - 99)', '1.5', '"2"', '"a"', 'len(xs)', 'len(xs) + 1', 'a', '수']
 
 
 class Gen:
@@ -164,6 +169,12 @@ class Gen:
     # "에러인가 값인가"** 만 비교되게 만든다 (값이 나오면 그 값도 같아야 한다).
     def odd_call(self, pad):
         r = self.r
+        if r.random() < 0.25:
+            c = r.choice(LIST_VARS + DICT_VARS)
+            i = r.choice(ODD_INDEX)
+            if r.random() < 0.5:
+                return ['%stry { print %s[%s] } catch 오류 { print "E" }' % (pad, c, i)]
+            return ['%stry { %s[%s] = 9  print %s } catch 오류 { print "E" }' % (pad, c, i, c)]
         name, n = r.choice(ODD_CALLS)
         args = ', '.join(r.choice(ODD) for _ in range(n))
         return ['%stry { print %s(%s) } catch 오류 { print "E" }' % (pad, name, args)]

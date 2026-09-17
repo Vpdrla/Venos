@@ -10,6 +10,7 @@ examples/*.cpp
 examples/*.py
 examples/rpg
 examples/rpg.en
+!examples/rpg.input
 examples/algorithms/*
 !examples/algorithms/*.my
 !examples/algorithms/*.md

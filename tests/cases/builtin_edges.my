@@ -113,3 +113,16 @@ try { 셋[뒤] = 99  print 셋 } catch 오류 { print "쓰기 -1: 에러" }
 let 영번 = 0
 try { print 셋[영번] } catch 오류 { print "읽기 0: 에러" }
 print "마지막은", 셋[len(셋)], 셋
+
+print ""
+print "=== 딕셔너리의 키는 문자열이어야 한다 ==="
+# 파이썬은 아무 해시값이나 키로 받는다 — 그대로 넘기면 딕[1] = 9 가 여기서는 에러,
+# 파이썬에서는 **키가 하나 늘어난다**. 그러고 나면 keys() 의 sorted() 가
+# int 와 str 을 비교하다 엉뚱한 줄에서 죽는다 (생성 퍼저가 찾았다).
+let 표5 = {"k1": 5}
+let 수키 = 1
+try { 표5[수키] = 9  print 표5 } catch 오류 { print "쓰기 숫자키: 에러" }
+try { print 표5[수키] } catch 오류 { print "읽기 숫자키: 에러" }
+try { print remove(표5, 수키) } catch 오류 { print "remove 숫자키: 에러" }
+try { print has(표5, 수키) } catch 오류 { print "has 숫자키: 에러" }
+print keys(표5), 표5["k1"]
