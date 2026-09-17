@@ -5545,8 +5545,13 @@ struct PyGen {
         // float 에만 이 규칙을 걸면 파이썬 **정수**가 빠져나간다 — _num("1e20") 이 int 를
         // 돌려주므로 str(num("1e20")) 이 여기서는 1e+20, 저기서는 자릿수 21개였다.
         // 수는 int 든 float 든 같은 규칙으로 보여 준다 (bool 은 위에서 이미 걸렀다).
+        // 파이썬 정수에는 한계가 없어서 `"%g" % v` 가 **터진다** (OverflowError: int too
+        // large to convert to float). Venos 는 그 크기를 double 로 들고 있으니 inf 다 —
+        // 값을 보여 주려다 프로그램을 죽이는 것은 틀린 답보다 나쁘므로 같은 답으로 맞춘다.
         show += "    if isinstance(v, (int, float)):\n"
-                "        return str(int(v)) if abs(v) < 9e18 and v == int(v) else \"%g\" % v\n"
+                "        if abs(v) < 9e18 and v == int(v): return str(int(v))\n"
+                "        try: return \"%g\" % v\n"
+                "        except OverflowError: return \"inf\" if v > 0 else \"-inf\"\n"
                 "    return str(v)\n";
         if (sawList || sawMap || !classes.empty())
             show += "def _q(v):\n"
@@ -5567,7 +5572,11 @@ struct PyGen {
              "    if not _isnum(t):\n"
              "        raise Exception(\"숫자로 바꿀 수 없는 문자열: \\\"\" + t + \"\\\"\")\n"
              "    f = float(t)\n"
-             "    return int(f) if f == int(f) else f\n"},
+             // 2^53 을 넘는 값을 int 로 돌려주면 **그 뒤 계산이 파이썬에서만 정확해진다** —
+             // num("1e300") * num("1e300") 이 여기서는 inf, 저기서는 601자리 정수였다.
+             // 자릿수를 다 쓰는 범위(_show 와 같은 9e18)까지만 int 로 준다.
+             "    if f == int(f) and abs(f) < 9e18: return int(f)\n"
+             "    return f\n"},
             {"input",
              "def _input(prompt=\"\"):\n"
              // 입력이 끊기면(파이프 끝, Ctrl+D) 파이썬은 EOFError 역추적을 쏟아낸다.

@@ -48,3 +48,15 @@ try { print num("0x10") } catch 오류 { print "0x10: 에러" }
 try { print num("1_000") } catch 오류 { print "1_000: 에러" }
 try { print num("inf") } catch 오류 { print "inf: 에러" }
 try { print num("") } catch 오류 { print "빈 문자열: 에러" }
+
+# 수의 경계 — 세 백엔드가 같은 답을 내야 하는 자리들.
+# (파이썬은 sqrt(-1) 에서 ValueError, 0 나누기에서 ZeroDivisionError 라 **둘 다 에러**이고,
+#  넘침은 float 라 양쪽 다 inf 다. 정수 연산으로 2^53 을 넘기는 것만이 명세에 적힌 차이다)
+try { print "sqrt(-1):", sqrt(0 - 1) } catch e { print "sqrt(-1): 에러" }
+try { print "1/0:", 1 / 0 } catch e { print "1/0: 에러" }
+try { print "0/0:", 0 / 0 } catch e { print "0/0: 에러" }
+try { print "5%0:", 5 % 0 } catch e { print "5%0: 에러" }
+let 큰 = num("1e300")
+print "넘침:", 큰 * 큰, "음의 넘침:", (0 - 큰) * 큰
+print "내림/올림(음수):", floor(0 - 2.5), ceil(0 - 2.5), round(0 - 2.5)
+print "0 의 부호:", abs(0 - 0), num("-0"), (0 - 0) == 0
