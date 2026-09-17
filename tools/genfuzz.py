@@ -26,8 +26,9 @@ TypeError 이고, PyGen 은 **정적으로 문자열인 게 보일 때만** str(
 이라는 차이만 잡힌다 — num("0x10")·has("abc","b")·sort([[2],[1]]) 가 전부 그 모양이었고,
 셋 다 손으로 찔러 보다 나왔다. 손이 찾을 수 있는 종류면 생성기도 찾을 수 있어야 한다.
 
-허용하는 차이는 러너와 같다: 인터프리터 전용 배너, catch 문구의 [줄 N] 접두사,
-소수 표기(양쪽을 %g 로 맞춘다).
+허용하는 차이는 러너와 같다: 인터프리터 전용 배너와 catch 문구의 [줄 N] 접두사.
+**소수 표기는 맞추지 않는다** — _show 가 Venos 의 규칙을 그대로 따르므로 원래 같고,
+맞춰 주면 앞으로 생길 진짜 표기 차이를 가려 준다 (러너도 같은 이유로 뺐다).
 """
 import argparse
 import os
@@ -343,8 +344,6 @@ def norm(text):
                 or line.startswith('(note: non-ASCII')):
             continue
         line = re.sub(r'\[(?:[^\]]*줄 \d+)\]\s*', '', line)      # catch 메시지의 [줄 N]
-        # 소수 표기를 %g 로 맞춘다 (파이썬 91.66666666666667 vs Venos 91.6667)
-        line = re.sub(r'-?\d+\.\d+', lambda m: '%g' % float(m.group(0)), line)
         out.append(line.rstrip())
     return '\n'.join(out).strip()
 
