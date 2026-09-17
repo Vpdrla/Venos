@@ -5349,9 +5349,13 @@ struct PyGen {
         // 잡히지 않은 에러의 역추적이 윈도우에서 깨져 나왔다. 출력만 고쳐 두면
         // **정상 실행은 멀쩡한데 에러 화면만 읽을 수 없는** 상태가 된다.
         bool koreanErr = sawNonAscii || !helpers.empty();
-        if (sawNonAscii || sawInput || koreanErr) {
+        // 한글이 **리터럴로만** 들어오는 게 아니다 — input 으로 받거나 readfile 로 읽은
+        // 글자를 그대로 찍는 프로그램은 리터럴이 하나도 없어도 한글을 출력한다.
+        // sawNonAscii 만 보면 그런 프로그램이 윈도우에서 UnicodeEncodeError 로 죽는다.
+        bool koreanOut = sawNonAscii || sawInput || helpers.count("readfile") > 0;
+        if (koreanOut || sawInput || koreanErr) {
             out << "\n";
-            if (sawNonAscii)
+            if (koreanOut)
                 out << "sys.stdout.reconfigure(encoding=\"utf-8\")"
                        "   # 윈도우 기본 인코딩에서 한글이 깨지지 않게\n";
             if (koreanErr)
