@@ -20,14 +20,30 @@ const path = require('path');
 const os = require('os');
 const { execFileSync, spawnSync } = require('child_process');
 
-// 파이썬 비교를 건너뛰는 레슨과 그 이유 (러너의 PY_SKIP 과 같은 성격).
+// 파이썬 비교를 건너뛰는 레슨/예제와 그 이유 (러너의 PY_SKIP 과 같은 성격).
 const PY_SKIP = {
+    dict: 'catch 가 받는 문구가 Venos 것과 파이썬 것으로 다르다 ("키가 없습니다" vs \'gym\')',
+    guess: 'random() 을 쓴다 — 파이썬의 난수는 우리 것과 수열이 다르다',
     errors: 'catch 가 받는 문구가 Venos 것과 파이썬 것으로 다르다 (topython 은 에러 문구까지 흉내내지 않는다)',
     project: 'random() 을 쓴다 — 파이썬의 난수는 우리 것과 수열이 다르다',
 };
+// 준비한 입력을 다 쓰면 양쪽이 **다른 모양으로** 보고한다 — Venos 는 한 줄,
+// 파이썬은 역추적이다 (문구는 _input 이 맞춰 뒀지만 형식이 다르다). 거기서부터는
+// 비교할 게 없으므로 잘라 낸다. 그 문구가 없는데 나온 역추적은 **자르지 않는다** —
+// NameError 같은 진짜 코드젠 오류가 거기 숨으면 안 된다.
+function cutAtInputEnd(text) {
+    if (!text.includes('입력을 읽을 수 없습니다')) return text;
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++)
+        if (lines[i].includes('입력을 읽을 수 없습니다')
+            || lines[i].includes('Traceback (most recent call last)'))
+            return lines.slice(0, i).join('\n');
+    return text;
+}
+
 // 배너·호출 경로·소스 줄 표시는 인터프리터에만 있다. catch 문구의 [줄 N] 도 마찬가지.
 function normalize(text) {
-    return String(text).replace(/\r/g, '')
+    return cutAtInputEnd(String(text).replace(/\r/g, ''))
         .split('\n')
         .filter((l) => !l.startsWith('=== ') && !l.startsWith('    부른 순서: ')
                        && !/^ *줄 \d+ \| /.test(l))
@@ -85,13 +101,25 @@ if (!fs.existsSync(VENOS)) {
     process.exit(2);
 }
 
+// docs/index.html 의 드롭다운 예제 — 방문자가 **제일 먼저 돌리는 코드**인데
+// 레슨과 달리 아무 검사도 받고 있지 않았다. 레슨과 같은 취급을 한다.
+function loadExamples() {
+    const html = fs.readFileSync(path.join(ROOT, 'docs', 'index.html'), 'utf8');
+    const m = html.match(/const EXAMPLES = (\{[\s\S]*?\n\});/);
+    if (!m) { console.error('docs/index.html 에서 EXAMPLES 를 찾지 못했습니다.'); process.exit(2); }
+    const ex = eval('(' + m[1] + ')');   // 우리 저장소 안의 데이터다
+    // 레슨과 같은 모양으로 감싼다 (예제는 한 언어뿐이라 ko·en 에 같은 코드를 둔다)
+    return Object.entries(ex).map(([id, code]) => ({ id, code: { ko: code }, desc: {} }));
+}
+
 const lessons = loadLessons();
+const examples = loadExamples();
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'venos-lessons-'));
 
-console.log(`레슨 ${lessons.length}개 점검\n`);
+console.log(`레슨 ${lessons.length}개 + 플레이그라운드 예제 ${examples.length}개 점검\n`);
 
-for (const lesson of lessons) {
-    for (const lang of ['ko', 'en']) {
+for (const lesson of lessons.concat(examples)) {
+    for (const lang of Object.keys(lesson.code)) {
         const label = `${lesson.id} (${lang})`;
         const code = lesson.code && lesson.code[lang];
         if (typeof code !== 'string' || !code.trim()) { fail(`${label}: 코드가 비어 있습니다`); continue; }
