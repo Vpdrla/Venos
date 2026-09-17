@@ -531,8 +531,19 @@ async function decodeCode(token) {
   if (mode !== 'c') throw new Error('unknown encoding');
   const ds = new DecompressionStream('deflate-raw');
   const w = ds.writable.getWriter();
-  w.write(bytes); w.close();
+  // 잘린 링크에서는 이 둘도 거절당한다 — 받아 두지 않으면 페이지의 JS 에러가 되고,
+  // 아래 await 의 catch 로는 그게 안 잡힌다
+  w.write(bytes).catch(() => {});
+  w.close().catch(() => {});
   return new TextDecoder().decode(await new Response(ds.readable).arrayBuffer());
+}
+
+// WASM 이 준비되면 출력창을 통째로 비우므로(로딩 안내를 지운다), 그 전에 한 말은
+// 사라진다. 공유 링크가 깨졌다는 말은 남아야 하니 순서에 상관없이 다시 띄운다.
+let bootNotice = null;
+function sayBootNotice(msg) {
+  bootNotice = msg;
+  if (M) append(msg, 'err');
 }
 
 // ============================================================
@@ -687,7 +698,13 @@ async function boot() {
     try {
       setCode(await decodeCode(decodeURIComponent(codeMatch[1])));
       return;
-    } catch (e) { /* 깨진 링크면 아래 기본 경로로 */ }
+    } catch (e) {
+      // 깨진 링크면 아래 기본 경로로 — 다만 **말은 해야 한다.** 메신저가 긴 주소를
+      // 자르므로, 아무 말 없이 예전 작업을 띄우면 학생은 선생님이 준 코드를 보고
+      // 있다고 믿는다 (화면에는 멀쩡한 프로그램이 하나 떠 있다).
+      sayBootNotice('공유 링크를 읽을 수 없습니다 — 링크가 잘렸거나 일부만 복사된 것'
+                    + ' 같습니다 (메신저가 긴 주소를 자릅니다). 링크를 다시 받아 주세요.');
+    }
   }
 
   const lessonMatch = hash.match(/^#lesson=([\w-]+)$/);
@@ -794,6 +811,7 @@ createVenos({
   M = mod;
   output.textContent = '';
   append('Venos ready. Press \u25b6 Run!', 'ok');
+  if (bootNotice) append(bootNotice, 'err');   // 비우기 전에 한 말을 되살린다
   runBtn.disabled = false;
   pyBtn.disabled = false;
 }).catch(err => {

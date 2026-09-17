@@ -339,7 +339,12 @@ const CHECKS = [
     if (!hash.startsWith('#code=')) {
       bad++; console.log('✗ 🔗 Share — 링크를 얻지 못함: ' + JSON.stringify(hash));
     } else {
+      // 해시만 다른 주소로 가는 것은 **다시 불러오기가 아니다** — 링크를 받은 학생은
+      // 빈 페이지에서 시작하므로, 편집기에 표시를 남기고 reload() 로 실제로 다시 연다.
+      // (표시가 그대로 돌아오면 이 검사는 아무것도 안 본 것이다)
+      await page.fill('#editor', '# 링크가 안 읽혔다는 표시\n');
       await page.goto(`http://127.0.0.1:${PORT}/${hash}`, { waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'networkidle' });
       await page.waitForSelector('#runBtn:not([disabled])', { timeout: 60000 });
       const 돌아온것 = await page.$eval('#editor', e => e.value);
       if (돌아온것.trim() === 원본.trim()) console.log('✓ 🔗 Share 링크 왕복');
@@ -348,6 +353,20 @@ const CHECKS = [
         console.log('✗ 🔗 Share 링크 왕복 — 코드가 달라짐');
         console.log('   ' + JSON.stringify(돌아온것.slice(0, 120)));
       }
+      // 잘린 링크 — 메신저는 긴 주소를 자른다. 조용히 기본 화면을 띄우면 학생은
+      // 선생님이 준 코드를 보고 있다고 믿는다 (화면에는 멀쩡한 프로그램이 하나 떠 있다).
+      const 잘린것 = hash.slice(0, Math.max(10, hash.length - 12));
+      await page.goto(`http://127.0.0.1:${PORT}/${잘린것}`, { waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.waitForSelector('#runBtn:not([disabled])', { timeout: 60000 });
+      const 말한것 = await page.$eval('#output', e => e.textContent);
+      if (말한것.includes('공유 링크를 읽을 수 없습니다')) console.log('✓ 잘린 공유 링크를 알려 줌');
+      else {
+        bad++;
+        console.log('✗ 잘린 공유 링크 — 아무 말 없이 다른 코드를 띄움');
+        console.log('   ' + JSON.stringify(말한것.slice(0, 120)));
+      }
+
       // 뒤 검사들을 위해 깨끗한 페이지로 돌아간다
       await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
       await page.waitForSelector('#runBtn:not([disabled])', { timeout: 60000 });
