@@ -17,7 +17,7 @@ VENOS=./venos
 EXE=""
 case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe" ;; esac
 TMP=$(mktemp -d)
-cleanup() { rm -rf "$TMP" tests/.tmp_* tests/cases/*.py tests/cases/*.exe examples/algorithms/*.py examples/algorithms/*.cpp examples/algorithms/*.exe examples/rpg.py examples/rpg.cpp examples/rpg examples/rpg.exe save.txt ; }
+cleanup() { rm -rf "$TMP" tests/diag/*.py tests/.tmp_* tests/cases/*.py tests/cases/*.exe examples/algorithms/*.py examples/algorithms/*.cpp examples/algorithms/*.exe examples/rpg.py examples/rpg.cpp examples/rpg examples/rpg.exe save.txt ; }
 trap cleanup EXIT
 
 # 파이썬 변환을 건너뛰는 케이스와 그 이유.
@@ -160,14 +160,28 @@ for case_file in tests/diag/*.my; do
         dfail=$((dfail+1)); continue
     fi
     "$VENOS" "$case_file" > "$TMP/diag.txt" 2>&1
-    if diff <(tr -d '\r' < "$want") <(tr -d '\r' < "$TMP/diag.txt") > "$TMP/diff.txt" 2>&1; then
-        echo "PASS  진단/$name"
-        dpass=$((dpass+1))
-    else
+    if ! diff <(tr -d '\r' < "$want") <(tr -d '\r' < "$TMP/diag.txt") > "$TMP/diff.txt" 2>&1; then
         echo "FAIL  진단/$name  (에러 메시지가 바뀌었습니다)"
         cat "$TMP/diff.txt"
-        dfail=$((dfail+1))
+        dfail=$((dfail+1)); continue
     fi
+    # 이 프로그램들은 **인터프리터가 거절하는** 것들이다. topython 이 통과시키고
+    # 그 파이썬이 멀쩡히 답을 내면, 같은 파일이 백엔드마다 다른 프로그램이 된다.
+    # ("abc".upper() 가 여기서는 에러, 파이썬에서는 ABC 였다 — 이 검사가 잡았다)
+    if [ -n "$PY" ]; then
+        rm -f "tests/diag/$name.py"
+        if "$VENOS" topython "$case_file" > "$TMP/dpy.txt" 2>&1 && [ -f "tests/diag/$name.py" ]; then
+            "$PY" "tests/diag/$name.py" > "$TMP/dpyrun.txt" 2>&1
+            rm -f "tests/diag/$name.py"
+            if ! grep -qE 'Traceback|Error' "$TMP/dpyrun.txt"; then
+                echo "FAIL  진단/$name  (topython 이 통과시켰고 파이썬이 답을 냈습니다)"
+                head -3 "$TMP/dpyrun.txt"
+                dfail=$((dfail+1)); continue
+            fi
+        fi
+    fi
+    echo "PASS  진단/$name"
+    dpass=$((dpass+1))
 done
 
 # ---- 셸 편집 모드 (create / code / :d / :q / run) ----

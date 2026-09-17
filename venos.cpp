@@ -4501,6 +4501,25 @@ struct PyGen {
         if (auto* f = dynamic_cast<FieldExpr*>(e))
             return dotted(f->target.get()) + "." + pyName(f->field);
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
+            // 어느 클래스에도 없는 메서드는 여기서 거절한다. 인터프리터와 build 는 둘 다
+            // 막고 있었는데 여기만 그냥 내보냈고, 그래서 `"abc".upper()` 가 Venos 에서는
+            // 에러, 파이썬에서는 ABC 였다 — 딱 이 기능이 막으려는 모양이다.
+            // (tests/diag 를 topython 으로도 걸어 보다 나왔다)
+            {
+                bool known = false;
+                std::vector<string> names;
+                for (auto& [cn, cls] : classes) {
+                    (void)cn;
+                    for (auto& [mn, fn] : cls->methods) { (void)fn; names.push_back(mn); }
+                    if (cls->methods.count(mc->method)) known = true;
+                }
+                if (!known) {
+                    string hint = methodHint(mc->method);
+                    throw err(mc->line, "메서드 '" + mc->method + "'"
+                              + josa(mc->method, "이", "가") + " 어느 클래스에도 없습니다"
+                              + (hint.empty() ? suggestName(mc->method, names) : hint));
+                }
+            }
             string o = dotted(mc->target.get()) + "." + pyName(mc->method) + "(";
             for (size_t i = 0; i < mc->args.size(); i++) {
                 if (i) o += ", ";
