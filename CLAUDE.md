@@ -53,8 +53,8 @@ em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
 tests/run_tests.sh   # 전체 스위트: 3중 differential + 에러 메시지 + 셸 + topython 거절
                      #             + REPL + 종료 코드 + 내장함수 대조 + 레슨 트랙
 tools/sanitize.sh    # ASan+UBSan+Leak 으로 두 백엔드 훑기 + 퍼징 (약 4분, CI 의 sanitize 잡)
-                     # 누수 검출은 켜져 있고, 일부러 순환을 만드는 두 케이스(bugfixes,
-                     # listops_errors)만 빼 준다 — 전체를 끄면 진짜 누수도 같이 가려진다
+                     # 누수 검출은 켜져 있고, 일부러 순환을 만드는 세 케이스(bugfixes,
+                     # listops_errors, cycles)만 빼 준다 — 전체를 끄면 진짜 누수도 같이 가려진다
                      # 케이스를 임시 폴더로 복사해 돌린다 — 딸린 파일(tests/cases/lib 등)을
                      # 새로 만들면 여기 복사 목록에도 넣을 것 (안 넣으면 CI 에서만 깨진다)
 python3 tools/fuzz.py ./venos --minutes 2      # 망가진 입력으로 크래시 찾기

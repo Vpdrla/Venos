@@ -28,10 +28,10 @@ SAN_FLAGS="-std=c++17 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointe
 # 여기서 보는 건 속도가 아니라 메모리 오류라 -O0 으로 충분하다.
 GEN_FLAGS="-std=c++17 -g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer"
 export UBSAN_OPTIONS=print_stacktrace=1
-# 누수 검출은 켠다. 예외는 **일부러 순환 참조를 만드는 두 케이스**뿐이다 —
+# 누수 검출은 켠다. 예외는 **일부러 순환 참조를 만드는 세 케이스**뿐이다 —
 # 참조 계수 방식에 순환 수집기가 없으면 어쩔 수 없고, 그걸 넣을 언어가 아니다.
 # 전체를 detect_leaks=0 으로 덮으면 진짜 누수도 같이 가려진다.
-CYCLIC="bugfixes listops_errors"
+CYCLIC="bugfixes listops_errors cycles"
 leaks_for() {   # leaks_for <케이스이름> → ASAN_OPTIONS 값
     case " $CYCLIC " in *" $1 "*) echo "detect_leaks=0" ;; *) echo "detect_leaks=1" ;; esac
 }

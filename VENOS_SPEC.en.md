@@ -186,7 +186,7 @@ let b = copy(a)     # fully independent deep copy
 | Integer precision | about 9 quadrillion (2^53) | It drifts silently — that is what `topython` is for; Python's integers have no limit |
 | Function recursion depth | 2000 desktop / 200 web | `함수 호출이 너무 깊습니다 (무한 재귀?)` |
 | Expression/block nesting | 200 levels | `식이나 블록이 너무 깊게 중첩되었습니다` — an unclosed bracket lands here |
-| List/dictionary nesting | 1000 levels | `자기 자신을 포함한 구조?` when printing, comparing or copying |
+| List/dictionary nesting | 1000 levels | printing, comparing and copying stop with `1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다` — the check counts depth, so it cannot tell the two apart and says both |
 | Iterations of one `while` | 10 million, web only (no limit on desktop) | `반복 횟수가 너무 많습니다 (무한 루프?)` |
 
 In the web playground you can **stop a running program at any time with ⏹ Stop (or Esc)** —

@@ -24,7 +24,10 @@ trap cleanup EXIT
 # 전부 "Venos 고유의 에러 문구/런타임 가드"를 출력으로 만드는 케이스다. 파이썬은 같은 상황에서
 # 자기 예외 메시지(division by zero, FileNotFoundError, RecursionError ...)를 내므로 문구가 다르다.
 # topython 은 "읽을 수 있는 파이썬"을 목표로 하지 에러 문구까지 흉내내지 않는다.
-PY_SKIP="errors bugfixes fileio_errors listops_errors rpg error_wording"
+# cycles 는 성격이 조금 다르다: 파이썬의 deepcopy 는 memo 로 순환을 **처리해 버리고**,
+# repr 은 [...] 로 접는다. Venos 는 둘 다 거절한다 — 구조적 차이라 문구만의 문제가 아니다.
+# 여기 빠지려면 리스트를 자기 안에 일부러 push 해야 하므로 리스트 * 2 와 같은 거래로 뒀다.
+PY_SKIP="errors bugfixes fileio_errors listops_errors rpg error_wording cycles"
 
 # random() 을 쓰는 프로그램은 씨앗을 고정해야 백엔드끼리 비교할 수 있다.
 # 언어에 seed() 를 더하지 않고 **환경변수**로 둔 이유는 STRATEGY §6 에 적어 뒀다 —

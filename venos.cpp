@@ -963,7 +963,7 @@ struct Value {
         if (kind == STR) return str;
         // 자기 자신을 담은 리스트/딕셔너리는 무한 재귀 → deepCopy 와 같은 한도로 차단
         if (depth > 1000)
-            throw LangError("출력할 수 없습니다 (자기 자신을 포함한 구조?)");
+            throw LangError("출력할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
         if (kind == LIST) {
             string out = "[";
             for (size_t i = 0; i < list->size(); i++) {
@@ -1147,7 +1147,7 @@ struct IndexExpr : Expr {
 // 서로 다른 순환 구조는 deepCopy/toString 과 같은 깊이 한도로 차단
 static bool deepEquals(const Value& a, const Value& b, int depth, int line) {
     if (depth > 1000)
-        throw LangError(lineTag(line) + "비교할 수 없습니다 (자기 자신을 포함한 구조?)");
+        throw LangError(lineTag(line) + "비교할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (a.kind != b.kind) return false;
     if (a.kind == Value::NUM) return a.num == b.num;
     if (a.kind == Value::STR) return a.str == b.str;
@@ -1623,7 +1623,7 @@ static Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
 // 깊은 복사 — 리스트/딕셔너리/객체를 재귀적으로 새로 만든다
 static Value deepCopy(const Value& v, int depth, int line) {
     if (depth > 1000)
-        throw LangError(lineTag(line) + "복사할 수 없습니다 (자기 자신을 포함한 구조?)");
+        throw LangError(lineTag(line) + "복사할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (v.kind == Value::LIST) {
         std::vector<Value> xs;
         for (auto& e : *v.list) xs.push_back(deepCopy(e, depth + 1, line));
@@ -2769,7 +2769,7 @@ struct RunErr : std::runtime_error { RunErr(const string& m) : std::runtime_erro
 string Value::toString(int depth) const {
     if (kind == STR) return str;
     if (depth > 1000)
-        throw RunErr("출력할 수 없습니다 (자기 자신을 포함한 구조?)");
+        throw RunErr("출력할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (kind == LIST) {
         string o = "[";
         for (size_t i = 0; i < list->size(); i++) {
@@ -2930,7 +2930,7 @@ template<class F> static Value vcmp(const Value& a, const Value& b, F f) {
 }
 // ==/!= 깊은 비교 — 인터프리터의 deepEquals 와 동일 규칙 (타입 다르면 false, 순환은 깊이 한도)
 static bool veqDeep(const Value& a, const Value& b, int depth) {
-    if (depth > 1000) throw RunErr("비교할 수 없습니다 (자기 자신을 포함한 구조?)");
+    if (depth > 1000) throw RunErr("비교할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (a.kind != b.kind) return false;
     if (a.kind == Value::NUM) return a.num == b.num;
     if (a.kind == Value::STR) return a.str == b.str;
@@ -3285,7 +3285,7 @@ struct ExitSig {};
 static Value b_exit() { throw ExitSig{}; }
 static Value b_error(const Value& m) { throw RunErr(m.toString()); }
 static Value rt_deepcopy(const Value& v, int depth) {
-    if (depth > 1000) throw RunErr("복사할 수 없습니다 (자기 자신을 포함한 구조?)");
+    if (depth > 1000) throw RunErr("복사할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (v.kind == Value::LIST) {
         Value out; out.kind = Value::LIST; out.list = std::make_shared<List>();
         for (auto& e : *v.list) out.list->push_back(rt_deepcopy(e, depth + 1));
