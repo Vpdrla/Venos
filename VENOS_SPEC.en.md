@@ -50,6 +50,10 @@ Interpolation rules: literal braces are `{{` / `}}`. A string inside `{}` needs 
 - (negation)  →  * / %  →  + -  →  == != < > <= >=  →  not  →  and  →  or
 ```
 - `+` concatenates when a string is involved (`"age: " + 15` → "age: 15") and joins two lists (`[1] + [2]` → [1, 2])
+  - **One `topython` limit**: the Python side gets `str()` only where the code makes it visible that one
+    side is a string. Mix the two through a position whose type is decided at run time — a function's
+    parameter, an element of a list — and Venos concatenates while the translated Python stops with a
+    `TypeError`. Wrap the number in `str()` yourself where you mean to mix them.
 - `*` repeats a string by a number (`"*" * 5` → `"*****"`) — for star patterns, bar charts, separator lines. The count must be a whole number; 0 or less gives ""
 - `==`/`!=` work on every type — different types are simply not equal, and lists/dicts/objects compare **by content (deep equality)**. `< > <= >=` are numbers/strings only
 - Comparisons don't chain — write `a < b and b < c`, not `a < b < c`

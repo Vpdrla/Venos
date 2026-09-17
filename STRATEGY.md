@@ -117,6 +117,19 @@ Python answers differently — an empty needle in `replace` and `find`, strings 
 all are: refused when literal, routed through a checking helper otherwise.
 `tests/nopython/` holds those refusals to their wording.
 
+`+` between a string and a number went the same way, and it is the widest of these. Venos
+concatenates — `"age: " + 15` is `"age: 15"` — and Python raises TypeError. PyGen wraps the
+non-string side in `_show` wherever it can *see* that one side is a string, which covers the
+shape textbook code actually writes. What it cannot see is a value whose type is only known at
+run time: a function's parameter, an element of a list, a dictionary's value. There
+`더하기("가", 1)` works in Venos and crashes in Python. Closing it means routing every `+`
+through a helper, and there are **285 of them in the sixteen worked examples** — `합 + 점수[i]`
+would become `_add(합, 점수[i])`, which is the readable Python this feature exists to produce.
+So the difference stays, it is named in the spec, and the generative fuzzer is told not to mix
+the two types across an unknown position so that a documented difference does not fail CI at
+random. It is the one accepted difference where the Venos program *works* rather than already
+dying, which is why it is written down in three places rather than one.
+
 Two operators went the same way. `list * 2` is `[1, 2, 1, 2]` in Python and `list < list`
 returns `0`, where Venos raises for both. Closing them means wrapping `*` and `<` in helpers,
 and those are the two most common operators in textbook code -- `i * 2` would emit as

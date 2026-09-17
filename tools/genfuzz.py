@@ -16,6 +16,11 @@ try 를 통과하고, 딕셔너리 순회 중에 값을 고치는 식으로.
 나누는 수는 항상 0 이 아님). 에러 문구는 백엔드마다 다를 수 있어서, 거기까지
 비교하려 들면 거짓 실패만 잔뜩 나온다.
 
+`+` 의 양쪽 타입도 섞지 않는다. Venos 는 문자열과 숫자를 `+` 로 이어붙이지만 파이썬은
+TypeError 이고, PyGen 은 **정적으로 문자열인 게 보일 때만** str() 을 씌운다 (전부 도우미로
+감싸면 예제집의 `+` 285곳이 전부 `_add(...)` 가 되어 읽히는 파이썬을 잃는다).
+적어 둔 차이라 여기서 잡히면 거짓 실패다 — STRATEGY §6 에 근거가 있다.
+
 딱 한 군데만 예외다. 내장 함수에 **이상한 인자**를 넣어 보는 줄은 try/catch 로 감싸
 `"E"` 라는 고정 문구로 바꾼다. 그러면 문구는 안 보면서 **"한쪽은 에러, 다른 쪽은 값"**
 이라는 차이만 잡힌다 — num("0x10")·has("abc","b")·sort([[2],[1]]) 가 전부 그 모양이었고,
@@ -257,12 +262,17 @@ class Gen:
             i = '((abs(%s) %% 2) + 1)' % self.int_expr(2)
             j = '((abs(%s) %% 3) + 1)' % self.int_expr(2)
             op = r.choice(['=', '+=', '-=', '*='])
-            rhs = self.int_expr(1) if op != '=' else self.any_expr(1)
+            # 격자·묶음에는 **수만** 넣는다. 문자열이 들어가면 그 뒤의 `+=` 가
+            # Venos 에서는 이어붙이기("18"+3 → "183"), 파이썬에서는 TypeError 다.
+            # 그건 버그가 아니라 **적어 둔 차이**다 (STRATEGY §6) — 여기서 잡히면 거짓 실패다.
+            rhs = self.int_expr(1)
+            c = r.choice(LIST_VARS)
             return [r.choice([
                 '%s격자[%s][%s] %s %s' % (pad, i, j, op, rhs),
                 '%s묶음["k1"][%s] %s %s' % (pad, j, op, rhs),
-                '%s%s[%s] %s %s' % (pad, r.choice(LIST_VARS), self.index(r.choice(LIST_VARS)), op, rhs),
-                '%s%s["k1"] %s %s' % (pad, r.choice(DICT_VARS), op, self.int_expr(1)),
+                # 아래 둘은 문자열이 들어 있을 수 있는 그릇이라 **대입만** 한다
+                '%s%s[%s] = %s' % (pad, c, self.index(c), self.any_expr(1)),
+                '%s%s["k1"] = %s' % (pad, r.choice(DICT_VARS), self.any_expr(1)),
                 '%sprint 격자[%s][%s], 묶음["k1"][%s]' % (pad, i, j, j),
             ])]
         c = r.choice(LIST_VARS)
