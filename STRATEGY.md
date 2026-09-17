@@ -176,6 +176,16 @@ never meets it, and the flagship program is now checked on every push — along 
 copy of it that had been living in `tests/cases/` to dodge the randomness, free to drift from
 the original, which could finally be deleted.
 
+A third measurement went the same way, inside `topython` itself. When a program contains a
+dictionary anywhere, PyGen cannot tell a list index from a dictionary key, so every `A[j]`
+becomes `_idx(A, j)`. Selection sort over 1500 items costs **0.06s as generated Python, and
+0.60s once a single dictionary literal is added to the file** — ten times, and the cost is the
+function call, not the checks inside it. Removing it means proving `A` is a list, and in every
+textbook sort `A` is a parameter, so that proof has to follow call sites. A wrong proof emits
+`d[k - 1]` against a dictionary: a silent wrong read, bought with a performance argument. All
+sixteen worked examples run in 0.01–0.02s either way, so at the sizes this language is for, the
+difference does not exist. Measured, written down, declined.
+
 The same judgement came up on performance. Measured against CPython running the same
 program via `topython`, Venos is **about 3× slower on loops and lists, 6× on recursion,
 and slightly faster on dictionaries** — with one exception: `s = s + ch` in a loop is
