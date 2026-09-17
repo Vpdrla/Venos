@@ -229,3 +229,8 @@ Habits from other languages — `elif`, `!`, `**`, `//` comments, `;`, `:` block
     empty list. Counting down needs `step -1` (a constant range written backwards is an error)
 11. `min`/`max` take **numbers only** (unlike Python, they do not compare strings or lists)
 12. Dictionary keys are **strings only** — `d[1]` is an error
+13. Code pasted out of Word, a PDF or a blog arrives with `“ ”` for quotes and `–` for
+    minus, and a Korean IME types a full-width space or bracket (`　`, `（`). They look
+    right on screen, so **the error names the character** and what to type instead —
+    invisible ones (`U+00A0`, `U+200B`) included. A BOM at the start of the file, which
+    is what Notepad writes, is skipped rather than reported
