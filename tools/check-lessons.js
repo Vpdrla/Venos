@@ -32,7 +32,6 @@ const PY_SKIP = {
 // 비교할 게 없으므로 잘라 낸다. 그 문구가 없는데 나온 역추적은 **자르지 않는다** —
 // NameError 같은 진짜 코드젠 오류가 거기 숨으면 안 된다.
 function cutAtInputEnd(text) {
-    if (!text.includes('입력을 읽을 수 없습니다')) return text;
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i++)
         if (lines[i].includes('입력을 읽을 수 없습니다')
@@ -40,10 +39,13 @@ function cutAtInputEnd(text) {
             return lines.slice(0, i).join('\n');
     return text;
 }
+// 각 쪽을 **자기 표시에서** 자른다. 윈도우에서 파이썬 역추적의 한글이 깨져 표시를
+// 못 찾던 적이 있는데, 그건 생성 파이썬이 stderr 를 UTF-8 로 안 바꿔서였다 (고쳤다).
+function alignEnds(a, b) { return [cutAtInputEnd(a), cutAtInputEnd(b)]; }
 
 // 배너·호출 경로·소스 줄 표시는 인터프리터에만 있다. catch 문구의 [줄 N] 도 마찬가지.
 function normalize(text) {
-    return cutAtInputEnd(String(text).replace(/\r/g, ''))
+    return (String(text).replace(/\r/g, ''))
         .split('\n')
         .filter((l) => !l.startsWith('=== ') && !l.startsWith('    부른 순서: ')
                        && !/^ *줄 \d+ \| /.test(l))
@@ -147,8 +149,9 @@ for (const lesson of lessons.concat(examples)) {
             fail(`${label}: build 가 실행 파일을 만들지 못했습니다\n      ${((built.stdout || '') + (built.stderr || '')).split('\n')[0]}`);
         } else {
             const ran = spawnSync(exe, [], { input: STDIN, encoding: 'utf8', timeout: 20000, env });
-            const got = normalize((ran.stdout || '') + (ran.stderr || ''));
-            if (got !== want) fail(`${label}: 빌드본의 출력이 인터프리터와 다릅니다\n${firstDiff(want, got)}`);
+            const raw = normalize((ran.stdout || '') + (ran.stderr || ''));
+            const [w, got] = alignEnds(want, raw);
+            if (got !== w) fail(`${label}: 빌드본의 출력이 인터프리터와 다릅니다\n${firstDiff(w, got)}`);
             fs.rmSync(exe, { force: true });
         }
         fs.rmSync(file.replace(/\.my$/, '') + '.cpp', { force: true });
@@ -161,8 +164,9 @@ for (const lesson of lessons.concat(examples)) {
                 fail(`${label}: topython 이 레슨을 변환하지 못했습니다\n      ${((conv.stdout || '') + (conv.stderr || '')).split('\n')[0]}`);
             } else {
                 const ran = spawnSync(PY, [py], { input: STDIN, encoding: 'utf8', timeout: 20000 });
-                const got = normalize((ran.stdout || '') + (ran.stderr || ''));
-                if (got !== want) fail(`${label}: 파이썬 변환본의 출력이 인터프리터와 다릅니다\n${firstDiff(want, got)}`);
+                const raw = normalize((ran.stdout || '') + (ran.stderr || ''));
+                const [w, got] = alignEnds(want, raw);
+                if (got !== w) fail(`${label}: 파이썬 변환본의 출력이 인터프리터와 다릅니다\n${firstDiff(w, got)}`);
                 fs.rmSync(py, { force: true });
             }
         }

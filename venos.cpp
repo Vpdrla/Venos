@@ -5299,7 +5299,10 @@ struct PyGen {
         imports.clear();
         buildAll(defs, main);
         bool deepRecursion = hasRecursion();
-        if (deepRecursion || sawNonAscii || sawInput) imports.insert("sys");
+        // 도우미의 예외 문구는 전부 한글이라 stderr 도 UTF-8 로 바꾼다 → sys 가 필요하다.
+        // (이걸 빼먹어 영어 레슨 넷이 NameError 로 **한 줄도 못 찍고** 죽었다 —
+        //  레슨 체커가 바로 잡았다. 검사를 만들어 두면 그 검사가 다음 실수를 잡는다.)
+        if (deepRecursion || sawNonAscii || sawInput || !helpers.empty()) imports.insert("sys");
 
         std::ostringstream out;
         out << "# 이 파일은 Venos 프로그램을 파이썬으로 옮긴 것입니다 (venos topython).\n";
@@ -5342,11 +5345,18 @@ struct PyGen {
         }
         // 윈도우 파이썬은 콘솔·파이프를 로케일 코드페이지로 읽고 쓴다. 그대로 두면
         // 한글 출력이 UnicodeEncodeError 로 죽고, 한글 입력은 글자가 깨져 들어온다.
-        if (sawNonAscii || sawInput) {
+        // stderr 도 같이 바꿔야 한다 — 도우미가 내는 예외 문구는 전부 한글이라,
+        // 잡히지 않은 에러의 역추적이 윈도우에서 깨져 나왔다. 출력만 고쳐 두면
+        // **정상 실행은 멀쩡한데 에러 화면만 읽을 수 없는** 상태가 된다.
+        bool koreanErr = sawNonAscii || !helpers.empty();
+        if (sawNonAscii || sawInput || koreanErr) {
             out << "\n";
             if (sawNonAscii)
                 out << "sys.stdout.reconfigure(encoding=\"utf-8\")"
                        "   # 윈도우 기본 인코딩에서 한글이 깨지지 않게\n";
+            if (koreanErr)
+                out << "sys.stderr.reconfigure(encoding=\"utf-8\")"
+                       "   # 에러 문구도 한글이라 같이 바꾼다\n";
             if (sawInput)
                 out << "sys.stdin.reconfigure(encoding=\"utf-8\")\n";
         }
