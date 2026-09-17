@@ -2848,8 +2848,20 @@ static Value mk_map(std::initializer_list<std::pair<Value, Value>> xs) {
     }
     return v;
 }
-static double needNum(const Value& v, const char* what) {
-    if (v.kind != Value::NUM) throw RunErr(string(what) + ": 숫자가 필요합니다 (지금: " + v.kindName() + ")");
+// 인터프리터와 **글자까지 같은** 문구를 내야 한다. 예전엔 여기가 "min: 숫자가 필요합니다
+// (지금: 리스트)" 였고 인터프리터는 "min() 의 2번째 인자는 숫자여야 합니다" 였다 —
+// 같은 실수에 학생이 어떻게 실행했는지에 따라 다른 말을 들었다. 몇 번째 인자인지는
+// 빌드본이 알 수 없어서 부르는 쪽이 넘겨 준다.
+static double needNum(const Value& v, const char* what, int pos) {
+    if (v.kind != Value::NUM)
+        throw RunErr(string(what) + "() 의 " + std::to_string(pos) + "번째 인자는 숫자여야 합니다");
+    return v.num;
+}
+// for 의 시작/끝/step 은 내장 함수가 아니라 문구가 다르다 (인터프리터와 같게)
+static double needNumFor(const Value& v, const char* kw, bool isStep) {
+    if (v.kind != Value::NUM)
+        throw RunErr(isStep ? string(kw) + " 은 0이 아닌 숫자여야 합니다"
+                            : string(kw) + " 의 시작/끝 값은 숫자여야 합니다");
     return v.num;
 }
 // 산술 이항 연산의 타입 검사 — 인터프리터와 동일한 에러 문구
@@ -3103,30 +3115,30 @@ static unsigned long long rt_seedFromEnv() {
     return std::random_device{}();
 }
 static Value b_random(const Value& a, const Value& b) {
-    long long x = (long long)needNum(a, "random"), y = (long long)needNum(b, "random");
+    long long x = (long long)needNum(a, "random", 1), y = (long long)needNum(b, "random", 2);
     if (x > y) std::swap(x, y);
     static std::mt19937_64 rng{ rt_seedFromEnv() };
     std::uniform_int_distribution<long long> d(x, y);
     return Value((double)d(rng));
 }
-static Value b_round(const Value& a) { return Value(std::round(needNum(a, "round"))); }
+static Value b_round(const Value& a) { return Value(std::round(needNum(a, "round", 1))); }
 static Value b_round(const Value& a, const Value& b) {
-    double x = needNum(a, "round"), d = needNum(b, "round");
+    double x = needNum(a, "round", 1), d = needNum(b, "round", 2);
     if (d != std::floor(d) || d < 0 || d > 15)
         throw RunErr("round() 의 자릿수는 0 이상 15 이하의 정수여야 합니다");
     double p = std::pow(10.0, d);
     return Value(std::round(x * p) / p);
 }
-static Value b_floor(const Value& a) { return Value(std::floor(needNum(a, "floor"))); }
-static Value b_ceil (const Value& a) { return Value(std::ceil (needNum(a, "ceil" ))); }
-static Value b_abs  (const Value& a) { return Value(std::fabs (needNum(a, "abs"  ))); }
+static Value b_floor(const Value& a) { return Value(std::floor(needNum(a, "floor", 1))); }
+static Value b_ceil (const Value& a) { return Value(std::ceil (needNum(a, "ceil", 1))); }
+static Value b_abs  (const Value& a) { return Value(std::fabs (needNum(a, "abs", 1))); }
 static Value b_sqrt (const Value& a) {
-    double x = needNum(a, "sqrt");
+    double x = needNum(a, "sqrt", 1);
     if (x < 0) throw RunErr("sqrt() 에 음수는 넣을 수 없습니다");
     return Value(std::sqrt(x));
 }
-static Value b_min(const Value& a, const Value& b) { return Value(std::min(needNum(a,"min"), needNum(b,"min"))); }
-static Value b_max(const Value& a, const Value& b) { return Value(std::max(needNum(a,"max"), needNum(b,"max"))); }
+static Value b_min(const Value& a, const Value& b) { return Value(std::min(needNum(a,"min",1), needNum(b,"min",2))); }
+static Value b_max(const Value& a, const Value& b) { return Value(std::max(needNum(a,"max",1), needNum(b,"max",2))); }
 static Value b_num(const Value& v) {
     if (v.kind == Value::NUM) return v;
     if (v.kind == Value::STR) {
@@ -3165,12 +3177,14 @@ static Value b_sort(Value a) {
     else        std::sort(xs.begin(), xs.end(), [](const Value& x, const Value& y) { return x.str < y.str; });
     return a;
 }
-static const string& needStrR(const Value& v, const char* what) {
-    if (v.kind != Value::STR) throw RunErr(string(what) + ": 문자열이 필요합니다 (지금: " + v.kindName() + ")");
+// needNum 과 같은 이유로 인자 번호를 받는다 — 인터프리터와 글자까지 같아야 한다
+static const string& needStrR(const Value& v, const char* what, int pos) {
+    if (v.kind != Value::STR)
+        throw RunErr(string(what) + "() 의 " + std::to_string(pos) + "번째 인자는 문자열이어야 합니다");
     return v.str;
 }
 static Value b_split(const Value& a, const Value& b) {
-    const string& s = needStrR(a, "split"); const string& sep = needStrR(b, "split");
+    const string& s = needStrR(a, "split", 1); const string& sep = needStrR(b, "split", 2);
     if (sep.empty()) throw RunErr("split() 의 구분자는 빈 문자열일 수 없습니다");
     Value out; out.kind = Value::LIST; out.list = std::make_shared<List>();
     size_t start = 0, p;
@@ -3183,13 +3197,13 @@ static Value b_split(const Value& a, const Value& b) {
 }
 static Value b_join(const Value& a, const Value& b) {
     if (a.kind != Value::LIST) throw RunErr("join() 의 1번째 인자는 리스트여야 합니다");
-    const string& sep = needStrR(b, "join");
+    const string& sep = needStrR(b, "join", 2);
     string out;
     for (size_t i = 0; i < a.list->size(); i++) { if (i) out += sep; out += (*a.list)[i].toString(); }
     return Value(out);
 }
-static Value b_upper(const Value& a) { string s = needStrR(a, "upper"); for (auto& c : s) c = toupper((unsigned char)c); return Value(s); }
-static Value b_lower(const Value& a) { string s = needStrR(a, "lower"); for (auto& c : s) c = tolower((unsigned char)c); return Value(s); }
+static Value b_upper(const Value& a) { string s = needStrR(a, "upper", 1); for (auto& c : s) c = toupper((unsigned char)c); return Value(s); }
+static Value b_lower(const Value& a) { string s = needStrR(a, "lower", 1); for (auto& c : s) c = tolower((unsigned char)c); return Value(s); }
 static Value b_find(const Value& a, const Value& b) {
     if (a.kind == Value::LIST) {              // 리스트에서 값의 위치 (순차 탐색)
         auto& xs = *a.list;
@@ -3197,7 +3211,7 @@ static Value b_find(const Value& a, const Value& b) {
             if (veqDeep(xs[i], b, 0)) return Value((double)(i + 1));
         return Value(0.0);
     }
-    auto hay = u8chars(needStrR(a, "find")), nee = u8chars(needStrR(b, "find"));
+    auto hay = u8chars(needStrR(a, "find", 1)), nee = u8chars(needStrR(b, "find", 2));
     if (nee.empty()) throw RunErr("find() 로 빈 문자열은 찾을 수 없습니다");
     if (nee.size() <= hay.size())
         for (size_t i = 0; i + nee.size() <= hay.size(); i++) {
@@ -3208,7 +3222,7 @@ static Value b_find(const Value& a, const Value& b) {
     return Value(0.0);
 }
 static Value b_replace(const Value& a, const Value& b, const Value& c) {
-    string s = needStrR(a, "replace"); const string& from = needStrR(b, "replace"); const string& to = needStrR(c, "replace");
+    string s = needStrR(a, "replace", 1); const string& from = needStrR(b, "replace", 2); const string& to = needStrR(c, "replace", 3);
     if (from.empty()) throw RunErr("replace() 의 바꿀 문자열은 비어 있을 수 없습니다");
     string out; size_t start = 0, p;
     while ((p = s.find(from, start)) != string::npos) { out += s.substr(start, p - start); out += to; start = p + from.size(); }
@@ -3216,8 +3230,8 @@ static Value b_replace(const Value& a, const Value& b, const Value& c) {
     return Value(out);
 }
 static Value b_substr(const Value& a, const Value& b, const Value& c) {
-    auto chars = u8chars(needStrR(a, "substr"));
-    double st = needNum(b, "substr"), cn = needNum(c, "substr");
+    auto chars = u8chars(needStrR(a, "substr", 1));
+    double st = needNum(b, "substr", 2), cn = needNum(c, "substr", 3);
     if (st != std::floor(st) || cn != std::floor(cn)) throw RunErr("substr() 의 시작/개수는 정수여야 합니다");
     long long start = (long long)st, count = (long long)cn;
     if (start < 1) throw RunErr("substr() 의 시작 위치는 1 이상이어야 합니다");
@@ -3251,12 +3265,12 @@ static void rt_write_all(std::FILE* fp, const string& s) {
     std::fclose(fp);
 }
 static Value b_readfile(const Value& a) {
-    std::FILE* fp = rt_open(needStrR(a, "readfile"), "rb", L"rb");
+    std::FILE* fp = rt_open(needStrR(a, "readfile", 1), "rb", L"rb");
     if (!fp) throw RunErr("파일을 열 수 없습니다: " + a.str);
     return Value(rt_read_all(fp));
 }
 static Value b_writefile(const Value& a, const Value& b) {
-    std::FILE* fp = rt_open(needStrR(a, "writefile"), "wb", L"wb");
+    std::FILE* fp = rt_open(needStrR(a, "writefile", 1), "wb", L"wb");
     if (!fp) throw RunErr("파일을 만들 수 없습니다: " + a.str);
     rt_write_all(fp, b.toString());
     return Value(1.0);
@@ -3288,10 +3302,10 @@ static Value rt_deepcopy(const Value& v, int depth) {
 static Value b_copy(const Value& v) { return rt_deepcopy(v, 0); }
 static Value b_exists(const Value& a) {
     std::error_code ec;
-    return Value(std::filesystem::is_regular_file(rt_path(needStrR(a, "exists")), ec) ? 1.0 : 0.0);
+    return Value(std::filesystem::is_regular_file(rt_path(needStrR(a, "exists", 1)), ec) ? 1.0 : 0.0);
 }
 static Value b_appendfile(const Value& a, const Value& b) {
-    std::FILE* fp = rt_open(needStrR(a, "appendfile"), "ab", L"ab");
+    std::FILE* fp = rt_open(needStrR(a, "appendfile", 1), "ab", L"ab");
     if (!fp) throw RunErr("파일을 열 수 없습니다: " + a.str);
     rt_write_all(fp, b.toString());
     return Value(1.0);
@@ -3308,7 +3322,9 @@ static Value b_has(const Value& v, const Value& k) {
         return Value(0.0);
     }
     if (v.kind != Value::MAP) throw RunErr("has() 의 1번째 인자는 딕셔너리나 리스트여야 합니다");
-    return Value(v.map->count(mapKey(k)) ? 1.0 : 0.0);
+    // mapKey() 를 쓰면 "딕셔너리 키는 문자열이어야 합니다" 가 나가는데, 인터프리터는
+    // 여기서 needStr(1) 을 써서 "has() 의 2번째 인자는..." 이라고 한다. 문구를 맞춘다.
+    return Value(v.map->count(needStrR(k, "has", 2)) ? 1.0 : 0.0);
 }
 static Value b_reverse(Value v) {
     if (v.kind == Value::LIST) { std::reverse(v.list->begin(), v.list->end()); return v; }
@@ -3708,12 +3724,12 @@ struct CodeGen {
                    T = "__t" + std::to_string(id), I = "__i" + std::to_string(id);
             ind(out, depth); out << "{\n";
             ind(out, depth + 1);
-            out << "double " << S << " = needNum(" << genExpr(f->start.get()) << ", \"" << KW_FOR << "\");\n";
+            out << "double " << S << " = needNumFor(" << genExpr(f->start.get()) << ", \"" << KW_FOR << "\", false);\n";
             ind(out, depth + 1);
-            out << "double " << E << " = needNum(" << genExpr(f->end.get()) << ", \"" << KW_FOR << "\");\n";
+            out << "double " << E << " = needNumFor(" << genExpr(f->end.get()) << ", \"" << KW_FOR << "\", false);\n";
             ind(out, depth + 1);
             if (f->step) {
-                out << "double " << T << " = needNum(" << genExpr(f->step.get()) << ", \"" << KW_STEP << "\");\n";
+                out << "double " << T << " = needNumFor(" << genExpr(f->step.get()) << ", \"" << KW_STEP << "\", true);\n";
                 ind(out, depth + 1);
                 out << "if (" << T << " == 0) throw RunErr(\"" << KW_STEP << " 은 0이 아닌 숫자여야 합니다\");\n";
             } else {

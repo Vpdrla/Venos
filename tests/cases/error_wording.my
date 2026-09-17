@@ -1,0 +1,59 @@
+# 같은 실수에 **두 백엔드가 같은 문구**를 내는가.
+#
+# 러너의 3중 비교가 이 파일을 그대로 검사한다 — 인터프리터와 빌드본의 출력이
+# 글자까지 같아야 통과한다. 예전엔 열아홉 줄이 달랐다: 빌드본의 needNum/needStrR 이
+# "min: 숫자가 필요합니다 (지금: 리스트)" 라고 하는 동안 인터프리터는
+# "min() 의 2번째 인자는 숫자여야 합니다" 라고 했다. 몇 번째 인자인지는 빌드본이
+# 알 수 없어서, 부르는 쪽이 번호를 넘겨 주도록 고쳤다.
+#
+# 파이썬 비교는 건너뛴다 (러너의 PY_SKIP) — topython 은 읽을 수 있는 파이썬을
+# 목표로 하지 Venos 의 에러 문구까지 흉내내지 않는다.
+
+let 리 = [1, 2]
+let 글 = "가"
+let 수 = 3
+let 표 = {"a": 1}
+func 보(이름, 값) { print "{이름} → {값}" }
+try { print min(수, 리) } catch e { 보("min 리스트", e) }
+try { print min(글, 수) } catch e { 보("min 문자열", e) }
+try { print max(리, 수) } catch e { 보("max 리스트", e) }
+try { print abs(글) } catch e { 보("abs", e) }
+try { print sqrt(리) } catch e { 보("sqrt", e) }
+try { print floor(글) } catch e { 보("floor", e) }
+try { print ceil(리) } catch e { 보("ceil", e) }
+try { print round(글) } catch e { 보("round", e) }
+try { print round(수, 글) } catch e { 보("round 자릿수", e) }
+try { print random(글, 수) } catch e { 보("random", e) }
+try { print num(리) } catch e { 보("num", e) }
+try { print len(수) } catch e { 보("len", e) }
+try { print push(수, 1) } catch e { 보("push", e) }
+try { print pop(수) } catch e { 보("pop", e) }
+try { print sort(수) } catch e { 보("sort", e) }
+try { print reverse(수) } catch e { 보("reverse", e) }
+try { print remove(수, 1) } catch e { 보("remove", e) }
+try { print keys(리) } catch e { 보("keys", e) }
+try { print has(수, 1) } catch e { 보("has 숫자", e) }
+try { print has(표, 수) } catch e { 보("has 숫자키", e) }
+try { print split(리, ",") } catch e { 보("split", e) }
+try { print join(글, "-") } catch e { 보("join", e) }
+try { print upper(리) } catch e { 보("upper", e) }
+try { print lower(수) } catch e { 보("lower", e) }
+try { print find(수, 1) } catch e { 보("find", e) }
+try { print replace(수, "a", "b") } catch e { 보("replace", e) }
+try { print substr(리, 1, 1) } catch e { 보("substr", e) }
+try { print substr(글, 글, 1) } catch e { 보("substr 시작", e) }
+try { print 표[수] } catch e { 보("딕 숫자키 읽기", e) }
+try { 표[수] = 1 } catch e { 보("딕 숫자키 쓰기", e) }
+try { print 리[글] } catch e { 보("리스트 문자열 번호", e) }
+try { print 리[9] } catch e { 보("리스트 범위", e) }
+try { print 표["없음"] } catch e { 보("딕 없는 키", e) }
+try { print 수 + 리 } catch e { 보("숫자+리스트", e) }
+try { print 리 < 리 } catch e { 보("리스트 비교", e) }
+try { print 수 < 글 } catch e { 보("숫자<문자열", e) }
+try { print 수 / 0 } catch e { 보("0 나눗셈", e) }
+try { print 수 % 0 } catch e { 보("0 나머지", e) }
+try { print 글 * 글 } catch e { 보("문자열*문자열", e) }
+try { print not 리 } catch e { 보("not 리스트", e) }
+try { print -글 } catch e { 보("음수 문자열", e) }
+try { print copy(수) } catch e { 보("copy", e) }
+try { error(리) } catch e { 보("error 리스트", e) }
