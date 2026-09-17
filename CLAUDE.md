@@ -66,7 +66,7 @@ python3 tools/genfuzz.py --rounds 100         # 올바른 프로그램을 만들
                                               #  매번 다른 씨앗으로 돌린다. --keep 으로
                                               #  어긋난 입력을 genfuzz-diffs/ 에 남긴다)
 ```
-러너는 여덟 단계다:
+러너는 아홉 단계다 (마지막은 **WASM 드리프트** — `venos.cpp` 해시와 `docs/venos.wasm.source-sha256` 대조. CI 의 `playground-wasm` 이 같은 검사를 하지만 거기까진 10분이 걸리고, **`venos.cpp` 만 고치고 `docs/` 를 안 올리는 실수를 이 세션에만 두 번 했다**. emsdk 없이도 해시 비교는 되므로 누구나 같은 답을 본다):
 1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교
 2. **에러 메시지 회귀** — `tests/diag/*.my` 는 일부러 틀린 프로그램이고 출력이 `.expected` 와 글자까지 같아야 한다. 문구를 고쳤으면 `./venos tests/diag/X.my > tests/diag/X.expected 2>&1` 로 다시 만들 것. **같은 파일을 `topython` 으로도 걸어 본다** — 통과시킨 뒤 파이썬이 답을 내면 실패다 (아래 지뢰밭)
 3. **셸 편집 모드** — `create`/`code`/`:d`/`:q` 로 파일이 제대로 저장되고 셸의 `run`·`topython` 이 도는지. 화면 문구는 보지 않는다 (사소한 변경에 깨지므로). **`:run` 뒤에는 "엔터를 누르면" 프롬프트가 한 줄을 더 먹는다** — 스크립트로 몰 때 여기 걸린다

@@ -305,6 +305,21 @@ if command -v node >/dev/null 2>&1; then
     fi
 fi
 
+# ---- WASM 드리프트 ----
+# CI 의 playground-wasm 잡이 같은 검사를 하지만, 거기까진 10분이 걸린다.
+# venos.cpp 만 고치고 docs/ 를 안 올리는 실수를 **여기서** 알려 준다 (실제로 두 번 했다).
+# emsdk 가 없어도 해시 비교는 되므로 누구나 같은 답을 본다.
+wasm_ok="통과"
+if command -v sha256sum >/dev/null 2>&1; then
+    want=$(sha256sum venos.cpp | cut -d' ' -f1)
+    have=$(cat docs/venos.wasm.source-sha256 2>/dev/null || echo "(없음)")
+    if [ "$want" != "$have" ]; then
+        wasm_ok="실패 (venos.cpp 가 바뀌었는데 docs/ 의 WASM 이 낡았습니다"
+        wasm_ok="$wasm_ok — emsdk 를 source 하고 tools/build-wasm.sh 를 돌린 뒤 docs/ 를 함께 커밋하세요)"
+        dfail=$((dfail+1))
+    fi
+fi
+
 # ---- 레슨 트랙 (tools/check-lessons.js) ----
 # docs/lessons.js 가 플레이그라운드 레슨과 TUTORIAL 양쪽의 원본이라 여기가 깨지면 둘 다 깨진다.
 lessons="건너뜀 (node 없음)"
@@ -327,5 +342,6 @@ echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
 echo "REPL: $repl_ok"
 echo "이름 대조: $builtins"
 echo "레슨 트랙: $lessons"
+echo "WASM 드리프트: $wasm_ok"
 echo "에러 메시지: 통과 $dpass / 실패 $dfail"
 [ "$fail" -eq 0 ] && [ "$dfail" -eq 0 ]
