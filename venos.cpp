@@ -1902,6 +1902,15 @@ struct CallExpr : Expr {
         }
         if (name == "readfile") {  // readfile("data.txt") → 파일 전체를 문자열로
             needArgs(1, "readfile(경로)");
+            // 리눅스의 fopen 은 **폴더도 열어 준다** (읽으려 할 때 비로소 실패한다).
+            // 그냥 두면 readfile(".") 이 빈 문자열을 돌려줬다 — 윈도우에서는 에러,
+            // 파이썬에서는 IsADirectoryError 라 세 곳이 갈렸다. exists() 와 같은
+            // 검사(is_regular_file)를 먼저 한다.
+            {
+                std::error_code ec;
+                if (!fs::is_regular_file(toPath(needStr(0)), ec))
+                    throw err("파일을 열 수 없습니다: " + vals[0].str);
+            }
             std::FILE* fp = openFile(needStr(0), "rb", L"rb");
             if (!fp) throw err("파일을 열 수 없습니다: " + vals[0].str);
             return Value::text(readAll(fp));
@@ -3290,6 +3299,10 @@ static void rt_write_all(std::FILE* fp, const string& s) {
     std::fclose(fp);
 }
 static Value b_readfile(const Value& a) {
+    // 본체와 같은 이유 — 리눅스의 fopen 은 폴더도 열어 준다 (exists() 와 같은 검사를 먼저)
+    std::error_code rec;
+    if (!std::filesystem::is_regular_file(rt_path(needStrR(a, "readfile", 1)), rec))
+        throw RunErr("파일을 열 수 없습니다: " + a.str);
     std::FILE* fp = rt_open(needStrR(a, "readfile", 1), "rb", L"rb");
     if (!fp) throw RunErr("파일을 열 수 없습니다: " + a.str);
     return Value(rt_read_all(fp));

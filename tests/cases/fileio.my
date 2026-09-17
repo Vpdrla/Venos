@@ -12,3 +12,33 @@ writefile(한글경로, "가나다")
 print exists(한글경로), readfile(한글경로)
 appendfile(한글경로, "라마")
 print readfile(한글경로), len(readfile(한글경로))
+
+print "=== 빈 내용과 줄바꿈 ==="
+let 빈경로 = "tests/.tmp_빈.txt"
+writefile(빈경로, "")
+print exists(빈경로), len(readfile(빈경로)), "[" + readfile(빈경로) + "]"
+let 줄경로 = "tests/.tmp_줄.txt"
+writefile(줄경로, "a\nb\n")
+print len(readfile(줄경로)), len(split(readfile(줄경로), "\n"))
+appendfile(줄경로, "c")
+print readfile(줄경로) == "a\nb\nc"
+
+print "=== 덮어쓰기, 없는 파일에 이어쓰기 ==="
+let 덮 = "tests/.tmp_덮.txt"
+writefile(덮, "하나")
+writefile(덮, "둘")
+print readfile(덮)
+let 새 = "tests/.tmp_새.txt"
+appendfile(새, "처음")
+print readfile(새), exists(새)
+
+print "=== 이름에 공백·점·긴 이름 ==="
+for 이름 in ["tests/.tmp_빈 칸.txt", "tests/.tmp_점.여러.개.txt"] {
+    writefile(이름, "값:" + 이름)
+    print exists(이름), readfile(이름) == "값:" + 이름
+}
+
+print "=== 아주 긴 내용 ==="
+let 긴경로 = "tests/.tmp_긴.txt"
+writefile(긴경로, "가" * 20000)
+print len(readfile(긴경로))
