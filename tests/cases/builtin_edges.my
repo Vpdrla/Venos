@@ -144,3 +144,19 @@ try { print round(3.14159, 반6) } catch 오류 { print "round 자릿수: 에러
 try { print round(3.14159, 0 - 1) } catch 오류 { print "round 음수 자릿수: 에러" }
 try { print round(3.14159, 99) } catch 오류 { print "round 큰 자릿수: 에러" }
 print 목6, round(3.14159, 2), substr("abcdef", 2, 3)
+
+print ""
+print "=== remove 와 pop 의 범위 ==="
+# remove 에만 범위 검사가 없어서 remove(xs, 0) 이 파이썬에서 c.pop(-1) 로
+# **마지막 원소를 지웠다** (생성 퍼저가 찾았다). _idx·_k 와 같은 검사를 한다.
+let 목7 = [10, 20, 30]
+let 영7 = 0
+try { print remove(목7, 영7) } catch 오류 { print "0: 에러" }
+try { print remove(목7, 0 - 1) } catch 오류 { print "-1: 에러" }
+try { print remove(목7, 9) } catch 오류 { print "9: 에러" }
+print 목7
+print remove(목7, 1), 목7
+let 빈7 = []
+try { print pop(빈7) } catch 오류 { print "빈 리스트 pop: 에러" }
+try { print remove(빈7, 1) } catch 오류 { print "빈 리스트 remove: 에러" }
+

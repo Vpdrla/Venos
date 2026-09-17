@@ -1074,6 +1074,16 @@ struct FuncStmt;
 struct ClassStmt;
 static std::map<string, FuncStmt*> g_funcs;
 static std::map<string, ClassStmt*> g_classes;
+// 이름이 **함수나 클래스로는 있는데** 값 자리에 쓰인 경우. "정의되지 않은 변수" 라고만
+// 하면 있는 것을 없다고 말하는 셈이라, 학생이 오타를 찾으러 간다.
+// 일급 함수는 포지셔닝상 거부한 기능이므로, 없다는 사실 자체를 말해 준다.
+static string notAValue(const string& name, bool isFunc, bool isClass) {
+    if (isFunc)  return "  (" + name + josa(name, "은", "는") + " 함수입니다 — Venos 는 함수를"
+                        " 값으로 담지 않습니다. " + name + "(...) 처럼 불러 쓰세요)";
+    if (isClass) return "  (" + name + josa(name, "은", "는") + " 클래스입니다 — "
+                        + name + "(...) 으로 객체를 만드세요)";
+    return "";
+}
 static Env* g_global = nullptr;
 static int g_callDepth = 0;   // 재귀 깊이 추적
 
@@ -1094,8 +1104,13 @@ struct VarExpr : Expr {
     Value eval(Env& env) override {
         Value* v = env.find(name);
         if (!v) {
-            std::vector<string> names; env.collectNames(names);
-            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + suggestName(name, names));
+            string hint = notAValue(name, g_funcs.count(name) > 0, g_classes.count(name) > 0);
+            if (name == "self") hint = "  (self 는 클래스의 메서드 안에서만 쓸 수 있습니다)";
+            if (hint.empty()) {
+                std::vector<string> names; env.collectNames(names);
+                hint = suggestName(name, names);
+            }
+            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + hint);
         }
         return *v;
     }
@@ -3538,7 +3553,12 @@ struct CodeGen {
             return "Value(string(" + cppStr(s->s) + "))";
         if (auto* v = dynamic_cast<VarExpr*>(e)) {
             if (!declared(v->name))
-                throw err(v->line, "정의되지 않은 변수: " + v->name + suggestName(v->name, visibleVars()));
+            {
+                string hint = notAValue(v->name, funcs.count(v->name) > 0, classes.count(v->name) > 0);
+                if (v->name == "self") hint = "  (self 는 클래스의 메서드 안에서만 쓸 수 있습니다)";
+                if (hint.empty()) hint = suggestName(v->name, visibleVars());
+                throw err(v->line, "정의되지 않은 변수: " + v->name + hint);
+            }
             return varName(v->name);
         }
         if (auto* l = dynamic_cast<ListExpr*>(e)) {
@@ -4534,7 +4554,19 @@ struct PyGen {
             return pyNum(n->v);
         }
         if (auto* s = dynamic_cast<StrExpr*>(e))  return pyStrTracked(s->s);
-        if (auto* v = dynamic_cast<VarExpr*>(e))  return pyName(v->name);
+        if (auto* v = dynamic_cast<VarExpr*>(e)) {
+            // 인터프리터와 build 는 둘 다 막는데 여기만 그냥 냈다. 그래서 `let g = f` 가
+            // 파이썬에서 **함수를 값으로 묶어** 다른 프로그램이 됐다 (g() 가 돌아간다).
+            // 일급 함수는 포지셔닝상 거부한 기능이라 통과시키면 안 된다.
+            if (!globalSet.count(v->name) && !(inFunc && localSet.count(v->name))) {
+                string hint = notAValue(v->name, funcs.count(v->name) > 0,
+                                        classes.count(v->name) > 0);
+                if (v->name == "self") hint = "  (self 는 클래스의 메서드 안에서만 쓸 수 있습니다)";
+                if (hint.empty()) hint = suggestName(v->name, visibleNames());
+                throw err(v->line, "정의되지 않은 변수: " + v->name + hint);
+            }
+            return pyName(v->name);
+        }
         if (auto* l = dynamic_cast<ListExpr*>(e)) {
             sawList = true;
             string o = "[";
@@ -5474,7 +5506,11 @@ struct PyGen {
              "    if not isinstance(k, (int, float)):\n"
              "        raise Exception(\"remove() 의 위치는 숫자여야 합니다\")\n"
              "    if k != int(k): raise Exception(\"remove() 의 위치는 정수여야 합니다\")\n"
-             "    return c.pop(int(k) - 1)\n"},
+             // 범위 검사가 _idx·_k 에만 있고 여기엔 없었다 — remove(xs, 0) 이
+             // 파이썬에서 c.pop(-1) 로 **마지막 원소를 지웠다** (생성 퍼저가 찾았다).
+             "    n = int(k)\n"
+             "    if n < 1 or n > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(n))\n"
+             "    return c.pop(n - 1)\n"},
             {"round", "def _round(x, n=0):\n"
                       "    if not all(isinstance(v, (int, float)) for v in (x, n)):\n"
                       "        raise Exception(\"round() 에는 수만 넣을 수 있습니다\")\n"
