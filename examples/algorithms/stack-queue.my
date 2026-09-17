@@ -10,7 +10,12 @@ class 스택 {
         if len(self.항목) == 0 { error("스택이 비었습니다") }
         return pop(self.항목)                  # 맨 뒤에서 뺀다
     }
-    func 맨위() { return self.항목[len(self.항목)] }
+    # 빼기() 와 같은 검사를 여기도 둔다 — 없으면 빈 스택에서 "인덱스 범위 초과: 0"
+    # 이라는, 학생이 쓴 적 없는 자리 번호가 튀어나온다
+    func 맨위() {
+        if len(self.항목) == 0 { error("스택이 비었습니다") }
+        return self.항목[len(self.항목)]
+    }
     func 비었나() { return len(self.항목) == 0 }
     func 크기() { return len(self.항목) }
 }
@@ -22,7 +27,10 @@ class 큐 {
         if len(self.항목) == 0 { error("큐가 비었습니다") }
         return remove(self.항목, 1)            # 맨 앞에서 뺀다
     }
-    func 맨앞() { return self.항목[1] }
+    func 맨앞() {
+        if len(self.항목) == 0 { error("큐가 비었습니다") }
+        return self.항목[1]
+    }
     func 비었나() { return len(self.항목) == 0 }
     func 크기() { return len(self.항목) }
 }
@@ -75,3 +83,15 @@ print "인쇄 대기 {대기.크기()}건"
 while not 대기.비었나() {
     print "인쇄 중:", 대기.빼기(), "(남은 {대기.크기()}건)"
 }
+
+# --- 경계값 ---
+# 빈 자료구조를 건드렸을 때 나오는 말이 빼기() 와 맨위() 에서 같아야 한다.
+print ""
+print "=== 경계값 ==="
+let 빈스택 = 스택()
+try { print 빈스택.빼기() } catch 오류 { print "빈 스택 빼기:", 오류 }
+try { print 빈스택.맨위() } catch 오류 { print "빈 스택 맨위:", 오류 }
+let 빈큐 = 큐()
+try { print 빈큐.빼기() } catch 오류 { print "빈 큐 빼기:", 오류 }
+try { print 빈큐.맨앞() } catch 오류 { print "빈 큐 맨앞:", 오류 }
+print "괄호맞나(\"\") =", 괄호맞나("")

@@ -132,6 +132,25 @@ one, so the textbook programs that use these (a Caesar cipher, a base converter)
 So the difference stays, and the generated file's header names it — the same trade the index
 made, for the same reason.
 
+One rule went the other way, and it is worth saying why. `for i = a to b` used to pick its
+direction at run time — down if `a > b`, up otherwise — which reads like a convenience until
+you write the loop every textbook writes. `for i = 1 to len(A)` on an empty list did not run
+zero times; it ran twice, with `i = 1` and then `i = 0`, and 0 is not an index here. **Every
+sort and search in `examples/algorithms/` died on a list of zero or one element.** A textbook's
+`for i ← 1 to n`, Pascal's `for`, and Python's `range` all agree: when `n < 1`, the loop does
+not run. So the rule went, and counting down now needs the `step -1` the loops lesson was
+already teaching. Two things made the change cheap rather than a break: not one descending
+loop in the repository relied on the inference, and when both bounds are written as constants
+the parser now names the mistake (`for i = 10 to 1` → "거꾸로 세려면 step -1 을 붙이세요")
+instead of silently doing nothing. The bonus was bigger than the fix: with direction known at
+compile time, `topython` emits a real `range(1, len(A) + 1)` where it used to emit a helper
+call, at 32 of 42 sites.
+
+This is the shape of most of the work: the positioning does not only refuse features, it
+decides which behaviours are bugs. A convenience that makes the textbook loop wrong at its
+boundary is not a trade-off to document — it is a defect, and the example collection is what
+made it visible.
+
 The same judgement came up on performance. Measured against CPython running the same
 program via `topython`, Venos is **about 3× slower on loops and lists, 6× on recursion,
 and slightly faster on dictionaries** — with one exception: `s = s + ch` in a loop is

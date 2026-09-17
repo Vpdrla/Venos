@@ -205,9 +205,19 @@ class Gen:
         if k == 7:
             v = r.choice(['i', 'j', '번'])
             lo, hi = r.randint(1, 3), r.randint(1, 5)
-            step = r.choice(['', ' step 2', ' step -1'])
+            step = r.choice(['', ' step 2', ' step -1', ''])
             if step == ' step -1':
                 lo, hi = hi, 1
+            elif not step:
+                # step 이 없으면 for 는 항상 올라가고, 양끝이 상수인데 거꾸로면
+                # 파서가 거절한다 — 그건 잘못된 프로그램이므로 만들지 않는다.
+                lo, hi = min(lo, hi), max(lo, hi)
+                if r.random() < 0.4:
+                    # 대신 끝값을 식으로 줘서 **한 번도 안 도는** 경우를 만든다.
+                    # 세 방식이 다 0번 돌아야 하는 자리다.
+                    return (['%sfor %s = %d to %s - %d {'
+                             % (pad, v, lo, r.choice(INT_VARS), r.randint(0, 6))]
+                            + self.body(ind + 1, d + 1, loop=True) + ['%s}' % pad])
             return (['%sfor %s = %d to %d%s {' % (pad, v, lo, hi, step)]
                     + self.body(ind + 1, d + 1, loop=True) + ['%s}' % pad])
         if k == 8:
