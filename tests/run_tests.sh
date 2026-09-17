@@ -273,6 +273,11 @@ check_exit "topython 정상" 0 "$VENOS" topython "$TMP/ec_ok.my"
 check_exit "topython 거절" 1 "$VENOS" topython "$TMP/ec_nopy.my"
 check_exit "모르는 인자"   1 "$VENOS" "$TMP/ec_ok.my" --뭐지
 check_exit "없는 파일"     1 "$VENOS" "$TMP/없는파일.my"
+# 명령어만 치고 파일 이름을 빼먹은 경우 — 예전엔 "파일 없음: build.my" 라는,
+# 학생이 만든 적도 없는 이름이 나왔다
+check_exit "build 파일 없음"   1 "$VENOS" build
+check_exit "topython 파일 없음" 1 "$VENOS" topython
+check_exit "run 파일 없음"     1 "$VENOS" run
 
 # ---- 내장 함수·키워드가 모든 곳에 있는가 (tools/check-builtins.js) ----
 # 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —

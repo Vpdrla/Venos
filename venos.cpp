@@ -6124,6 +6124,14 @@ int main(int argc, char** argv) {
             currentFile = f;
             return cmdBuild(wantRun ? "run" : "") ? 0 : 1;
         }
+        // 명령어만 치고 파일 이름을 빼먹은 경우. 여기서 안 잡으면 "build" 가 파일 이름으로
+        // 내려가 "파일 없음: build.my" 라는, 학생이 만든 적도 없는 파일 이름이 나온다.
+        if ((a1 == "build" || a1 == "topython" || a1 == "run")
+            && !fs::exists(toPath(withExt(a1)))) {
+            std::cout << a1 << " 뒤에 파일 이름이 필요합니다\n   쓰는 법: venos " << a1
+                      << " 파일.my" << (a1 == "build" ? " [run]" : "") << "\n";
+            return 1;
+        }
         bool viaRun = (a1 == "run" && argc >= 3);
         if (extra(viaRun ? 3 : 2, "venos 파일.my   (또는 venos run 파일.my)")) return 1;
         string f = withExt(viaRun ? argv[2] : a1);
