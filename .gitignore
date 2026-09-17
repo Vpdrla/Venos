@@ -22,6 +22,7 @@ tests/cases/*
 !tests/cases/lib/
 tests/cases/lib/*
 !tests/cases/lib/*.my
+!tests/cases/lib/crlf.txt
 tests/nopython/*.py
 tests/.tmp_*
 
