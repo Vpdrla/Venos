@@ -29,3 +29,30 @@ print c.증가(), c.증가(), c.증가()
 let q = p
 q.나이 = 99
 print "참조:", p.나이
+
+# 객체의 경계 — 한 번도 안 넣어 본 입력들.
+# (인자 개수가 틀린 생성자 호출만 여기 없다: 인터프리터와 파이썬은 잡을 수 있는 런타임
+#  에러인데 build 는 아예 거절한다 — 백엔드가 갈리는 자리라 CLAUDE.md 에 적어 뒀다)
+class 점 {
+    func init(x, y) { self.x = x  self.y = y }
+    func len() { return self.x + self.y }
+    func 자기() { return self }
+    func 옮기기(d) { self.x += d  return self }
+}
+class 빈클래스 { }
+let p = 점(1, 2)
+let q = 점(1, 2)
+try { print "같은 내용 비교:", p == q, p != q } catch e { print "비교: 에러" }
+try { print "수와 비교:", p == 1, p == "x" } catch e { print "수 비교: 에러" }
+try { print "메서드 이름이 내장함수:", p.len() } catch e { print "len 메서드: 에러" }
+try { print "self 반환 사슬:", p.자기().옮기기(10).x } catch e { print "사슬: 에러" }
+try { print "없는 필드:", p.z } catch e { print "없는 필드: 에러" }
+try { p.z = 9  print "필드 추가:", p.z } catch e { print "필드 추가: 에러" }
+try { let s = 빈클래스()  print "생성자 없는 클래스:", s } catch e { print "빈 클래스: 에러" }
+try { print "객체 출력:", p } catch e { print "출력: 에러" }
+try { let 목 = [점(3, 4)]  print "리스트 안 객체:", 목[1].x, len(목) } catch e { print "리스트 안: 에러" }
+try { let d = {"p": 점(5, 6)}  print "딕 안 객체:", d["p"].y } catch e { print "딕 안: 에러" }
+try { let c = copy(p)  c.x = 99  print "깊은 복사:", p.x, c.x } catch e { print "복사: 에러" }
+try { print "객체를 키로:", {"k": 1}[p] } catch e { print "객체 키: 에러" }
+try { print "has 안의 객체:", has([점(1,1)], 점(1,1)) } catch e { print "has 객체: 에러" }
+try { print "참/거짓:", not p, not 빈클래스() } catch e { print "참거짓: 에러" }
