@@ -250,8 +250,8 @@ if has(scores, "music") {
     id: 'functions',
     title: { ko: '함수 — 이름 붙인 동작', en: 'Functions' },
     desc: {
-      ko: '`func` 로 동작에 이름을 붙여 두면 몇 번이든 다시 쓸 수 있습니다. `return` 으로 결과를 돌려줘요.\n\n함수는 **자기 자신을 부를 수도** 있습니다(재귀). 아래 `팩토리얼` 이 그 예예요.\n\n▶ `인사("이름")` 을 한 줄 더 추가해 보세요.',
-      en: 'Give a piece of behavior a name with `func` and reuse it as often as you like; `return` hands a result back.\n\nA function can even **call itself** (recursion) — `factorial` below does exactly that.\n\nTry adding one more `greet("...")` line.'
+      ko: '`func` 로 동작에 이름을 붙여 두면 몇 번이든 다시 쓸 수 있습니다. `return` 으로 결과를 돌려줘요.\n\n함수는 **자기 자신을 부를 수도** 있습니다(재귀). 아래 `팩토리얼` 이 그 예예요.\n\n재귀가 어떻게 도는지 보고 싶으면 위의 **🔍 Trace** 를 눌러 보세요 — 부른 순서와 돌려준 값이 교과서의 추적표처럼 한 줄씩 나옵니다.\n\n▶ `인사("이름")` 을 한 줄 더 추가해 보세요.',
+      en: 'Give a piece of behavior a name with `func` and reuse it as often as you like; `return` hands a result back.\n\nA function can even **call itself** (recursion) — `factorial` below does exactly that.\n\nPress **🔍 Trace** above to watch the recursion: each call and each returned value appears as its own line, the way a textbook trace table is drawn.\n\nTry adding one more `greet("...")` line.'
     },
     code: {
       ko: `func 인사(이름) {
