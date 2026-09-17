@@ -25,3 +25,21 @@ print len("각"), len("ㄱㅏㄱ")
 let 섞임 = {"b": 1, "A": 2, "가": 3, "z": 4, "10": 5, "2": 6, "👍": 7, "_": 8, "Z": 9, "힣": 10}
 print keys(섞임)
 for 키 in 섞임 { print 키 }
+
+print ""
+print "=== 글자 단위가 정말 글자 단위인가 ==="
+# 이모지(4바이트), 결합 문자, 전각, 악센트가 섞여도 len·reverse·인덱싱·substr·
+# find·replace·for-in·보간이 전부 **코드포인트 단위**로 같아야 한다.
+# upper/lower 는 일부러 뺐다 — 파이썬은 é→É, ß→SS 까지 가고, 그건 명세에 적힌 차이다.
+let 섞임 = ["가나다", "abc", "héllo", "🙂🎉", "한a1🙂", "ß", "ｆｕｌｌ"]
+for s in 섞임 { print "[{s}] len={len(s)} rev={reverse(s)}" }
+let 이것 = "한a1🙂"
+print 이것[1], 이것[2], 이것[3], 이것[4]
+print substr(이것, 2, 2), substr(이것, 4, 1)
+print find(이것, "🙂"), find(이것, "a"), find(이것, "없음")
+print replace(이것, "🙂", "X"), replace(이것, "한", "韓")
+print split("가,나,다", ","), join(["가", "나"], "🙂")
+for ch in "🙂가" { print "글자:", ch, len(ch) }
+# 살결 색 이모지와 ZWJ 가족은 여러 코드포인트다 — 두 방식이 같은 수를 세야 한다
+print len("👍🏽"), len("👨‍👩‍👧")
+print "보간 {이것} 끝", len("보간 {이것} 끝")
