@@ -22,7 +22,7 @@ if [ "${1:-}" = "--check" ]; then
 fi
 
 em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o "$OUT" \
-  -s EXPORTED_FUNCTIONS=_venos_run,_venos_topython,_venos_flush,_malloc,_free \
+  -s EXPORTED_FUNCTIONS=_venos_run,_venos_trace,_venos_topython,_venos_flush,_malloc,_free \
   -s EXPORTED_RUNTIME_METHODS=ccall \
   -s DISABLE_EXCEPTION_CATCHING=0 -s ALLOW_MEMORY_GROWTH=1 \
   -s TOTAL_STACK=33554432 -s INITIAL_MEMORY=67108864 \

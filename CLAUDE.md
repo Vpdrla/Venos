@@ -31,12 +31,13 @@ g++ -std=c++20 -O2 -fsyntax-only venos.cpp
 ./venos 파일.my              # 인터프리터
 ./venos build 파일.my run    # 트랜스파일 → g++ → 실행
 ./venos topython 파일.my     # 파이썬으로 변환 (.my → .py)
+./venos trace 파일.my        # 추적표 (값이 바뀔 때마다 한 줄, stderr 로)
 
 # WASM (플레이그라운드 갱신 시) — 아래 명령을 그대로 담은 **`tools/build-wasm.sh`** 를 쓰면 된다
 # (소스 해시까지 같이 남겨 CI 의 드리프트 검사를 통과시킨다). 직접 부를 때는 emcc 가 아니라 **em++**.
 # 요즘 emsdk(6.0.8 확인)는 emcc 로 C++ 를 링크하면 operator delete 미정의로 죽는다.
 em++ -O2 -std=c++17 -fexceptions -DVENOS_WASM venos.cpp -o docs/venos.js \
-  -s EXPORTED_FUNCTIONS=_venos_run,_venos_topython,_venos_flush,_malloc,_free -s EXPORTED_RUNTIME_METHODS=ccall \
+  -s EXPORTED_FUNCTIONS=_venos_run,_venos_trace,_venos_topython,_venos_flush,_malloc,_free -s EXPORTED_RUNTIME_METHODS=ccall \
   -s DISABLE_EXCEPTION_CATCHING=0 -s ALLOW_MEMORY_GROWTH=1 \
   -s TOTAL_STACK=33554432 -s INITIAL_MEMORY=67108864 \
   -s MODULARIZE=1 -s EXPORT_NAME=createVenos -s ENVIRONMENT=web \
@@ -69,8 +70,8 @@ python3 tools/genfuzz.py --rounds 100         # 올바른 프로그램을 만들
                                               #  매번 다른 씨앗으로 돌린다. --keep 으로
                                               #  어긋난 입력을 genfuzz-diffs/ 에 남긴다)
 ```
-러너는 아홉 단계다 (마지막은 **WASM 드리프트** — `venos.cpp` 해시와 `docs/venos.wasm.source-sha256` 대조. CI 의 `playground-wasm` 이 같은 검사를 하지만 거기까진 10분이 걸리고, **`venos.cpp` 만 고치고 `docs/` 를 안 올리는 실수를 이 세션에만 두 번 했다**. emsdk 없이도 해시 비교는 되므로 누구나 같은 답을 본다):
-1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교
+러너는 아홉 단계다 (①에 **추적 비교**가 붙어 있다 — 아래 1번) (마지막은 **WASM 드리프트** — `venos.cpp` 해시와 `docs/venos.wasm.source-sha256` 대조. CI 의 `playground-wasm` 이 같은 검사를 하지만 거기까진 10분이 걸리고, **`venos.cpp` 만 고치고 `docs/` 를 안 올리는 실수를 이 세션에만 두 번 했다**. emsdk 없이도 해시 비교는 되므로 누구나 같은 답을 본다):
+1. **3중 differential** — `tests/cases/*.my` 와 `examples/algorithms/*.my` 를 인터프리터 / C++ 빌드본 / topython 파이썬으로 돌려 비교. **같은 케이스를 `venos trace` 로도 한 번 더 돌려** stdout 이 인터프리터와 같은지 본다 (추적이 답을 바꾸면 안 된다)
 2. **에러 메시지 회귀** — `tests/diag/*.my` 는 일부러 틀린 프로그램이고 출력이 `.expected` 와 글자까지 같아야 한다. 문구를 고쳤으면 `./venos tests/diag/X.my > tests/diag/X.expected 2>&1` 로 다시 만들 것. **같은 파일을 `topython` 으로도 걸어 본다** — 통과시킨 뒤 파이썬이 답을 내면 실패다 (아래 지뢰밭)
 3. **셸 편집 모드** — `create`/`code`/`:d`/`:q` 로 파일이 제대로 저장되고 셸의 `run`·`topython` 이 도는지. 화면 문구는 보지 않는다 (사소한 변경에 깨지므로). **`:run` 뒤에는 "엔터를 누르면" 프롬프트가 한 줄을 더 먹는다** — 스크립트로 몰 때 여기 걸린다
 4. **topython 거절** — `tests/nopython/*.my` 는 **파이썬이 Venos 와 다르게 답하는** 프로그램이다. `venos topython` 이 줄 번호를 대고 거절해야 하고 출력이 `.expected` 와 같아야 한다. 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다
@@ -99,6 +100,10 @@ git tag v0.6.0 && git push origin v0.6.0
 - `Value`: NUM/STR/LIST/MAP/OBJ. 리스트/딕셔너리/객체는 shared_ptr 참조 방식, `copy()`가 깊은 복사(순환 감지). 문자열 불변, UTF-8 글자 단위 인덱싱. **리스트 인덱스는 1부터.**
 - 제어 흐름 = `Stmt::exec()` 의 반환값 `Flow{NORMAL,BREAK,CONTINUE,RETURN}` (반환값은 전역 `g_retVal`). **새 Stmt 를 만들면 반드시 Flow 를 올바로 전파할 것** — 블록/조건/try 는 자식 것을 그대로 올리고, 반복문만 BREAK/CONTINUE 를 소비한다. try/catch(LangError)를 **통과**하는 성질은 그대로 (애초에 예외가 아니므로 저절로). 예전엔 예외였는데 `throw` 한 번에 마이크로초가 들어 재귀가 CPython 의 ~50배 느렸다. 같은 기계에서 직전 커밋과 비교: **fib(27) 2.73초 → 0.23초, 하노이 20단 10.58초 → 1.93초, 300만 루프는 0.222 → 0.215초(변화 없음 — 대조군)**. `exit()` 만 예외(`ExitSignal`) — 프로그램 전체를 끊는 거라 그게 맞다.
 - 잡히지 않은 에러는 **호출 경로**("부른 순서: 바깥 (줄 10에서) → ...")까지 보여 준다 — `LangError` 가 생성 시점에 `g_frames` 를 찍어 두고(`callPath()`), `printError(const LangError&)` 가 출력. `DepthGuard` 가 프레임을 쌓으므로 새 호출 경로를 만들면 거기도 `DepthGuard(line, name)` 를 쓸 것. 인터프리터 전용이라(빌드본은 줄번호 자체가 없다) 테스트 러너가 `부른 순서:` 줄을 정규화로 걷어낸다.
+- **추적표(`venos trace`, 플레이그라운드의 🔍 Trace)는 인터프리터 전용이다** — 호출 경로와 같은 갈래. 값이 바뀌는 자리 여섯 곳에 `if (g_trace) traceSet(...)` 이 걸려 있다 (LetStmt·AssignStmt·PathAssignStmt·PathCompoundStmt·ForStmt·ForEachStmt. 복합 대입 `x += 1` 은 파서가 AssignStmt 로 풀어 주므로 따로 없다) + 호출/반환 두 곳(`CallExpr` 의 사용자 함수 분기, `runMethod`). **새 대입 자리를 만들면 여기도 걸 것.**
+  - **추적은 프로그램을 절대 바꾸지 않아야 한다** — 러너 ①-b 가 모든 케이스를 `trace` 로 한 번 더 돌려 stdout 이 글자까지 같은지 본다 (추적 줄은 **stderr** 로 나간다). 그 검사가 첫 실행에 자기 버그를 잡았다: `toString` 이 순환 구조에서 예외를 던져 **추적이 프로그램을 죽였다** (`traceValue` 가 try/catch + 원소 30개 넘으면 크기만 찍는 것으로 막는다).
+  - 값 출력은 `traceValue`, 들여쓰기는 `g_callDepth`(그래서 선언이 추적 헬퍼 앞으로 올라갔다), 500번 넘으면 세기만 한다.
+  - 비용 실측: fib(27) 1.01배, 300만 루프 1.03배 (훅을 컴파일에서 아예 빼도 1.03배가 나왔다 — 나머지는 코드 배치 노이즈다). 루프 안에서는 `const bool tr = g_trace;` 로 전역을 한 번만 읽는다.
 - 에러 문구의 한국어 조사는 `josa(단어, "과", "와")` 로 고른다 (본체와 RUNTIME 양쪽에 같은 함수가 있다). 직접 "와(과)" 를 쓰지 말 것.
 - 에러 메시지는 `lineTag(line)` 사용 (직접 "[줄 N]" 문자열 만들지 말 것) — import 병합 시 원본 파일 좌표(`[utils.my 줄 3]`)로 자동 변환됨 (`g_lineMap`). 에러 밑에 해당 코드 줄 표시는 `printError()` + `g_srcLines`.
 - 실행은 `runOnBigStack`(128MB 전용 스택 스레드) 경유 — 재귀 한도(2000) 전에 세그폴트 방지. WASM에선 스레드 없이 직접 실행(링크 시 TOTAL_STACK 32MB).

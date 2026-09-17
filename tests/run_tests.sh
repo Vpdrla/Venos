@@ -52,7 +52,7 @@ normalize() {
     tr -d '\r' < "$1" | grep -v '^=== ' | grep -v '^    부른 순서: ' | sed 's/\[[^]]*줄 [0-9]\{1,\}\] //g' 
 }
 
-pass=0; fail=0; pytested=0; pyskipped=0
+pass=0; fail=0; pytested=0; pyskipped=0; traced=0
 failed_names=""
 note_fail() { failed_names="$failed_names $1"; fail=$((fail+1)); }
 # tests/cases/*.my 는 언어 기능을, examples/algorithms/*.my 는 교과서 알고리즘을 본다.
@@ -72,6 +72,19 @@ for case_file in tests/cases/*.my examples/algorithms/*.my examples/rpg.my; do
 
     rm -f tests/.tmp_*
     "$VENOS" "$case_file" < "$input" > "$TMP/interp.txt" 2>&1
+
+    # ---- ①-b 추적 모드 ----
+    # venos trace 는 같은 프로그램을 같은 답으로 돌려야 한다. 추적 줄은 stderr 로 가므로
+    # stdout 만 받으면 run 과 글자까지 같아야 한다 — 값이 바뀌는 자리마다 손을 댄 기능이라
+    # (대입·경로 대입·복합 대입·두 반복문·호출/반환) 조용히 동작을 바꾸기 쉽다.
+    rm -f tests/.tmp_*
+    "$VENOS" trace "$case_file" < "$input" > "$TMP/trace.txt" 2>"$TMP/tracelines.txt"
+    if ! diff <(normalize "$TMP/interp.txt") <(normalize "$TMP/trace.txt") > "$TMP/diff.txt" 2>&1; then
+        echo "FAIL  $label  (추적 모드가 출력을 바꿈)"
+        cat "$TMP/diff.txt"
+        note_fail "$label"; continue
+    fi
+    [ -s "$TMP/tracelines.txt" ] && traced=$((traced+1))
 
     # ---- ② C++ 빌드본 ----
     if ! "$VENOS" build "$case_file" > "$TMP/build.txt" 2>&1; then
@@ -356,6 +369,7 @@ echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pyte
 [ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
 echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
+echo "추적표: $traced개 케이스에서 run 과 같은 답 (추적 줄은 stderr)"
 echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
 echo "REPL: $repl_ok"
 echo "이름 대조: $builtins"

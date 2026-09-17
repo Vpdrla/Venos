@@ -1102,6 +1102,15 @@ struct Env {
     }
 };
 
+// ---- 추적 모드 (venos trace 파일.my) ----
+// 교과서는 학생에게 "추적표"를 손으로 그리게 한다 — 줄을 따라가며 변수 값이 어떻게
+// 바뀌는지 적는 표다. 프로그램이 실제로 도는데 그 표를 사람이 그릴 이유가 없다.
+// 인터프리터 전용이다 (에러의 호출 경로와 같다 — 빌드본에는 줄 번호 자체가 없다).
+// 언어 표면은 하나도 늘지 않는다: 키워드도 내장 함수도 아니고 CLI 명령 하나다.
+static bool g_trace = false;
+static long long g_traceShown = 0, g_traceTotal = 0;
+static const long long TRACE_MAX = 500;   // 넘으면 세기만 하고 그만 찍는다
+
 // 제어 흐름 — break/continue/return 은 exec() 의 반환값으로 올라간다.
 // 예전에는 C++ 예외였는데, 예외 하나를 던지는 데 마이크로초가 들어 재귀 함수가
 // CPython 보다 50배 느렸다 (fib(27): 2.0초 vs 0.04초). 반환값이면 공짜다.
@@ -1109,6 +1118,64 @@ struct Env {
 enum class Flow : unsigned char { NORMAL = 0, BREAK, CONTINUE, RETURN };
 static Value g_retVal;  // Flow::RETURN 일 때 돌려줄 값
 // ExitSignal 은 readLine 에서도 쓰므로 위쪽(플랫폼 헬퍼 앞)에 정의돼 있다.
+
+static int g_callDepth = 0;   // 재귀 깊이 추적 (추적표의 들여쓰기도 이걸 쓴다)
+
+// 추적 한 줄. 부름의 깊이만큼 들여써서 재귀가 눈에 보이게 한다 — 교과서가 재귀를
+// 설명할 때 그리는 그림이 이 모양이다.
+static bool traceRoom(int line, string& head, int lift = 0) {
+    if (!g_trace) return false;
+    g_traceTotal++;
+    if (g_traceShown > TRACE_MAX) return false;
+    if (++g_traceShown > TRACE_MAX) {
+        std::cerr << "     | ... (추적이 너무 길어 여기서 멈춥니다)\n";
+        return false;
+    }
+    std::cout.flush();     // 화면에서 프로그램 출력과 순서가 어긋나지 않게
+    char buf[16];
+    snprintf(buf, sizeof buf, "%5d", line);
+    int depth = g_callDepth - lift;                    // 부름 줄은 그 몸통보다 한 칸 앞
+    if (depth > 12) depth = 12;                       // 너무 깊으면 글자가 밀려난다
+    if (depth < 0)  depth = 0;
+    head = string(buf) + "| " + string(depth * 2, ' ');
+    return true;
+}
+// 추적은 프로그램을 **절대 바꾸지 않아야 한다**. toString 은 자기 자신을 품은 구조에서
+// 에러를 던지고(순환 감지), 큰 리스트에서는 통째로 문자열을 만든다 — 값을 보여 주려다
+// 프로그램을 죽이거나 느리게 만들면 추적이 아니라 방해다. (러너의 추적 단계가 첫 실행에
+// bugfixes·cycles 로 이걸 잡았다)
+static string traceValue(const Value& v) {
+    size_t n = v.kind == Value::LIST ? v.list->size()
+             : v.kind == Value::MAP  ? v.map->size() : 0;
+    if (n > 30) return v.kindName() + " (크기 " + std::to_string(n) + ")";
+    try { return ellipsize(v.toString(), 60); }
+    catch (...) { return "(보여 줄 수 없는 구조)"; }
+}
+
+// 값이 바뀌었다. 함수 안이면 어느 함수인지도 같이 — 같은 이름의 지역 변수가 여러
+// 함수에 있으면 표가 섞여 읽을 수 없게 된다.
+static void traceSet(int line, const string& name, const Value& v) {
+    string head;
+    if (!traceRoom(line, head)) return;
+    string where = g_frames.empty() || !g_frames.back().name
+                 ? "" : *g_frames.back().name + ": ";
+    std::cerr << head << where << name << " = " << traceValue(v) << "\n";
+}
+// 함수를 불렀다 / 값을 돌려줬다. 재귀를 손으로 따라가는 것이 재귀 단원의 숙제인데,
+// 그 그림을 프로그램이 직접 그릴 수 있다.
+static void traceCall(int line, const string& name, const std::vector<Value>& args) {
+    string head;
+    if (!traceRoom(line, head, 1)) return;
+    string a;
+    for (size_t i = 0; i < args.size(); i++)
+        a += (i ? ", " : "") + traceValue(args[i]);
+    std::cerr << head << "-> " << name << "(" << a << ")\n";
+}
+static void traceReturn(int line, const string& name, const Value& v) {
+    string head;
+    if (!traceRoom(line, head, 1)) return;
+    std::cerr << head << "<- " << name << " = " << traceValue(v) << "\n";
+}
 
 // ============================================================
 //  3. AST 노드
@@ -1140,7 +1207,6 @@ static string notAValue(const string& name, bool isFunc, bool isClass) {
     return "";
 }
 static Env* g_global = nullptr;
-static int g_callDepth = 0;   // 재귀 깊이 추적
 
 // ---- 표현식 ----
 struct NumExpr : Expr {
@@ -1430,9 +1496,13 @@ struct LogicalExpr : Expr {
 
 // ---- 문장 ----
 struct LetStmt : Stmt {
-    string name; ExprP val;
-    LetStmt(string n, ExprP v) : name(std::move(n)), val(std::move(v)) {}
-    Flow exec(Env& env) override { env.define(name, val->eval(env)); return Flow::NORMAL; }
+    string name; ExprP val; int line;
+    LetStmt(string n, ExprP v, int l = 0) : name(std::move(n)), val(std::move(v)), line(l) {}
+    Flow exec(Env& env) override {
+        env.define(name, val->eval(env));
+        if (g_trace) traceSet(line, name, *env.find(name));
+        return Flow::NORMAL;
+    }
 };
 struct AssignStmt : Stmt {
     string name; ExprP val; int line;
@@ -1446,6 +1516,7 @@ struct AssignStmt : Stmt {
             throw LangError(lineTag(line) + "선언되지 않은 변수에 대입: " + name + hint);
         }
         *slot = val->eval(env);
+        if (g_trace) traceSet(line, name, *slot);
         return Flow::NORMAL;
     }
 };
@@ -1530,6 +1601,7 @@ struct PathAssignStmt : Stmt {
             cur = stepIntoAcc(cur, path[k], env);
         cur = putSlot(cur, path.back(), env);
         *cur = val->eval(env);
+        if (g_trace) traceSet(line, name, *env.find(name));   // 표에 적히는 것은 A 전체다
         return Flow::NORMAL;
     }
 };
@@ -1545,6 +1617,7 @@ struct PathCompoundStmt : Stmt {
         for (auto& a : path)
             cur = stepIntoAcc(cur, a, env);
         *cur = applyBin(op, *cur, rhs->eval(env), line);
+        if (g_trace) traceSet(line, name, *env.find(name));
         return Flow::NORMAL;
     }
 };
@@ -1645,9 +1718,13 @@ struct ForStmt : Stmt {
         // (find 로 부모 체인을 타면 재귀 호출끼리 전역 변수를 공유하는 버그가 생김)
         env.vars[var] = Value::number(0);
         Value* slot = &env.vars[var];
+        // 추적 여부는 루프 도중에 바뀌지 않는다 — 전역을 매 바퀴 읽으면 가장 뜨거운
+        // 자리에서 7% 를 잃는다 (300만 바퀴로 재 봤다)
+        const bool tr = g_trace;
         for (double i = s.num; stepv > 0 ? i <= e.num : i >= e.num; i += stepv) {
             pumpWeb();
             *slot = Value::number(i);
+            if (tr) traceSet(line, var, *slot);
             Flow f = body->exec(env);
             if (f == Flow::BREAK)  break;
             if (f == Flow::RETURN) return f;
@@ -1672,9 +1749,11 @@ struct ForEachStmt : Stmt {
         }
         env.vars[var] = Value::number(0);
         Value* slot = &env.vars[var];
+        const bool tr = g_trace;
         for (auto& e : items) {
             pumpWeb();
             *slot = e;
+            if (tr) traceSet(line, var, *slot);
             Flow f = body->exec(env);
             if (f == Flow::BREAK)  break;
             if (f == Flow::RETURN) return f;
@@ -2099,13 +2178,18 @@ struct CallExpr : Expr {
             throw err(name + "() 는 인자 " + std::to_string(fn->params.size())
                       + "개가 필요합니다 (지금 " + std::to_string(vals.size()) + "개)");
         DepthGuard guard(line, name);   // 무한 재귀 방지 + 호출 경로
+        if (g_trace) traceCall(line, name, vals);
         Env local;
         local.parent = g_global;
         // vals 는 여기서 끝이라 옮겨 담는다 — Value 하나에 문자열 둘과 shared_ptr 둘이 들어
         // 있어서 복사가 공짜가 아니다 (인자 하나당 130ns 쯤이 여기서 나왔다)
         for (size_t i = 0; i < vals.size(); i++)
             local.define(fn->params[i], std::move(vals[i]));
-        if (fn->body->exec(local) == Flow::RETURN) return g_retVal;
+        if (fn->body->exec(local) == Flow::RETURN) {
+            if (g_trace) traceReturn(line, name, g_retVal);
+            return g_retVal;          // 복사를 하나 더 만들지 않는다 (재귀가 여기서 돈다)
+        }
+        if (g_trace) traceReturn(line, name, Value::number(0));
         return Value::number(0);
     }
 };
@@ -2114,13 +2198,18 @@ Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
                 std::vector<Value>& args, int line) {
     (void)cls;
     DepthGuard guard(line, fn->name);
+    if (g_trace) traceCall(line, fn->name, args);
     Env local;
     local.parent = g_global;
     local.define("self", self);   // self 는 같은 필드 맵을 공유 → 수정이 원본에 반영
     // 부르는 쪽(MethodCallExpr, 생성자)이 args 를 이 호출 뒤로 쓰지 않으므로 옮겨 담는다
     for (size_t i = 0; i < args.size(); i++)
         local.define(fn->params[i], std::move(args[i]));
-    if (fn->body->exec(local) == Flow::RETURN) return g_retVal;
+    if (fn->body->exec(local) == Flow::RETURN) {
+        if (g_trace) traceReturn(line, fn->name, g_retVal);
+        return g_retVal;
+    }
+    if (g_trace) traceReturn(line, fn->name, Value::number(0));
     return Value::number(0);
 }
 
@@ -2229,8 +2318,8 @@ struct Parser {
         if (match(Tok::LET)) {
             Token name = expect(Tok::IDENT, "변수 이름");
             if (match(Tok::ASSIGN))
-                return std::make_unique<LetStmt>(name.text, parseExpr());
-            return std::make_unique<LetStmt>(name.text, std::make_unique<NumExpr>(0));
+                return std::make_unique<LetStmt>(name.text, parseExpr(), line);
+            return std::make_unique<LetStmt>(name.text, std::make_unique<NumExpr>(0), line);
         }
         if (match(Tok::PRINT)) {
             auto node = std::make_unique<PrintStmt>();
@@ -5850,6 +5939,21 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_run(const char* code) {
     std::cout << std::flush;
 }
 
+// 플레이그라운드의 "추적" — venos_run 과 같은 경로에 추적만 켠다. 추적 줄은 stderr 로
+// 나가므로 페이지의 printErr 로 들어오고, 거기서 흐린 색으로 칠해진다 (에러는 "!! " 로
+// 시작하므로 구분된다 — 출력창이 쓰는 것과 같은 규칙이다).
+extern "C" EMSCRIPTEN_KEEPALIVE void venos_trace(const char* code) {
+    g_trace = true;
+    g_traceShown = g_traceTotal = 0;
+    venos_run(code);
+    std::cerr << "=== 추적 끝: 값이 " << g_traceTotal << "번 바뀌었습니다"
+              << (g_traceTotal > TRACE_MAX
+                  ? "  (처음 " + std::to_string(TRACE_MAX) + "번만 보여 줍니다)" : "")
+              << " ===\n";
+    std::cerr << std::flush;
+    g_trace = false;
+}
+
 // 플레이그라운드의 "Python 으로 보기" — 변환한 파이썬 소스를 그대로 출력으로 흘려보낸다.
 // (venos_run 과 같은 경로라 웹 쪽에 새 배관이 필요 없다.)
 extern "C" EMSCRIPTEN_KEEPALIVE void venos_topython(const char* code) {
@@ -6182,8 +6286,21 @@ void cmdCode() {
 bool cmdRun() {
     if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return false; }
     std::cout << "=== running: " << currentFile << " ===\n";
+    if (g_trace) {
+        // 추적 줄은 stderr 로 간다 — 화면에서는 프로그램 출력과 섞여 보이고(그게 추적표의
+        // 쓸모다), 출력을 파일로 받으면 프로그램이 낸 것만 남는다. 러너가 그 성질로
+        // "추적이 답을 바꾸지 않는다"를 지킨다.
+        std::cerr << "=== 추적표: 값이 바뀔 때마다 \"줄| 변수 = 값\" 한 줄"
+                     " (부름은 ->, 돌려줌은 <-) ===\n";
+        g_traceShown = g_traceTotal = 0;
+    }
     try {
         runSourceBigStack(expandImports(currentFile));
+        if (g_trace)
+            std::cerr << "=== 추적 끝: 값이 " << g_traceTotal << "번 바뀌었습니다"
+                      << (g_traceTotal > TRACE_MAX
+                          ? "  (처음 " + std::to_string(TRACE_MAX) + "번만 보여 줍니다)" : "")
+                      << " ===\n";
         std::cout << "=== done ===\n";
     } catch (const LangError& e) {
         printError(e);
@@ -6210,6 +6327,7 @@ void cmdHelp() {
         "  code          코딩 모드 (:q 나가기, :run 바로 실행)\n"
         "  show          파일 내용 보기\n"
         "  run           실행 (인터프리터)\n"
+        "  trace         실행하면서 값이 바뀔 때마다 찍기 (추적표)\n"
         "  build         진짜 실행 파일로 컴파일 (.my → .cpp → exe)\n"
         "  build run     컴파일 후 바로 실행\n"
         "  topython      같은 프로그램의 파이썬 버전을 만든다 (.my → .py)\n"
@@ -6299,6 +6417,7 @@ int main(int argc, char** argv) {
                 "  venos build 파일.my        C++ 로 옮겨 g++ 로 컴파일 → 실행 파일\n"
                 "  venos build 파일.my run    빌드한 뒤 바로 실행\n"
                 "  venos topython 파일.my     같은 프로그램의 파이썬 버전을 만든다 (.my → .py)\n"
+                "  venos trace 파일.my        실행하면서 값이 바뀔 때마다 찍는다 (추적표)\n"
                 "  venos                      대화형 셸 (그 안에서 help 로 명령 목록)\n"
                 "  venos --version            버전\n"
                 "\n"
@@ -6321,6 +6440,16 @@ int main(int argc, char** argv) {
             currentFile = f;
             return cmdTopython() ? 0 : 1;
         }
+        // 추적표 — 교과서가 손으로 그리게 하는 그 표다. 실행은 run 과 똑같고,
+        // 값이 바뀔 때마다 한 줄씩 더 찍는다 (인터프리터 전용).
+        if (a1 == "trace" && argc >= 3) {
+            if (extra(3, "venos trace 파일.my")) return 1;
+            string f = withExt(argv[2]);
+            if (!fs::is_regular_file(toPath(f))) { sayMissing(f, argv[2]); return 1; }
+            currentFile = f;
+            g_trace = true;
+            return cmdRun() ? 0 : 1;
+        }
         if (a1 == "build" && argc >= 3) {
             bool wantRun = (argc >= 4 && string(argv[3]) == "run");
             if (extra(wantRun ? 4 : 3, "venos build 파일.my [run]")) return 1;
@@ -6331,7 +6460,7 @@ int main(int argc, char** argv) {
         }
         // 명령어만 치고 파일 이름을 빼먹은 경우. 여기서 안 잡으면 "build" 가 파일 이름으로
         // 내려가 "파일 없음: build.my" 라는, 학생이 만든 적도 없는 파일 이름이 나온다.
-        if ((a1 == "build" || a1 == "topython" || a1 == "run")
+        if ((a1 == "build" || a1 == "topython" || a1 == "run" || a1 == "trace")
             && !fs::exists(toPath(withExt(a1)))) {
             std::cout << a1 << " 뒤에 파일 이름이 필요합니다\n   쓰는 법: venos " << a1
                       << " 파일.my" << (a1 == "build" ? " [run]" : "") << "\n";
@@ -6364,6 +6493,7 @@ int main(int argc, char** argv) {
         else if (cmd == "code")    cmdCode();
         else if (cmd == "show")    cmdShow();
         else if (cmd == "run")     cmdRun();
+        else if (cmd == "trace")   { g_trace = true; cmdRun(); g_trace = false; }
         else if (cmd == "list")    cmdList();
         else if (cmd == "build")   cmdBuild(arg);
         else if (cmd == "topython") cmdTopython();

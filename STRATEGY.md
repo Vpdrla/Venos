@@ -176,6 +176,19 @@ never meets it, and the flagship program is now checked on every push — along 
 copy of it that had been living in `tests/cases/` to dodge the randomness, free to drift from
 the original, which could finally be deleted.
 
+One addition this round looks like a feature and is not one. Korean textbooks make students
+fill in a **trace table** by hand — line by line, what each variable holds — for exactly the
+algorithms in [`examples/algorithms/`](examples/algorithms/), and Portugol Studio ships a
+debugger with a variable pane for the same reason. Venos had nothing: the program runs, and the
+values are invisible. `venos trace` (and 🔍 Trace in the playground) prints that table, one line
+per value that changes, with `->` on a call and `<-` on a return so recursion is drawn the way a
+textbook draws it. It passes the feature test by not being a feature: no keyword, no builtin,
+nothing a student must learn to read a program, and no change to what can be written — the same
+class as the call path an error already prints. It costs about 3% on the tightest loop, measured,
+and the runner holds it to one rule: **the answer with `trace` must equal the answer without it**,
+character for character. That rule found its own first bug within a minute — printing a value
+that contains itself threw, and the trace killed the program it was supposed to be watching.
+
 A third measurement went the same way, inside `topython` itself. When a program contains a
 dictionary anywhere, PyGen cannot tell a list index from a dictionary key, so every `A[j]`
 becomes `_idx(A, j)`. Selection sort over 1500 items costs **0.06s as generated Python, and

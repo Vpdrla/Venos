@@ -352,9 +352,15 @@ def run(cmd, cwd, timeout=30):
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=timeout, text=True,
                            errors='replace')
-        return p.stdout + p.stderr
     except subprocess.TimeoutExpired:
         return '<<타임아웃>>'
+    # 신호로 죽은 실행은 비교 대상이 아니다. 끝나지 않으면서 push 하는 프로그램을 생성기가
+    # 만들면 커널의 OOM 킬러가 먼저 손을 대는데, 그때 stdout 은 **그냥 비어 있어서**
+    # "출력이 없는 정상 실행"처럼 보인다 — 빌드본은 같은 이유로 죽고도 venos 가 137 을
+    # 찍어 주므로, 둘이 다르다고 보고됐다 (실제로 한 번 그렇게 나왔다).
+    if p.returncode is not None and p.returncode < 0:
+        return '<<신호로 중단됨 %d>>' % -p.returncode
+    return p.stdout + p.stderr
 
 
 def main():
@@ -387,11 +393,16 @@ def main():
                     os.remove(os.path.join(tmp, f))
 
             interp = norm(run([venos, 'case.my'], tmp))
-            if '!! ' in interp or '<<타임아웃>>' in interp:
+            if '!! ' in interp or '<<타임아웃>>' in interp or '<<신호로 중단됨' in interp:
                 skipped += 1                          # 에러로 끝난 프로그램은 비교 대상이 아니다
                 continue
 
             built = norm(run([venos, 'build', 'case.my', 'run'], tmp, 120))
+            # 137 = SIGKILL = 메모리 부족. 언어 버그가 아니라 기계 사정이다
+            # (세그폴트 139 는 그대로 어긋남으로 남긴다 — 그건 우리 잘못이다)
+            if 'exited with code 137' in built or '<<신호로 중단됨' in built:
+                skipped += 1
+                continue
             conv = run([venos, 'topython', 'case.my'], tmp)
             # **거절은 틀린 답이 아니다.** topython 은 파이썬이 다르게 답하는 자리를 일부러
             # 줄 번호와 함께 거절한다 (min("a","b") 처럼). 생성기가 그런 줄을 만들면 여기로

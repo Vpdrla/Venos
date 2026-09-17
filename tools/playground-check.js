@@ -314,6 +314,29 @@ const CHECKS = [
   if (after.split('\n')[0].trim() === '첫 줄') console.log('✓ 이전 실행 찌꺼기 없음');
   else { bad++; console.log('✗ 이전 실행 찌꺼기가 첫 줄에 붙음'); console.log('   ' + after.split('\n')[0]); }
 
+  // 🔍 Trace — 교과서의 추적표. 값이 바뀔 때마다 한 줄씩 나오고, 프로그램의 답은
+  // 그대로여야 한다 (추적이 프로그램을 바꾸면 추적이 아니다).
+  {
+    await page.fill('#editor', 'func 팩토리얼(n) {\n    if n <= 1 { return 1 }\n'
+                             + '    return n * 팩토리얼(n - 1)\n}\nlet 답 = 팩토리얼(4)\n'
+                             + 'print "4! =", 답\n');
+    const r = await runAndRead('#traceBtn');
+    const 있어야 = ['-> 팩토리얼(4)', '<- 팩토리얼 = 24', '답 = 24', '4! = 24', '추적 끝'];
+    const 없는것 = 있어야.filter(x => !r.out.includes(x));
+    if (!없는것.length) console.log('✓ 🔍 Trace (추적표 + 재귀 들여쓰기)');
+    else {
+      bad++;
+      console.log('✗ 🔍 Trace — 없는 것: ' + JSON.stringify(없는것));
+      console.log('   ' + JSON.stringify(r.out.slice(0, 200)));
+    }
+    // 추적 줄은 흐리게, 학생 출력은 그대로 — 에러로 칠해지면 안 된다
+    const 빨간것 = await page.$$eval('#output .err', els => els.map(e => e.textContent));
+    if (빨간것.length) {
+      bad++;
+      console.log('✗ 🔍 Trace — 추적 줄이 에러로 칠해짐: ' + JSON.stringify(빨간것.slice(0, 2)));
+    }
+  }
+
   // 🔗 Share — 선생님이 시작 코드를 나눠 주는 통로다. 압축·base64url 을 거쳐 돌아오는
   // 왕복이 깨지면 링크를 받은 학생이 빈 편집기를 보게 된다.
   {

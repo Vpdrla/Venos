@@ -11,10 +11,25 @@ venos program.my           # run directly (interpreter)
 venos build program.my     # transpile to C++, compile with g++ → native executable
 venos build program.my run # build, then run immediately
 venos topython program.my  # write the same program as Python (.my → .py)
+venos trace program.my     # run it and print every value as it changes (a trace table)
 venos                      # interactive shell (create/choose/code/run/build/...)
 venos --help               # usage; venos --version prints the version
 ```
 Inside the shell, `repl` starts a line-by-line REPL — type a bare expression to see its value.
+
+`trace` prints the **trace table** a textbook asks students to fill in by hand: one
+`line| name = value` for every value that changes, with `->` on a call and `<-` on a return,
+indented by depth (the playground's 🔍 Trace button is the same thing):
+```
+    5| -> 팩토리얼(4)
+    3|   -> 팩토리얼(3)
+    3|   <- 팩토리얼 = 6
+    5| <- 팩토리얼 = 24
+    5| 답 = 24
+```
+Trace lines go to **stderr**, so `venos trace program.my 2>/dev/null` leaves just the
+program's own output and `2>trace.txt` keeps them separately. It is interpreter-only (like
+the call path in an error), and after 500 changes it only counts.
 
 Exit status is 0 on success and 1 on failure (an uncaught error, input that ran out, a program
 `topython` refused, a missing file, an unknown argument), so it drops straight into a grading
