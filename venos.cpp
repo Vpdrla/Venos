@@ -4993,7 +4993,10 @@ struct PyGen {
         if (f == "readfile")  { need2(1); return need("readfile")   + "(" + A(0) + ")"; }
         if (f == "writefile") { need2(2); return need("writefile")  + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "appendfile"){ need2(2); return need("appendfile") + "(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "exists"){ need2(1); imports.insert("os"); return "int(os.path.exists(" + A(0) + "))"; }
+        // os.path.exists 는 **폴더에도 참**이다. Venos 는 양쪽 백엔드 다
+        // is_regular_file 이라 exists(".") 이 0 인데, 파이썬만 1 을 냈다.
+        // isfile 은 뜻이 정확히 같고, 학생이 배울 표기로도 그쪽이 맞다.
+        if (f == "exists"){ need2(1); imports.insert("os"); return "int(os.path.isfile(" + A(0) + "))"; }
         if (f == "exit")  { need2(0); imports.insert("sys"); return need("exit") + "()"; }
         if (f == "error") { need2(1); return need("error") + "(" + A(0) + ")"; }
         if (f == "copy")  { need2(1); imports.insert("copy"); return "copy.deepcopy(" + A(0) + ")"; }
