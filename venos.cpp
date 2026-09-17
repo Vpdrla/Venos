@@ -5706,7 +5706,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_flush() {
 }
 #else   // ---- 이하 네이티브 전용 (CLI 셸) ----
 
-// 중괄호 열림/닫힘 차이 (문자열/주석 무시) — REPL 여러 줄 입력 판단용
+// 괄호 열림/닫힘 차이 (문자열/주석 무시) — REPL 여러 줄 입력 판단용.
+// `{}` 만 세면 여러 줄 리스트 리터럴이 깨진다 — 스펙이 끝의 쉼표를 허용하며 권하는
+// 모양인데(`[1,` 줄바꿈 `2]`), REPL 에서만 "값이 와야 할 자리입니다" 로 죽었다.
+// `[]` 와 `()` 도 같이 센다.
 static int braceDelta(const string& s) {
     int d = 0;
     bool inStr = false;
@@ -5719,8 +5722,8 @@ static int braceDelta(const string& s) {
         }
         if (c == '"') { inStr = true; continue; }
         if (c == '#') break;
-        if (c == '{') d++;
-        if (c == '}') d--;
+        if (c == '{' || c == '[' || c == '(') d++;
+        if (c == '}' || c == ']' || c == ')') d--;
     }
     return d;
 }
