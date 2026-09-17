@@ -19,6 +19,7 @@
 #include <set>
 #include <cstdio>
 #include <cstdlib>   // strtod (파이썬 숫자 리터럴을 최단 표기로 낼 때)
+#include <cstring>   // strlen (붙여넣기로 섞여 드는 글자 표를 훑을 때)
 #include <chrono>
 #include <functional>
 #include <stdexcept>
@@ -774,6 +775,48 @@ static bool isIdentStart(char c) {
     return isalpha((unsigned char)c) || c == '_' || (unsigned char)c >= 0x80;
 }
 
+// 화면에서는 멀쩡해 보이는데 글자가 다른 것들. 워드·PDF·블로그에서 코드를 붙여넣으면
+// 따옴표가 “ ” 로, 빼기가 – 로 바뀌어 있고, 한글 입력 상태에서 친 공백·괄호는 전각이다.
+// 식별자 글자로 그냥 삼키면 "정의되지 않은 변수:  1" 처럼 **줄을 봐도 고칠 데가
+// 없는** 에러가 난다 — 이름을 불러 주는 것 말고는 학생이 알아낼 방법이 없다.
+// (파일 맨 앞의 BOM 만은 에러가 아니라 건너뛴다 — 메모장이 붙이는 정상적인 표식이다)
+struct Lookalike { const char* bytes; const char* msg; };
+static const Lookalike LOOKALIKES[] = {
+    {"\xef\xbb\xbf", "보이지 않는 글자입니다 (U+FEFF — 파일 앞머리 표식이 중간에 들어왔습니다)"
+                     " — 지우세요"},
+    {"\xc2\xa0",     "보이지 않는 공백입니다 (U+00A0)"
+                     " — 지우고 일반 공백을 치세요 (웹·PDF 에서 붙여넣으면 섞여 들어옵니다)"},
+    {"\xe2\x80\x8b", "폭이 없어 보이지 않는 글자입니다 (U+200B) — 지우세요"},
+    {"\xe3\x80\x80", "전각 공백입니다 (U+3000)"
+                     " — 한글 입력 상태에서 친 공백입니다. 지우고 일반 공백을 치세요"},
+    {"\xe2\x80\x9c", "문자열은 \" 로 씁니다 (“ 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x9d", "문자열은 \" 로 씁니다 (” 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x98", "문자열은 \" 로 씁니다 (‘ 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x99", "문자열은 \" 로 씁니다 (’ 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x93", "빼기는 - 입니다 (– 는 워드가 바꿔 놓은 줄표입니다)"},
+    {"\xe2\x80\x94", "빼기는 - 입니다 (— 는 워드가 바꿔 놓은 줄표입니다)"},
+    {"\xef\xbc\x88", "괄호는 ( 입니다 (（ 는 한글 입력 상태에서 나옵니다)"},
+    {"\xef\xbc\x89", "괄호는 ) 입니다 (） 는 한글 입력 상태에서 나옵니다)"},
+    {"\xef\xbc\x8c", "쉼표는 , 입니다 (， 는 한글 입력 상태에서 나옵니다)"},
+};
+static const char* lookalike(const string& s, size_t i) {
+    for (const auto& L : LOOKALIKES)
+        if (s.compare(i, strlen(L.bytes), L.bytes) == 0) return L.msg;
+    return nullptr;
+}
+
+// 에러에 글자를 인용할 때 바이트 하나만 떼면 UTF-8 중간이 잘려 깨진다
+// ("숫자 뒤에 글자" 가 `3` 다음 한 바이트만 찍고 있었다)
+static string utf8At(const string& s, size_t i) {
+    unsigned char c = s[i];
+    size_t len = 1;
+    if      ((c & 0xE0) == 0xC0) len = 2;
+    else if ((c & 0xF0) == 0xE0) len = 3;
+    else if ((c & 0xF8) == 0xF0) len = 4;
+    if (i + len > s.size()) len = 1;
+    return s.substr(i, len);
+}
+
 std::vector<Token> lex(const string& src) {
     std::vector<Token> toks;
     int line = 1;
@@ -785,11 +828,16 @@ std::vector<Token> lex(const string& src) {
         return LangError(lineTag(line) + "" + m);
     };
 
+    // 메모장이 UTF-8 로 저장하면 파일 앞에 BOM 이 붙는다. 삼키면 `let x = 1` 이
+    // "= 기호가 필요합니다" 로 죽는데, 학생 화면에는 고칠 데가 없다.
+    if (src.compare(0, 3, "\xef\xbb\xbf") == 0) i = 3;
+
     while (i < src.size()) {
         char c = src[i];
         if (c == '\n') { line++; i++; continue; }
         if (isspace((unsigned char)c)) { i++; continue; }
         if (c == '#') { while (i < src.size() && src[i] != '\n') i++; continue; }
+        if (const char* bad = lookalike(src, i)) throw err(bad);
 
         // 숫자 — 소수점은 최대 1개, 숫자 바로 뒤에 글자 금지
         if (isdigit((unsigned char)c)) {
@@ -804,6 +852,8 @@ std::vector<Token> lex(const string& src) {
                 throw err("잘못된 숫자: " + numStr + " (소수점은 1개만)");
             if (numStr.back() == '.')
                 throw err("잘못된 숫자: " + numStr + " (소수점 뒤에 숫자가 필요)");
+            if (i < src.size() && lookalike(src, i))
+                throw err(lookalike(src, i));
             if (i < src.size() && isIdentStart(src[i])) {
                 // 다른 언어의 숫자 표기는 이름을 불러 준다 (foreignNames 와 같은 뜻).
                 // 특히 지수는 num("1e10") 으로는 되는데 리터럴로만 안 되므로,
@@ -829,7 +879,8 @@ std::vector<Token> lex(const string& src) {
                     hint = "  (16진수 표기는 없습니다 — 10진수로 적으세요)";
                 else if (nx == '_')
                     hint = "  (숫자에 밑줄을 넣을 수 없습니다 — 1000 처럼 붙여 쓰세요)";
-                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: " + numStr + nx + hint);
+                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: "
+                          + numStr + utf8At(src, i) + hint);
             }
             push(Tok::NUMBER, "", std::stod(numStr));
             continue;
@@ -861,7 +912,7 @@ std::vector<Token> lex(const string& src) {
         }
         if (isIdentStart(c)) {
             size_t start = i;
-            while (i < src.size() && isIdentChar(src[i])) i++;
+            while (i < src.size() && isIdentChar(src[i]) && !lookalike(src, i)) i++;
             string w = src.substr(start, i - start);
             if      (w == KW_LET)      push(Tok::LET);
             else if (w == KW_PRINT)    push(Tok::PRINT);
