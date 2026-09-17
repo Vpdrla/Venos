@@ -708,6 +708,10 @@ static void loadWithImports(const string& rawPath, const string& rawLabel,
     int no = 0;
     while (std::getline(in, line)) {
         no++;
+        // 메모장이 붙인 BOM 은 **파일마다** 앞에 온다. lex() 는 합쳐진 글 맨 앞에서만
+        // 건너뛰므로, 불러온 파일의 BOM 은 중간에 놓여 "보이지 않는 글자" 가 됐다 —
+        // 그 파일에서는 정상적인 자리인데도. import 줄 인식도 이 뒤라야 한다.
+        if (no == 1 && line.compare(0, 3, "\xef\xbb\xbf") == 0) line.erase(0, 3);
         // "import \"파일\"" 형태인지 검사 (앞 공백 허용, 뒤엔 공백/#주석만)
         string t = line;
         size_t a = t.find_first_not_of(" \t\r");
