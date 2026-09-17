@@ -291,6 +291,24 @@ check_exit "build 파일 없음"   1 "$VENOS" build
 check_exit "topython 파일 없음" 1 "$VENOS" topython
 check_exit "run 파일 없음"     1 "$VENOS" run
 
+# 파일을 못 열었을 때 나오는 안내. 종료 코드만 보면 문구가 "파일 없음: examples/.my"
+# 로 되돌아가도 조용하다 — 학생이 만든 적 없는 이름을 대는 게 원래 문제였다.
+check_says() {  # 설명, 출력에 있어야 할 문구, 명령…
+    local what="$1" want="$2"; shift 2
+    "$@" > "$TMP/says.txt" 2>&1 < /dev/null
+    if grep -qF -- "$want" "$TMP/says.txt"; then
+        echo "PASS  안내/$what"; exitpass=$((exitpass+1))
+    else
+        echo "FAIL  안내/$what  ('$want' 가 없음)"
+        cat "$TMP/says.txt"; exitfail=$((exitfail+1)); dfail=$((dfail+1))
+    fi
+}
+mkdir -p "$TMP/폴더"
+printf 'print "메모장"\n' > "$TMP/메모장.my.txt"
+check_says "폴더를 지정했을 때" "폴더입니다" "$VENOS" "$TMP/폴더"
+check_says "메모장이 붙인 .txt" ".txt 는 있습니다" "$VENOS" "$TMP/메모장.my"
+check_says "topython 도 같은 안내" ".txt 는 있습니다" "$VENOS" topython "$TMP/메모장.my"
+
 # ---- 내장 함수·키워드가 모든 곳에 있는가 (tools/check-builtins.js) ----
 # 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —
 # topython 이 거절하면서 다리가 끊긴다. 소스와 VSCode 문법에서 목록을 뽑아 대조한다.

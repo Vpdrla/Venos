@@ -6007,6 +6007,26 @@ string withExt(string name) {
     return name;
 }
 
+// "파일 없음" 으로 끝내면 학생은 자기가 방금 만든 파일을 찾으러 폴더를 뒤진다.
+// 실제로 걸리는 두 가지는 먼저 이름을 불러 줄 수 있다:
+//   venos examples/   — 탭 자동완성이 붙인 폴더 이름 ("파일 없음: examples/.my" 였다)
+//   venos 정렬.my     — 메모장이 저장할 때 .txt 를 붙여 실제 파일은 정렬.my.txt 다
+//                       (윈도우 메모장의 기본값이고, 학생 눈에는 확장자가 숨겨져 있다)
+static void sayMissing(const string& fname, const string& raw) {
+    if (fs::is_directory(toPath(raw))) {
+        std::cout << "폴더입니다: " << raw << "\n"
+                  << "   폴더 안의 파일을 지정하세요: venos "
+                  << raw << (raw.back() == '/' || raw.back() == '\\' ? "" : "/")
+                  << "정렬" << FILE_EXT << "\n";
+        return;
+    }
+    std::cout << "파일 없음: " << fname << "\n";
+    if (fs::is_regular_file(toPath(fname + ".txt")))
+        std::cout << "   " << fname << ".txt 는 있습니다"
+                     " — 메모장이 저장할 때 .txt 를 붙인 것입니다."
+                     " 다시 저장할 때 파일 형식을 '모든 파일' 로 고르세요\n";
+}
+
 static std::vector<string> myFiles() {
     std::vector<string> out;
     for (auto& entry : fs::directory_iterator(fs::current_path())) {
@@ -6034,7 +6054,7 @@ void cmdChoose(const string& name) {
     if (name.empty()) { std::cout << "사용법: choose <파일이름>\n"; return; }
     string fname = withExt(name);
     if (!fs::exists(toPath(fname))) {
-        std::cout << "파일 없음: " << fname << "\n";
+        sayMissing(fname, name);
         auto files = myFiles();
         if (!files.empty()) {
             std::cout << "현재 있는 파일:\n";
@@ -6293,7 +6313,7 @@ int main(int argc, char** argv) {
         if (a1 == "topython" && argc >= 3) {
             if (extra(3, "venos topython 파일.my")) return 1;
             string f = withExt(argv[2]);
-            if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
+            if (!fs::is_regular_file(toPath(f))) { sayMissing(f, argv[2]); return 1; }
             currentFile = f;
             return cmdTopython() ? 0 : 1;
         }
@@ -6301,7 +6321,7 @@ int main(int argc, char** argv) {
             bool wantRun = (argc >= 4 && string(argv[3]) == "run");
             if (extra(wantRun ? 4 : 3, "venos build 파일.my [run]")) return 1;
             string f = withExt(argv[2]);
-            if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
+            if (!fs::is_regular_file(toPath(f))) { sayMissing(f, argv[2]); return 1; }
             currentFile = f;
             return cmdBuild(wantRun ? "run" : "") ? 0 : 1;
         }
@@ -6316,7 +6336,8 @@ int main(int argc, char** argv) {
         bool viaRun = (a1 == "run" && argc >= 3);
         if (extra(viaRun ? 3 : 2, "venos 파일.my   (또는 venos run 파일.my)")) return 1;
         string f = withExt(viaRun ? argv[2] : a1);
-        if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
+        string raw = viaRun ? argv[2] : a1;
+        if (!fs::is_regular_file(toPath(f))) { sayMissing(f, raw); return 1; }
         currentFile = f;
         return cmdRun() ? 0 : 1;
     }
