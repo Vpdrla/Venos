@@ -142,6 +142,9 @@ misc:    time()→seconds  exit()→quit immediately  copy(v)→deep copy  error
 - `reverse(list)` reverses **in place** (like `sort`). `reverse("hi")` returns a **new string**, since strings can't be modified.
 - To sort descending: `sort(xs)`, then `reverse(xs)`.
 - `round(x, 2)` rounds to two decimal places (digits may be 0–15).
+- **A number written in code is just `123` or `1.5`** — `1e10` (exponent), `0x10` (hex) and `1_000`
+  (underscores) are all errors, and the error says what to write instead. When an exponent is
+  genuinely needed, `num("1e10")` accepts one.
 - `num(string)` accepts only a number as it looks on the page — surrounding spaces, a sign, a decimal
   point, and an exponent like `1e3`. `0x10`, `inf`, `nan` and `1_000` are all errors: C++ and Python
   disagree on those four, so only what all three accept is allowed. `input` reads by the same rule —

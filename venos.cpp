@@ -804,8 +804,33 @@ std::vector<Token> lex(const string& src) {
                 throw err("잘못된 숫자: " + numStr + " (소수점은 1개만)");
             if (numStr.back() == '.')
                 throw err("잘못된 숫자: " + numStr + " (소수점 뒤에 숫자가 필요)");
-            if (i < src.size() && isIdentStart(src[i]))
-                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: " + numStr + src[i]);
+            if (i < src.size() && isIdentStart(src[i])) {
+                // 다른 언어의 숫자 표기는 이름을 불러 준다 (foreignNames 와 같은 뜻).
+                // 특히 지수는 num("1e10") 으로는 되는데 리터럴로만 안 되므로,
+                // 안 된다고만 하면 학생이 어느 쪽이 맞는지 알 길이 없다.
+                char nx = src[i];
+                bool expShape = (nx == 'e' || nx == 'E')
+                    && i + 1 < src.size()
+                    && (isdigit((unsigned char)src[i + 1])
+                        || ((src[i + 1] == '+' || src[i + 1] == '-')
+                            && i + 2 < src.size() && isdigit((unsigned char)src[i + 2])));
+                string hint;
+                if (expShape) {
+                    // 보여 줄 때는 실제로 적힌 글자를 그대로 인용한다 (1e10, 1E-3 …)
+                    size_t e = i;
+                    if (e < src.size()) e++;                                  // e / E
+                    if (e < src.size() && (src[e] == '+' || src[e] == '-')) e++;
+                    while (e < src.size() && isdigit((unsigned char)src[e])) e++;
+                    hint = "  (Venos 에는 지수 표기가 없습니다 — 0 을 붙여 풀어 쓰거나"
+                           " num(\"" + numStr + src.substr(i, e - i) + "\") 처럼"
+                           " 문자열로 넘기세요)";
+                }
+                else if (numStr == "0" && (nx == 'x' || nx == 'X'))
+                    hint = "  (16진수 표기는 없습니다 — 10진수로 적으세요)";
+                else if (nx == '_')
+                    hint = "  (숫자에 밑줄을 넣을 수 없습니다 — 1000 처럼 붙여 쓰세요)";
+                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: " + numStr + nx + hint);
+            }
             push(Tok::NUMBER, "", std::stod(numStr));
             continue;
         }
@@ -3970,6 +3995,9 @@ struct PyGen {
     // sawMap 은 has() 처럼 "딕셔너리일 수도 있는" 자리에서도 켜진다. 딕셔너리를 **글자로
     // 적은** 적이 있는지는 따로 세야, 리스트만 쓰는 프로그램의 has 가 도우미로 안 밀린다.
     bool sawMapReal = false;
+    // 2^53 을 넘는 수를 **글자로 적은** 프로그램인가. 파이썬 정수에는 한계가 없어서
+    // 거기서는 정확히 계산되고 Venos(실수 하나)에서는 어긋난다 — 머리말에 적어 둔다.
+    bool sawBigNum = false;
     bool sawList = false;                    // 리스트가 존재할 수 있는가
     bool sawIndex = false;                   // [ ] 인덱싱을 쓰는가 (머리말에 1부터 얘기를 넣을지)
     bool sawFloat = false;                   // 소수가 나올 수 있는가 (/ · sqrt · 입력 등)
@@ -4489,6 +4517,7 @@ struct PyGen {
     string expr(Expr* e) {
         if (auto* n = dynamic_cast<NumExpr*>(e)) {
             if (n->v != (long long)n->v) sawFloat = true;
+            if (std::fabs(n->v) >= 9007199254740992.0) sawBigNum = true;
             return pyNum(n->v);
         }
         if (auto* s = dynamic_cast<StrExpr*>(e))  return pyStrTracked(s->s);
@@ -5226,7 +5255,7 @@ struct PyGen {
         std::ostringstream out;
         out << "# 이 파일은 Venos 프로그램을 파이썬으로 옮긴 것입니다 (venos topython).\n";
         int noteN = 0;
-        if (sawIndex || sawFloat || deepRecursion || !helpers.empty())
+        if (sawIndex || sawFloat || sawBigNum || deepRecursion || !helpers.empty())
             out << "#\n# Venos 와 파이썬이 다른 점 — 숨기지 않고 적어 둡니다:\n";
         if (sawIndex)
             out << "#   " << ++noteN << ") 리스트를 Venos 는 1번부터, 파이썬은 0번부터 셉니다."
@@ -5237,6 +5266,12 @@ struct PyGen {
             out << "#   " << ++noteN << ") 소수를 보여주는 방식이 다릅니다. Venos 는 5.0 을 5 로,"
                    " 91.66666...을 91.6667 로\n"
                    "#      줄여서 보여주지만 파이썬은 있는 그대로 보여줍니다.\n";
+        if (sawBigNum)
+            out << "#   " << ++noteN << ") 아주 큰 정수의 계산이 다릅니다. Venos 의 수는 실수 하나라"
+                   " 약 9천조(2^53)까지만 정확한데,\n"
+                   "#      파이썬의 정수에는 한계가 없어 그 위에서도 정확합니다 — 그래서 이 파일이"
+                   " 더 정확한 답을 낼 수 있습니다.\n"
+                   "#      (계산하다 그 선을 넘어도 마찬가지입니다. 큰 수가 필요하면 이쪽이 맞는 답입니다.)\n";
         if (sawCase)
             out << "#   " << ++noteN << ") upper()/lower() 가 바꾸는 범위가 다릅니다. Venos 는 영문자만"
                    " 바꾸지만\n"
@@ -5292,7 +5327,11 @@ struct PyGen {
             show += "    if hasattr(v, \"__dict__\"):\n"
                     "        d = v.__dict__\n"
                     "        return type(v).__name__ + \"{\" + \", \".join('\"%s\": %s' % (k, _q(d[k])) for k in sorted(d)) + \"}\"\n";
-        show += "    if isinstance(v, float):\n"
+        // Venos 의 toString 은 |x| < 9e18 이고 정수일 때만 자릿수를 다 쓰고, 그 위는 %g 다.
+        // float 에만 이 규칙을 걸면 파이썬 **정수**가 빠져나간다 — _num("1e20") 이 int 를
+        // 돌려주므로 str(num("1e20")) 이 여기서는 1e+20, 저기서는 자릿수 21개였다.
+        // 수는 int 든 float 든 같은 규칙으로 보여 준다 (bool 은 위에서 이미 걸렀다).
+        show += "    if isinstance(v, (int, float)):\n"
                 "        return str(int(v)) if abs(v) < 9e18 and v == int(v) else \"%g\" % v\n"
                 "    return str(v)\n";
         if (sawList || sawMap || !classes.empty())
