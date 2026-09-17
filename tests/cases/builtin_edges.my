@@ -86,3 +86,30 @@ try { print substr([1,2,3], 2, 2) } catch 오류 { print "substr 리스트: 에�
 # 딕셔너리 키는 문자열이 맞다 — 여기서 막으면 안 된다
 let 표3 = {"2": 5}
 print 표3[둘]
+
+print ""
+print "=== min/max 는 수만 (파이썬은 문자열·리스트도 비교한다) ==="
+# 리터럴이면 topython 이 변환 자체를 거절하고, 값이 실행 때 정해지면 도우미가 막는다.
+# 생성 퍼저가 min(["b","a"], []) 로 찾은 자리다 — 예전 검사는 문자열 리터럴만 봤다.
+let 리스트A = [3, 1]
+let 리스트B = [2]
+try { print min(리스트A, 리스트B) } catch 오류 { print "min 리스트: 에러" }
+try { print max(리스트A, 리스트B) } catch 오류 { print "max 리스트: 에러" }
+let 표4 = {"a": 1}
+try { print min(표4, 표4) } catch 오류 { print "min 딕셔너리: 에러" }
+# 수인 자리는 그대로 돌아야 한다
+let 작 = 3
+let 큰 = 7.5
+print min(작, 큰), max(작, 큰), min(len(리스트A), 1), max(abs(-9), 2)
+
+print ""
+print "=== 뒤에서 세는 번호는 없다 ==="
+# 글자로 적은 0·-1 은 topython 이 아예 거절한다 (tests/nopython/인덱스_0).
+# 여기서는 값이 실행할 때 정해지는 쪽을 본다 — 세 방식이 다 에러여야 한다.
+let 셋 = [10, 20, 30]
+let 뒤 = 0 - 1
+try { print 셋[뒤] } catch 오류 { print "읽기 -1: 에러" }
+try { 셋[뒤] = 99  print 셋 } catch 오류 { print "쓰기 -1: 에러" }
+let 영번 = 0
+try { print 셋[영번] } catch 오류 { print "읽기 0: 에러" }
+print "마지막은", 셋[len(셋)], 셋

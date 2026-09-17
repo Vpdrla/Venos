@@ -718,6 +718,15 @@ static void loadWithImports(const string& rawPath, const string& rawLabel,
                     }
                 }
             }
+            // "import" 다음이 공백인데 따옴표가 안 나왔다 — 파이썬처럼 라이브러리를 부른
+            // 것이다. 그냥 흘려보내면 파서가 "= 기호가 필요합니다" 라는, 진짜 문제와
+            // 상관없는 말을 한다. (importValue 같은 이름은 뒤가 공백이 아니라 안 걸린다)
+            if (a + 6 < t.size() && (t[a + 6] == ' ' || t[a + 6] == '\t')
+                && p != string::npos && t[p] != '"')
+                throw LangError("[" + label + " 줄 " + std::to_string(no) + "] "
+                                + "import 는 파일 이름을 따옴표로 적습니다:"
+                                  " import \"파일.my\"  (Venos 에는 불러올 라이브러리가"
+                                  " 없습니다 — 필요한 건 내장 함수로 들어 있습니다)");
         }
         out += line;
         out += "\n";
@@ -838,7 +847,15 @@ std::vector<Token> lex(const string& src) {
             else if (w == KW_CATCH)    push(Tok::CATCH);
             else if (w == KW_TRUE)     push(Tok::NUMBER, "", 1);   // true = 1
             else if (w == KW_FALSE)    push(Tok::NUMBER, "", 0);   // false = 0
-            else                       push(Tok::IDENT, w);
+            else {
+                // 파이썬의 f"..." — 붙어 있는 따옴표까지 봐야 변수 f 와 구분된다.
+                // Venos 는 보간이 **모든** 문자열에서 되므로 f 만 지우면 그대로 돌아간다.
+                if ((w == "f" || w == "F" || w == "rf" || w == "fr") && i < src.size()
+                    && (src[i] == '"' || src[i] == '\''))
+                    throw err("Venos 는 모든 문자열에서 {이름} 이 그대로 값으로 바뀝니다"
+                              " (앞의 " + w + " 를 지우세요)");
+                push(Tok::IDENT, w);
+            }
             continue;
         }
         auto two = [&](char a, char b) {
@@ -1080,7 +1097,8 @@ static size_t checkIndex(const Value& i, size_t size, int line) {
     long long n = (long long)i.num;
     if (n < 1 || n > (long long)size)
         throw err("인덱스 범위 초과: " + std::to_string(n)
-                  + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)");
+                  + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)"
+                  + (n < 1 ? "  (뒤에서 세는 번호는 없습니다 — 마지막은 xs[len(xs)])" : ""));
     return (size_t)(n - 1);
 }
 
@@ -2357,6 +2375,15 @@ struct Parser {
     }
     ExprP parseComparison() {
         ExprP left = parseAddSub();
+        // 파이썬의 `in`·`is` 가 여기로 온다. 여기서 안 잡으면 조건이 그냥 끝난 걸로 보여
+        // "{ 이(가) 필요합니다" 라는, 진짜 문제와 상관없는 말이 나온다.
+        if (check(Tok::INKW) || (check(Tok::NOT) && peek(1).type == Tok::INKW))
+            throw LangError(lineTag(peek().line) + KW_IN + " 은 " + KW_FOR
+                            + " 반복에서만 씁니다 (안에 있는지 보려면 has(리스트, 값),"
+                              " 없는지는 not has(리스트, 값))");
+        if (check(Tok::IDENT) && (peek().text == "is" || peek().text == "isnt"))
+            throw LangError(lineTag(peek().line)
+                            + "같은지 보려면 is 가 아니라 == 입니다 (다른지는 !=)");
         if (check(Tok::EQ) || check(Tok::NEQ) || check(Tok::LT)
          || check(Tok::GT) || check(Tok::LE)  || check(Tok::GE)) {
             Token op = advance();
@@ -2909,7 +2936,8 @@ static size_t chkIdx(const Value& i, size_t size) {
     if (i.num != std::floor(i.num)) throw RunErr("인덱스는 정수여야 합니다 (지금: " + i.toString() + ")");
     long long n = (long long)i.num;
     if (n < 1 || n > (long long)size)
-        throw RunErr("인덱스 범위 초과: " + std::to_string(n) + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)");
+        throw RunErr("인덱스 범위 초과: " + std::to_string(n) + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)"
+                     + (n < 1 ? "  (뒤에서 세는 번호는 없습니다 — 마지막은 xs[len(xs)])" : ""));
     return (size_t)(n - 1);
 }
 static const string& mapKey(const Value& i) {
@@ -4519,6 +4547,18 @@ struct PyGen {
         return false;
     }
 
+    // 자리 번호가 **글자로 적혀 있는가**. -1 은 NegExpr(NumExpr) 로 파싱되므로
+    // NumExpr 만 보면 그냥 빠져나간다 — 그러면 xs[-1] 이 파이썬에서 xs[-1 - 1] =
+    // xs[-2] 가 되어, Venos 가 에러를 내는 자리에서 **뒤에서 두 번째 값**이 나온다.
+    // 1부터를 0부터로 옮기는 자리는 읽기와 쓰기 둘 다 이 함수를 거쳐야 한다.
+    bool litIndex(Expr* e, double& out, int line) {
+        if (!constNum(e, out)) return false;
+        if (out < 1)
+            throw err(line, "리스트와 문자열의 인덱스는 1부터입니다 (지금 "
+                            + pyNum(out) + ") — 파이썬으로 옮기면 뒤에서 세는 뜻이 되어 버립니다");
+        return true;
+    }
+
     string indexGet(Expr* target, Expr* index, int line) {
         sawIndex = true;
         string T = wrap(target, P_ATOM);
@@ -4532,14 +4572,8 @@ struct PyGen {
                 && wrap(c->args[0].get(), P_ATOM) == T)
                 return T + "[-1]";
         if (dynamic_cast<StrExpr*>(index)) return T + "[" + expr(index) + "]";
-        if (auto* n = dynamic_cast<NumExpr*>(index)) {
-            // 1부터를 0부터로 옮기므로 0 은 파이썬에서 [-1] 이 된다 — 에러가 아니라
-            // "마지막 원소"가 조용히 나온다. 초보자 최빈 실수 1번이라 여기서 막는다.
-            if (n->v < 1)
-                throw err(line, "리스트와 문자열의 인덱스는 1부터입니다 (지금 "
-                                + pyNum(n->v) + ") — 파이썬으로 옮기면 뒤에서 세는 뜻이 되어 버립니다");
-            return T + "[" + pyNum(n->v - 1) + "]";
-        }
+        double lit;
+        if (litIndex(index, lit, line)) return T + "[" + pyNum(lit - 1) + "]";
         if (!sawMap) return T + "[" + wrap(index, P_MUL) + " - 1]";   // 딕셔너리가 없으면 리스트뿐
         return need("idx") + "(" + expr(target) + ", " + expr(index) + ")";
     }
@@ -4573,15 +4607,30 @@ struct PyGen {
                 throw err(c->line, string(what) + josa(what, "은", "는") + " 비어 있을 수 없습니다"
                                    " (파이썬은 글자 사이마다 끼워 넣어 다른 답을 냅니다)");
         };
+        // 파이썬의 min/max 는 문자열도 리스트도 비교한다 — Venos 는 수만 받으므로
+        // 그냥 넘기면 **에러가 답으로 바뀐다**. 리터럴이면 거절하고, 아니면 도우미로 보낸다.
+        // (생성 퍼저가 min(["b","a"], []) 로 찾았다 — 예전 검사는 문자열 리터럴만 봤다)
         auto numbersOnly = [&](size_t i) {
-            if (dynamic_cast<StrExpr*>(c->args[i].get()))
-                throw err(c->line, f + "() 에는 수만 넣을 수 있습니다"
-                                      " (파이썬은 문자열도 비교해 다른 답을 냅니다)");
+            Expr* e = c->args[i].get();
+            const char* 무엇 = dynamic_cast<StrExpr*>(e)  ? "문자열"
+                             : dynamic_cast<ListExpr*>(e) ? "리스트"
+                             : dynamic_cast<MapExpr*>(e)  ? "딕셔너리"
+                             : stringish(e)               ? "문자열" : nullptr;
+            if (무엇)
+                throw err(c->line, f + "() 에는 수만 넣을 수 있습니다 (지금 "
+                                   + 무엇 + josa(무엇, "을", "를") + " 넣었습니다 —"
+                                     " 파이썬은 그것도 비교해 다른 답을 냅니다)");
         };
         if (f == "len")   { need2(1); return "len(" + A(0) + ")"; }
         if (f == "abs")   { need2(1); return "abs(" + A(0) + ")"; }
-        if (f == "min")   { need2(2); numbersOnly(0); numbersOnly(1); return "min(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "max")   { need2(2); numbersOnly(0); numbersOnly(1); return "max(" + A(0) + ", " + A(1) + ")"; }
+        if (f == "min" || f == "max") {
+            need2(2); numbersOnly(0); numbersOnly(1);
+            // 수인 게 확실하면 파이썬의 min/max 를 그대로 쓴다 — 학생이 배워야 할 표기다.
+            // 확실하지 않으면(인자·리스트 원소처럼) 같은 검사를 하는 도우미로 보낸다.
+            if (numericSure(c->args[0].get()) && numericSure(c->args[1].get()))
+                return f + "(" + A(0) + ", " + A(1) + ")";
+            return need(f) + "(" + A(0) + ", " + A(1) + ")";
+        }
         if (f == "floor") {
             need2(1);
             // 교과서의 중간값 계산 floor((왼쪽+오른쪽)/2) 는 파이썬에서 // 로 쓴다.
@@ -4688,13 +4737,16 @@ struct PyGen {
     }
 
     // 경로 대입의 앞부분: xs[1][2] / obj.필드 를 파이썬 좌변으로
-    string lvalue(const string& name, const std::vector<Accessor>& path) {
+    string lvalue(const string& name, const std::vector<Accessor>& path, int line) {
         string cur = pyName(name);
         for (auto& a : path) {
             if (a.isField) { cur += "." + pyName(a.field); continue; }
             Expr* ix = a.index.get();
+            double lit;
             if (dynamic_cast<StrExpr*>(ix))            cur += "[" + expr(ix) + "]";
-            else if (auto* nn = dynamic_cast<NumExpr*>(ix)) cur += "[" + pyNum(nn->v - 1) + "]";
+            // 읽는 쪽과 **같은 검사**를 해야 한다. 여기만 빠져 있어서 xs[0] = 9 가
+            // 파이썬에서 xs[-1] = 9 로 나갔다 — 읽기보다 나쁘다, 리스트가 조용히 바뀐다.
+            else if (litIndex(ix, lit, line))          cur += "[" + pyNum(lit - 1) + "]";
             else if (!sawMap)                          cur += "[" + wrap(ix, P_MUL) + " - 1]";
             else                                       cur += "[" + need("k") + "(" + cur + ", " + expr(ix) + ")]";
         }
@@ -4734,12 +4786,12 @@ struct PyGen {
         }
         if (auto* pa = dynamic_cast<PathAssignStmt*>(s)) {
             noteAssign(pa->name, pa->line);
-            o << pad(d) << lvalue(pa->name, pa->path) << " = " << expr(pa->val.get()) << "\n";
+            o << pad(d) << lvalue(pa->name, pa->path, pa->line) << " = " << expr(pa->val.get()) << "\n";
             return;
         }
         if (auto* pc = dynamic_cast<PathCompoundStmt*>(s)) {
             noteAssign(pc->name, pc->line);
-            string slot = lvalue(pc->name, pc->path);
+            string slot = lvalue(pc->name, pc->path, pc->line);
             const char* op = "+";
             switch (pc->op) {
                 case Tok::PLUS: op = "+="; break;
@@ -4924,6 +4976,29 @@ struct PyGen {
         if (!b || b->op != Tok::SLASH || b->interpN > 0) return nullptr;
         if (!intish(b->lhs.get()) || !intish(b->rhs.get())) return nullptr;
         return b;
+    }
+
+    // 파이썬에서 **수인 게 확실한** 식인가. intish 보다 넓다 — 소수여도 된다.
+    // min/max 를 도우미로 감쌀지 그대로 낼지 여기서 갈린다.
+    bool numericSure(Expr* e) {
+        if (dynamic_cast<NumExpr*>(e)) return true;
+        if (auto* n = dynamic_cast<NegExpr*>(e)) return numericSure(n->inner.get());
+        if (intish(e)) return true;
+        if (auto* c = dynamic_cast<CallExpr*>(e)) {
+            if (funcs.count(c->name) || classes.count(c->name)) return false;
+            static const std::set<string> N = {"abs", "sqrt", "num", "time", "min", "max"};
+            return N.count(c->name) > 0;
+        }
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return false;                 // f-string 은 문자열
+            switch (b->op) {
+                case Tok::PLUS: case Tok::MINUS: case Tok::STAR:
+                case Tok::SLASH: case Tok::PERCENT:
+                    return numericSure(b->lhs.get()) && numericSure(b->rhs.get());
+                default: return false;
+            }
+        }
+        return false;
     }
 
     bool intish(Expr* e) {
@@ -5192,7 +5267,21 @@ struct PyGen {
              "    if isinstance(c, dict): return i\n"
              "    if not isinstance(i, (int, float)):\n"
              "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
-             "    return int(i) - 1\n"},
+             // 범위 검사가 _idx(읽기)에만 있고 여기(쓰기)에 없었다 — xs[-1] = 9 가
+             // 파이썬에서 xs[-2] = 9 로 나가 **뒤에서 두 번째를 조용히 고쳤다**.
+             "    n = int(i)\n"
+             "    if n < 1 or n > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(n))\n"
+             "    return n - 1\n"},
+            // 파이썬의 min/max 는 문자열도 리스트도 비교한다 — Venos 는 수만 받는다.
+            // 리터럴은 PyGen 이 미리 거절하고, 여기 오는 건 값이 실행 때 정해지는 자리다.
+            {"min",   "def _min(a, b):\n"
+                      "    if not all(isinstance(x, (int, float)) for x in (a, b)):\n"
+                      "        raise Exception(\"min() 에는 수만 넣을 수 있습니다\")\n"
+                      "    return min(a, b)\n"},
+            {"max",   "def _max(a, b):\n"
+                      "    if not all(isinstance(x, (int, float)) for x in (a, b)):\n"
+                      "        raise Exception(\"max() 에는 수만 넣을 수 있습니다\")\n"
+                      "    return max(a, b)\n"},
             {"push",  "def _push(xs, v):\n    xs.append(v)\n    return xs\n"},
             // Venos 의 sort() 는 숫자만 있거나 문자열만 있는 리스트만 받는다. 파이썬은
             // 리스트끼리·딕셔너리끼리도 사전순으로 정렬해 버려서 **에러가 답으로 바뀐다**.
