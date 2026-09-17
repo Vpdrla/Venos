@@ -35,3 +35,24 @@ try { print "find 끝:", find("abc", "c"), find("abc", "abc"), find("abc", "abcd
 try { print "한글 substr:", substr("가나다라", 2, 2), len("가나다라") } catch e { print "한글 substr: 에러" }
 try { print "reverse 한글:", reverse("가나다") } catch e { print "reverse: 에러" }
 try { print "빈 문자열 뒤집기:", "[" + reverse(빈) + "]", len(빈) } catch e { print "빈 뒤집기: 에러" }
+
+# 문자열 보간의 모양들 — {{ }} 그대로 쓰기, 공백 있는 식, 리스트·딕셔너리·객체,
+# 보간 안의 문자열 리터럴, 비교식, 필드·인덱스·키, 연달아 쓰기, 한글 글자 인덱스.
+# (빈 {} 는 문법 오류, {없는변수} 는 인터프리터만 잡을 수 있는 에러라 여기 없다)
+let x = 5
+let 목 = [1, 2]
+let 딕 = {"k": 1}
+class P { func init() { self.v = 7 } }
+let o = P()
+print "중괄호 그대로: {{x}} 와 }}"
+print "빈칸 있는 식: { x + 1 }"
+print "리스트: {목}  딕셔너리: {딕}  객체: {o}"
+print "중첩 호출: {len(목) + len(딕)}"
+print "문자열 안 문자열: {join(목, \", \")}"
+print "비교식: {x > 3}  논리: {x > 3 and x < 9}"
+print "필드: {o.v}  인덱스: {목[1]}  키: {딕[\"k\"]}"
+print "연달아: {x}{x}{x}"
+print "빈 문자열 보간: [{\"\"}]"
+print "숫자 그대로: {3.5} {0 - 2}"
+let 긴 = "가나다"
+print "한글 인덱스: {긴[2]} {len(긴)}"
