@@ -1,0 +1,58 @@
+# 선택 정렬 (selection sort)
+#
+# 교과서 의사코드:
+#   for i ← 1 to n-1
+#       min ← i
+#       for j ← i+1 to n
+#           if A[j] < A[min] then min ← j
+#       A[i] 와 A[min] 을 교환
+#
+# 아래 Venos 코드는 위 의사코드와 줄이 1:1 로 맞는다.
+
+func 선택정렬(A) {
+    let n = len(A)
+    for i = 1 to n - 1 {
+        let 최소 = i
+        for j = i + 1 to n {
+            if A[j] < A[최소] { 최소 = j }
+        }
+        let 임시 = A[i]
+        A[i] = A[최소]
+        A[최소] = 임시
+    }
+    return A
+}
+
+let 자료 = [29, 10, 14, 37, 13, 5, 25]
+print "정렬 전:", 자료
+선택정렬(자료)
+print "정렬 후:", 자료
+
+# 한 단계씩 보기 — 무엇이 언제 확정되는지가 이 정렬의 핵심이다
+func 선택정렬_과정(A) {
+    let n = len(A)
+    for i = 1 to n - 1 {
+        let 최소 = i
+        for j = i + 1 to n {
+            if A[j] < A[최소] { 최소 = j }
+        }
+        let 임시 = A[i]
+        A[i] = A[최소]
+        A[최소] = 임시
+        print "{i}번째 자리 확정({A[i]}) →", A
+    }
+    return A
+}
+print ""
+선택정렬_과정([29, 10, 14, 37, 13, 5, 25])
+
+# 비교 횟수는 자료와 무관하게 늘 n(n-1)/2 이다
+func 비교횟수(n) {
+    let 횟수 = 0
+    for i = 1 to n - 1 {
+        for j = i + 1 to n { 횟수 += 1 }
+    }
+    return 횟수
+}
+print ""
+for n = 4 to 8 { print "n = {n} 일 때 비교 {비교횟수(n)}회 (= n(n-1)/2 = {n * (n - 1) / 2})" }

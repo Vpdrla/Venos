@@ -1,0 +1,102 @@
+# 가장자리 사례 모음 — 빈 값, 0, 음수, 별칭/복사, 중첩, 참·거짓 판정.
+# 여기서 세 백엔드가 갈라진 적이 여러 번 있어서 통째로 묶어 둔다.
+# --- 문자열 가장자리 ---
+print len(""), len("a"), len("가나"), len("👍")
+print "" == "", "" < "a", "가" < "나"
+print upper(""), lower(""), reverse("")
+print split("a", ","), split(",", ","), split("a,,b", ",")
+print join([], "-"), join(["x"], "-")
+print substr("가나다", 1, 0), substr("가나다", 3, 5)
+print find("", "a"), find("가", "가")
+print replace("aaa", "a", "aa")
+print "👍" + "🎉", len("👍🎉")
+
+# --- 숫자 표기 ---
+print 0, -0, 1000000, 0.5, -0.5
+print 1/2, 3/2, -3/2, 2/2
+print 10 % 3, 10 % 10, 0 % 5
+print sqrt(0), abs(0), floor(0.5), ceil(0.5), round(0.5)
+print min(-1, -2), max(-1, -2)
+print 2 * 3 - 4 / 2
+
+# --- 리스트 ---
+let e = []
+print e, len(e), e == [], e == [1]
+push(e, 1)
+print e, pop(e), e
+let nested = [[], [[]], [1, [2, [3]]]]
+print nested, len(nested)
+print [1,2] + [], [] + [1], [] + []
+print [1,2,3] == [1,2,3], [1,2] == [2,1]
+let same = [1]
+let alias = same
+push(alias, 2)
+print same, alias
+let indep = copy(same)
+push(indep, 3)
+print same, indep
+
+# --- 딕셔너리 ---
+let d = {}
+print d, len(d), d == {}
+d["b"] = 2
+d["a"] = 1
+print d, keys(d)
+print has(d, "a"), has(d, "z")
+remove(d, "a")
+print d
+let dd = {"x": {"y": [1, 2]}}
+print dd
+print dd["x"]["y"][2]
+
+# --- 클래스 ---
+class 점 {
+    func init(x, y) { self.x = x  self.y = y }
+    func 더하기(다른) { return 점(self.x + 다른.x, self.y + 다른.y) }
+    func 길이() { return sqrt(self.x * self.x + self.y * self.y) }
+}
+let p1 = 점(3, 4)
+let p2 = 점(1, 2)
+print p1, p1.길이()
+print p1.더하기(p2)
+print 점(1,2) == 점(1,2), 점(1,2) == 점(2,1)
+p1.새필드 = "추가됨"
+print p1
+let 점들 = [점(1,1), 점(2,2)]
+print 점들
+print 점들[1].x
+
+# --- 참/거짓 판정 ---
+print not 0, not 1, not "", not "a", not [], not [1], not {}
+if [] { print "빈 리스트 참" } else { print "빈 리스트 거짓" }
+if "0" { print "문자열 0 참" } else { print "문자열 0 거짓" }
+if 점(0,0) { print "객체는 항상 참" }
+print 0 or "", "" or 0, 1 and "x", "x" and 1
+
+# --- 중첩 함수 호출과 재귀 ---
+func 항등(x) { return x }
+print 항등(항등(항등(5)))
+func 합(n) { if n <= 0 { return 0 }  return n + 합(n-1) }
+print 합(0), 합(1), 합(100)
+
+# --- 마지막 쉼표 (여러 줄 리터럴에서 흔하다) ---
+let 여러줄 = [
+    10,
+    20,
+    30,
+]
+print 여러줄, len(여러줄)
+let 여러줄딕 = {
+    "하나": 1,
+    "둘": 2,
+}
+print 여러줄딕, len(여러줄딕)
+print [1,], {"a": 1,}
+func 쉼표끝(a, b,) { return a + b }
+print 쉼표끝(1, 2,)
+class 상자끝 {
+    func init(x,) { self.x = x }
+    func 더하기(y,) { return self.x + y }
+}
+let 상자 = 상자끝(5,)
+print 상자.더하기(3,)

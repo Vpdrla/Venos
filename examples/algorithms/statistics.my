@@ -1,0 +1,86 @@
+# 통계 — 평균, 중앙값, 최빈값, 표준편차, 그리고 막대그래프
+
+let 점수 = [88, 92, 79, 95, 61, 79, 84, 79, 90, 73]
+
+# 합계와 평균
+func 합계(xs) {
+    let s = 0
+    for x in xs { s += x }
+    return s
+}
+func 평균(xs) { return 합계(xs) / len(xs) }
+
+print "점수:", 점수
+print "개수 {len(점수)}, 합계 {합계(점수)}, 평균 {round(평균(점수), 2)}"
+
+# 최댓값·최솟값 — 첫 값을 답으로 두고 하나씩 비교 (교과서식)
+func 최댓값(xs) {
+    let 답 = xs[1]
+    for x in xs { if x > 답 { 답 = x } }
+    return 답
+}
+func 최솟값(xs) {
+    let 답 = xs[1]
+    for x in xs { if x < 답 { 답 = x } }
+    return 답
+}
+print "최고 {최댓값(점수)}, 최저 {최솟값(점수)}, 범위 {최댓값(점수) - 최솟값(점수)}"
+
+# 중앙값 — 정렬한 뒤 가운데. 짝수 개면 가운데 둘의 평균
+func 중앙값(xs) {
+    let 사본 = copy(xs)
+    sort(사본)
+    let n = len(사본)
+    if n % 2 == 1 { return 사본[(n + 1) / 2] }
+    return (사본[n / 2] + 사본[n / 2 + 1]) / 2
+}
+print "중앙값", 중앙값(점수)
+
+# 최빈값 — 딕셔너리로 세어서 가장 많은 것
+func 최빈값(xs) {
+    let 센것 = {}
+    for x in xs {
+        let 키 = str(x)
+        if has(센것, 키) { 센것[키] += 1 }
+        else { 센것[키] = 1 }
+    }
+    let 답 = xs[1]
+    let 최다 = 0
+    for 키 in 센것 {
+        if 센것[키] > 최다 { 최다 = 센것[키]  답 = num(키) }
+    }
+    return 답
+}
+print "최빈값 {최빈값(점수)} (가장 여러 번 나온 점수)"
+
+# 분산과 표준편차 — (각 값 - 평균)² 의 평균, 그리고 그 제곱근
+func 표준편차(xs) {
+    let m = 평균(xs)
+    let 제곱합 = 0
+    for x in xs { 제곱합 += (x - m) * (x - m) }
+    return sqrt(제곱합 / len(xs))
+}
+print "표준편차 {round(표준편차(점수), 3)}"
+
+# 등급별 분포를 막대그래프로
+print ""
+print "등급 분포"
+func 등급(점) {
+    if 점 >= 90 { return "A" }
+    if 점 >= 80 { return "B" }
+    if 점 >= 70 { return "C" }
+    return "F"
+}
+let 분포 = {"A": 0, "B": 0, "C": 0, "F": 0}
+for 점 in 점수 { 분포[등급(점)] += 1 }
+for 등 in 분포 {
+    print "{등} | {\"■\" * 분포[등]} {분포[등]}명"
+}
+
+# 개인별 막대 — 10점을 한 칸으로
+print ""
+print "점수 막대 (■ 하나 = 10점)"
+for i = 1 to len(점수) {
+    let 칸 = round(점수[i] / 10)
+    print "{i}번 {점수[i]}점 {\"■\" * 칸}"
+}

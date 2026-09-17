@@ -28,14 +28,3 @@ print 점(1, 2) == 점(1, 2), 점(1, 2) == 점(9, 9)
 
 # 타입이 다르면 false (에러 아님)
 print [1] == 1, {"a":1} == [1], 점(1,2) == {"x":1,"y":2}
-
-# < > 는 여전히 에러
-try { print [1] < [2] } catch e { print "잡음:", e }
-
-# 순환 구조끼리 비교는 에러 (같은 참조는 OK)
-let s = [1]
-push(s, s)
-print s == s
-let t = [1]
-push(t, t)
-try { print s == t } catch e { print "순환:", e }

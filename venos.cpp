@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <set>
 #include <cstdio>
+#include <cstdlib>   // strtod (파이썬 숫자 리터럴을 최단 표기로 낼 때)
+#include <cstring>   // strlen (붙여넣기로 섞여 드는 글자 표를 훑을 때)
 #include <chrono>
 #include <functional>
 #include <stdexcept>
@@ -31,6 +33,7 @@
 #define NOMINMAX          // windows.h 의 min/max 매크로가 std::min/max 를 깨는 것 방지
 #endif
 #include <windows.h>
+#include <shellapi.h>   // CommandLineToArgvW — argv 를 UTF-8 로 되살리는 데 쓴다
 #include <process.h>   // _beginthreadex (실행 스레드 스택 크기 지정용)
 #include <conio.h>     // _getch (방향키 스크롤용)
 #include <io.h>        // _isatty
@@ -103,7 +106,53 @@ static const string KW_TRUE     = "true";
 static const string KW_FALSE    = "false";
 static const string FILE_EXT    = ".my";
 
-static const int MAX_RECURSION = 2000;   // 함수 재귀 깊이 제한
+static const char* VENOS_VERSION = "0.6.0";   // 릴리스 태그를 올릴 때 같이 고칠 것
+// 함수 재귀 깊이 제한.
+// 브라우저는 네이티브보다 호출 스택이 훨씬 얕다 — 2000 을 그대로 두면 한도에 닿기 전에
+// V8 스택이 먼저 터져서 학생에게 "RangeError: Maximum call stack size exceeded" 라는
+// 알아볼 수 없는 메시지가 뜬다 (실측: 브라우저는 600~800 사이에서 넘어간다).
+// 웹에서는 낮춰 잡아 Venos 자신의 한국어 메시지가 먼저 나오게 한다.
+// 200 으로 잡은 이유: 브라우저에서 넘어가는 지점이 실행마다 다르다. 실측에서 450 이 두 번
+// 통과하고 380 이 한 번 실패했다 — V8 의 여유 스택은 그때그때 다르고, 한 번 넘치면 그 페이지에서
+// 회복되지도 않는다. 넘치면 학생이 보는 건 Venos 메시지가 아니라 영어 RangeError 이므로
+// 여유를 크게 둔다. 교과서 재귀(하노이 20단, 피보나치, 유클리드, 이진탐색)는 전부 깊이 수십이다.
+static const int RECURSION_DESKTOP = 2000;
+#ifdef VENOS_WASM
+static const int MAX_RECURSION = 200;
+#else
+static const int MAX_RECURSION = RECURSION_DESKTOP;
+#endif
+
+struct ExitSignal {};   // exit() — 프로그램 전체를 즉시 끝내므로 예외 그대로
+
+#ifdef VENOS_WASM
+// 페이지의 "⏹ 중단" 이 입력 대신 돌려주는 값. 제어문자로 시작해 학생이 칠 수 없다.
+static const char* VENOS_STOP = "\x01venos-stop";
+static bool g_stopped = false;        // 중단으로 끝났는가 (끝맺음 문구를 바꾸려고)
+
+// 계산만 도는 루프에서도 빠져나갈 수 있어야 한다. 브라우저는 한 가닥이라 wasm 이
+// 붙잡고 있는 동안은 ⏹ 버튼의 클릭조차 처리되지 않는다 — 학생이 실수로
+// for i = 1 to 100000000 을 돌리면 탭이 통째로 얼었다 (입력을 기다릴 때만 멈출 수 있었다).
+// 그래서 루프와 함수 호출이 주기적으로 한 턴을 브라우저에 돌려준다. ASYNCIFY 덕에
+// wasm 한가운데서 양보할 수 있고, 양보하는 김에 화면도 칠해지므로 **긴 프로그램의 출력이
+// 끝날 때까지 한 줄도 안 보이던 것**도 같이 풀린다.
+EM_JS(int, js_stop_requested, (), { return Module.venosStopRequested ? 1 : 0; });
+static unsigned long g_pumpTick = 0;
+static double g_pumpLast = 0;
+static void pumpWeb() {
+    // 값싼 쪽부터: 1024번에 한 번만 시계를 보고, 실제 양보는 100ms에 한 번.
+    // (양보 한 번은 이벤트 루프 한 바퀴라 수 ms 씩 드는 반면, 카운터 증가는 공짜에 가깝다)
+    if ((++g_pumpTick & 0x3FF) != 0) return;
+    double now = emscripten_get_now();
+    if (now - g_pumpLast < 100) return;
+    g_pumpLast = now;
+    emscripten_sleep(0);
+    // exit() 와 같은 길로 끝낸다 — 출력 버퍼와 호출 프레임이 그래야 정리된다
+    if (js_stop_requested()) { g_stopped = true; throw ExitSignal{}; }
+}
+#else
+static inline void pumpWeb() {}
+#endif
 
 // ============================================================
 //  플랫폼 헬퍼 — Windows 한글 입력/파일명 깨짐 방지
@@ -114,6 +163,10 @@ static bool readLine(string& out) {
     out = r;
     free(r);
     g_pendingPrompt.clear();
+    // 입력을 기다리는 동안 학생이 빠져나갈 길이 필요하다 — 숫자 맞히기처럼
+    // while true 로 도는 프로그램은 그러지 않으면 새로고침 말고는 방법이 없다.
+    // exit() 와 같은 길(ExitSignal)로 끝내야 출력 버퍼와 호출 프레임이 정리된다.
+    if (out == VENOS_STOP) { g_stopped = true; throw ExitSignal{}; }
     std::cout << out << "\n";   // 입력값을 출력창에도 기록
     return true;
 #endif
@@ -137,6 +190,41 @@ static bool readLine(string& out) {
     return (bool)std::getline(std::cin, out);
 }
 
+// 문자열이 "학생이 숫자라고 생각하는 것"인가.
+//
+// std::stod 를 그냥 쓰면 안 된다 — C++ 는 `0x10`(16), `inf`, `nan` 까지 받아 주는데
+// 파이썬의 float() 은 셋 다 거절한다. 반대로 파이썬은 `1_000` 을 1000 으로 받는다.
+// 어느 쪽이든 같은 프로그램이 백엔드에 따라 다른 답을 낸다 (실제로 그랬다).
+// 그래서 세 백엔드가 공통으로 이 문법만 받는다:
+//     [공백] [+-] ( 숫자+ [ . 숫자* ] | . 숫자+ ) ( [eE] [+-] 숫자+ )? [공백]
+// 여기에 무한대·NaN 은 결과에서 걸러낸다 (1e999 는 어차피 stod 가 던진다).
+static bool strToNum(const string& s, double& out) {
+    size_t i = 0, n = s.size();
+    auto skipSpace = [&] {
+        while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n'
+                         || s[i] == '\r' || s[i] == '\v' || s[i] == '\f')) i++;
+    };
+    auto digits = [&] {
+        size_t k = 0;
+        while (i < n && s[i] >= '0' && s[i] <= '9') { i++; k++; }
+        return k;
+    };
+    skipSpace();
+    if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+    size_t whole = digits(), frac = 0;
+    if (i < n && s[i] == '.') { i++; frac = digits(); }
+    if (whole == 0 && frac == 0) return false;
+    if (i < n && (s[i] == 'e' || s[i] == 'E')) {
+        i++;
+        if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+        if (digits() == 0) return false;          // "1e" 는 숫자가 아니다
+    }
+    skipSpace();
+    if (i != n) return false;
+    try { out = std::stod(s); } catch (...) { return false; }
+    return out == out && out < HUGE_VAL && out > -HUGE_VAL;   // inf/nan 거르기
+}
+
 // UTF-8 문자열 → 파일 경로 (Windows는 와이드 변환 필수)
 static fs::path toPath(const string& utf8) {
 #ifdef _WIN32
@@ -149,12 +237,32 @@ static fs::path toPath(const string& utf8) {
 #endif
 }
 
+[[maybe_unused]] static bool hasNonAscii(const string& s) {   // 윈도우의 g++ 호출에서만 쓴다
+    for (unsigned char c : s) if (c >= 0x80) return true;
+    return false;
+}
+
+// 셸 명령 실행. 윈도우의 system() 은 명령줄을 ANSI 코드페이지로 넘기므로 한글 경로가
+// 뭉개진다 — 만든 exe 를 "venos build 숙제/정렬.my run" 으로 바로 돌릴 때 걸렸다.
+// _wsystem 은 넓은 명령줄을 그대로 넘기고 cmd.exe 는 유니코드를 온전히 다룬다.
+static int runShell(const string& cmd) {
+    std::cout << std::flush;
+#ifdef _WIN32
+    int len = MultiByteToWideChar(CP_UTF8, 0, cmd.c_str(), (int)cmd.size(), nullptr, 0);
+    std::wstring w(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, cmd.c_str(), (int)cmd.size(), w.data(), len);
+    return _wsystem(w.c_str());
+#else
+    return std::system(cmd.c_str());
+#endif
+}
+
 // \033[2J: 보이는 화면 지우기, \033[3J: 스크롤백(위로 올린 기록)까지 지우기, \033[H: 커서 맨 위로
 static void clearScreen() { std::cout << "\033[2J\033[3J\033[H" << std::flush; }
 
 static void drawBanner() {
     std::cout << "==========================================\n";
-    std::cout << "  Venos Shell v0.6.0  (help 로 도움말)\n";
+    std::cout << "  Venos Shell v" << VENOS_VERSION << "  (help 로 도움말)\n";
     std::cout << "==========================================\n";
 }
 
@@ -286,6 +394,150 @@ static std::vector<string> utf8Chars(const string& s) {
     return out;
 }
 
+// 아주 긴 문자열을 에러 메시지에 그대로 끼워 넣으면 정작 읽어야 할 설명이
+// 화면 밖으로 밀려난다 (괄호를 수천 개 친 입력을 퍼저가 만들어 냈다).
+static string ellipsize(const string& s, size_t limit) {
+    if (utf8Length(s) <= limit) return s;
+    auto chars = utf8Chars(s);
+    string out;
+    for (size_t i = 0; i < limit; i++) out += chars[i];
+    return out + " …";
+}
+
+// ---- 한국어 조사 ----
+// 앞 글자에 받침이 있으면 첫 번째, 없으면 두 번째를 쓴다.
+// "문자열와(과) 숫자는" 처럼 나가면 교육용 언어의 에러 메시지로는 어색하다.
+// 한글이 아니면 (기호·영어 이름) 고를 근거가 없으니 지금처럼 둘 다 보여 준다.
+static string josa(const string& word, const char* withJong, const char* without) {
+    auto cs = utf8Chars(word);
+    if (!cs.empty() && cs.back().size() == 3) {
+        const string& last = cs.back();
+        unsigned cp = ((unsigned char)last[0] & 0x0Fu) << 12
+                    | ((unsigned char)last[1] & 0x3Fu) << 6
+                    | ((unsigned char)last[2] & 0x3Fu);
+        if (cp >= 0xAC00 && cp <= 0xD7A3)        // 한글 음절
+            return ((cp - 0xAC00) % 28) ? withJong : without;
+    }
+    return " " + string(withJong) + "(" + without + ")";   // 기호·영어는 띄어서 둘 다
+}
+
+// ---- 오타 제안 ----
+// "정의되지 않은 변수: 이릅" 만 던지고 끝내면 초보자는 뭐가 틀렸는지 못 찾는다.
+// 편집 거리를 글자 단위로 재서 (바이트로 재면 한글이 전부 거리 3 이 된다) 가까운 이름을 붙여 준다.
+static size_t editDistance(const std::vector<string>& a, const std::vector<string>& b) {
+    std::vector<size_t> prev(b.size() + 1), cur(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); j++) prev[j] = j;
+    for (size_t i = 1; i <= a.size(); i++) {
+        cur[0] = i;
+        for (size_t j = 1; j <= b.size(); j++)
+            cur[j] = std::min({ prev[j] + 1, cur[j - 1] + 1,
+                                prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1) });
+        prev = cur;
+    }
+    return prev[b.size()];
+}
+// 후보 중 가장 가까운 이름을 "  (혹시 'X'?)" 로. 마땅한 게 없으면 빈 문자열.
+static string foreignHint(const string& name);
+static string suggestName(const string& typo, std::vector<string> cands) {
+    string foreign = foreignHint(typo);
+    if (!foreign.empty()) return foreign;            // 오타가 아니라 다른 언어의 이름이다
+    auto t = utf8Chars(typo);
+    if (t.size() < 2) return "";                       // 한 글자짜리는 아무거나 다 가까워진다
+    size_t maxD = t.size() <= 4 ? 1 : 2;
+    std::sort(cands.begin(), cands.end());
+    cands.erase(std::unique(cands.begin(), cands.end()), cands.end());
+    string best;
+    size_t bestD = maxD + 1;
+    for (const string& c : cands) {
+        if (c == typo) continue;
+        auto cc = utf8Chars(c);
+        if (cc.size() + maxD < t.size() || t.size() + maxD < cc.size()) continue;
+        size_t d = editDistance(t, cc);
+        if (d < bestD) { bestD = d; best = c; }
+    }
+    return best.empty() ? "" : "  (혹시 '" + best + "'?)";
+}
+
+// "abc".upper() 처럼 원시값에 메서드를 부른 경우의 안내. 인터프리터와 생성 코드가
+// 같은 문구를 쓰도록 여기 한 군데에 둔다 (정의는 BUILTIN_NAMES 뒤).
+static string methodHint(const string& method);
+
+// 다른 언어의 이름을 그대로 쓴 것 — 오타가 아니라 "그 언어의 버릇"이다.
+// Venos 의 학생은 블록 코딩에서 오고 파이썬으로 가므로, 파이썬 습관이 가장 흔하다.
+// "정의되지 않은 변수: True" 로 끝내면 소문자 true 가 있다는 걸 알 길이 없다.
+static const std::map<string, string>& foreignNames() {
+    static const std::map<string, string> M = {
+        {"True",    "참은 소문자 true 입니다"},
+        {"False",   "거짓은 소문자 false 입니다"},
+        {"None",    "Venos 에는 None 이 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"null",    "Venos 에는 null 이 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"nil",     "Venos 에는 nil 이 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"undefined","Venos 에는 undefined 가 없습니다 — 빈 값은 0 이나 \"\" 로 나타내세요"},
+        {"this",    "객체 자신은 self 입니다"},
+        {"elif",    "elif 는 없습니다 — else if 로 쓰세요"},
+        {"elseif",  "elseif 는 없습니다 — else if 로 쓰세요"},
+        {"elsif",   "elsif 는 없습니다 — else if 로 쓰세요"},
+        {"def",     "함수는 def 가 아니라 func 로 만듭니다"},
+        {"function","함수는 function 이 아니라 func 로 만듭니다"},
+        {"lambda",  "Venos 에는 이름 없는 함수가 없습니다 — func 로 이름을 붙이세요"},
+        {"var",     "변수는 var 가 아니라 let 으로 만듭니다"},
+        {"const",   "변수는 const 가 아니라 let 으로 만듭니다"},
+        {"println", "출력은 print 입니다"},
+        {"printf",  "출력은 print 입니다 (자리표시자 대신 \"값: {x}\" 처럼 씁니다)"},
+        {"echo",    "출력은 print 입니다"},
+        {"cout",    "출력은 print 입니다"},
+        {"length",  "길이는 length 가 아니라 len(x) 입니다"},
+        {"size",    "길이는 size 가 아니라 len(x) 입니다"},
+        {"strlen",  "길이는 strlen 이 아니라 len(x) 입니다"},
+        {"append",  "리스트에 붙일 때는 push(리스트, 값) 입니다"},
+        {"range",   "Venos 에는 range 가 없습니다 — for i = 1 to n 으로 씁니다"},
+        {"pass",    "Venos 에는 pass 가 없습니다 — 아무것도 안 하려면 { } 를 비워 두세요"},
+        {"raise",   "에러를 일으키려면 error(\"메시지\") 입니다"},
+        {"throw",   "에러를 일으키려면 error(\"메시지\") 입니다"},
+        {"except",  "try 뒤에는 except 가 아니라 catch 를 씁니다"},
+        {"end",     "블록은 end 가 아니라 } 로 닫습니다"},
+        {"new",     "객체는 new 없이 클래스이름(...) 으로 만듭니다"},
+    };
+    return M;
+}
+// 위 목록에 있으면 "  (설명)" 을, 없으면 빈 문자열을 준다.
+static string foreignHint(const string& name) {
+    auto it = foreignNames().find(name);
+    return it == foreignNames().end() ? "" : "  (" + it->second + ")";
+}
+// 내장 함수 이름 — 오타 제안 후보로 쓴다 (인터프리터·트랜스파일러가 같이 본다)
+// random() 의 씨앗. 평소에는 진짜 무작위지만, 환경변수 VENOS_SEED 가 있으면 그 값으로
+// 고정한다. **언어 표면에는 아무것도 안 생긴다** — 학생이 배울 것도, 나중에 거절할 것도 없다.
+// 이게 필요한 이유는 하나다: random 을 쓰는 프로그램은 백엔드끼리 출력을 비교할 수 없어서,
+// 222줄짜리 examples/rpg.my 가 여태 differential 스위트 밖에 있었다. 같은 씨앗을 주면
+// 인터프리터와 빌드본이 같은 수열을 돈다 (같은 기계의 같은 libstdc++ 이므로).
+// 파이썬은 난수 구현이 달라 여기 못 낀다 — 러너의 PY_SKIP 에 이유를 적어 뒀다.
+static unsigned long long seedFromEnv() {
+    if (const char* e = std::getenv("VENOS_SEED")) {
+        char* end = nullptr;
+        unsigned long long v = std::strtoull(e, &end, 10);
+        if (end && end != e && *end == '\0') return v;
+    }
+    return std::random_device{}();
+}
+static const std::vector<string> BUILTIN_NAMES = {
+    "random", "round", "floor", "ceil", "abs", "sqrt", "min", "max", "num", "str",
+    "len", "push", "pop", "sort", "reverse", "remove", "keys", "has",
+    "split", "join", "upper", "lower", "find", "replace", "substr",
+    "readfile", "writefile", "appendfile", "exists", "time", "exit", "copy", "error",
+};
+// 내장 함수와 같은 이름으로 함수·클래스를 만들면 백엔드마다 답이 달랐다:
+// 인터프리터는 내장을 썼고, build 는 거절했고, 파이썬은 학생의 함수를 썼다.
+// 파서에서 한 번 막으면 세 곳이 같아진다 (메서드 이름은 obj.len() 으로 구분되므로 제외).
+static bool isBuiltinName(const string& name) {
+    return std::find(BUILTIN_NAMES.begin(), BUILTIN_NAMES.end(), name) != BUILTIN_NAMES.end();
+}
+static string methodHint(const string& method) {
+    if (std::find(BUILTIN_NAMES.begin(), BUILTIN_NAMES.end(), method) != BUILTIN_NAMES.end())
+        return "  (" + method + "(x) 처럼 앞에 붙여 쓰세요)";
+    return foreignHint(method);
+}
+
 // ============================================================
 //  1. 렉서 (Lexer)
 // ============================================================
@@ -308,8 +560,20 @@ struct Token {
     int line = 0;
 };
 
+// ---- 호출 경로 ----
+// 에러가 함수 안쪽에서 나면 "어디서 불렀는지"가 사실상 답이다. 파이썬은 traceback 을
+// 통째로 보여 주는데 그건 초보자에게 겁만 주므로, 여기서는 한 줄로 줄여서 보여 준다.
+// 에러가 만들어지는 순간의 스택을 찍어 둔다 (던진 뒤엔 DepthGuard 가 이미 걷혀 있다).
+struct CallFrame { const string* name; int line; };   // 이름은 AST 가 들고 있으므로 포인터로
+static std::vector<CallFrame> g_frames;
+static string callPath();
+
+// 에러 문구에는 식별자나 문자열이 그대로 들어간다. 이름이 3천 자짜리면 (퍼저가
+// 만들어 낸다) 9KB 짜리 에러 한 줄이 나와 읽을 게 없어진다. 실제로 쓰는 문구 중
+// 가장 긴 것이 100자 남짓이라, 한 군데서 넉넉히 잘라 두면 모든 자리가 같이 안전하다.
 struct LangError : std::runtime_error {
-    LangError(const string& msg) : std::runtime_error(msg) {}
+    string path;                       // "바깥(줄 10) → 가운데(줄 8)" — 없으면 빈 문자열
+    LangError(const string& msg) : std::runtime_error(ellipsize(msg, 300)), path(callPath()) {}
 };
 
 // import 로 파일이 병합되면, 병합된 줄번호 → "원본파일 줄 N" 매핑을 채운다.
@@ -319,6 +583,27 @@ static string lineTag(int line) {
     if (line >= 1 && line < (int)g_lineMap.size() && !g_lineMap[line].empty())
         return "[" + g_lineMap[line] + "] ";
     return "[줄 " + std::to_string(line) + "] ";
+}
+// 지금 쌓여 있는 호출을 한 줄로. 깊은 재귀는 가운데를 접는다 (2000줄을 쏟으면 안 되므로).
+static string callPath() {
+    if (g_frames.empty()) return "";
+    auto one = [](const CallFrame& f) {
+        string tag = lineTag(f.line);
+        if (!tag.empty() && tag.front() == '[') tag = tag.substr(1, tag.find(']') - 1);
+        return *f.name + " (" + tag + "에서)";
+    };
+    const size_t HEAD = 3, TAIL = 2;
+    string out;
+    if (g_frames.size() <= HEAD + TAIL + 1) {
+        for (size_t i = 0; i < g_frames.size(); i++)
+            out += (i ? " → " : "") + one(g_frames[i]);
+        return out;
+    }
+    for (size_t i = 0; i < HEAD; i++) out += (i ? " → " : "") + one(g_frames[i]);
+    out += " → ... " + std::to_string(g_frames.size() - HEAD - TAIL) + "개 더 → ";
+    for (size_t i = g_frames.size() - TAIL; i < g_frames.size(); i++)
+        out += one(g_frames[i]) + (i + 1 < g_frames.size() ? " → " : "");
+    return out;
 }
 
 // 마지막으로 실행/빌드한 소스 (에러 시 해당 줄을 보여주기 위해 보관)
@@ -341,8 +626,18 @@ static void printError(const string& msg, const string& prefix = "!! 에러: ") 
     } else if (tag.rfind("줄 ", 0) == 0) {
         merged = atoi(tag.c_str() + string("줄 ").size());
     }
-    if (merged >= 1 && merged <= (int)g_srcLines.size())
-        std::cout << "    " << tag << " | " << trim(g_srcLines[merged - 1]) << "\n";
+    if (merged >= 1 && merged <= (int)g_srcLines.size()) {
+        string src = trim(g_srcLines[merged - 1]);
+        const size_t LIMIT = 120;
+        string shown = ellipsize(src, LIMIT);
+        if (shown != src) shown += " (" + std::to_string(utf8Length(src)) + "글자)";
+        std::cout << "    " << tag << " | " << shown << "\n";
+    }
+}
+// 에러 + 그 에러가 난 자리까지 오게 된 호출 경로
+static void printError(const LangError& e) {
+    printError(e.what());
+    if (!e.path.empty()) std::cout << "    부른 순서: " << e.path << "\n";
 }
 
 // ============================================================
@@ -350,11 +645,55 @@ static void printError(const string& msg, const string& prefix = "!! 에러: ") 
 //  내용으로 치환하고, 병합 줄번호 → 원본 위치 매핑을 만든다.
 //  같은 파일은 한 번만 로드 (중복/순환 import 자동 방지).
 // ============================================================
+// 파일 열기 — 윈도우에서는 반드시 넓은 경로로 연다.
+// std::ifstream 의 filesystem::path 생성자는 MinGW 빌드에서 기대대로 동작하지 않는다:
+// 트랜스파일 빌드본에서 없는 파일도 "열렸다"고 답해 exists() 와 readfile() 이 전부
+// 참이 됐다 (윈도우 CI 가 잡았다). 그래서 두 백엔드 모두 이 함수 하나만 쓴다.
+// 모드는 바이너리 고정 — 텍스트 모드의 CRLF 변환이 백엔드마다 다르게 걸리지 않도록.
+static std::FILE* openFile(const string& path, const char* mode, const wchar_t* wmode) {
+#ifdef _WIN32
+    (void)mode;
+    return _wfopen(toPath(path).c_str(), wmode);
+#else
+    (void)wmode;
+    return std::fopen(path.c_str(), mode);
+#endif
+}
+static string readAll(std::FILE* fp) {
+    string out;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, fp)) > 0) out.append(buf, n);
+    std::fclose(fp);
+    return out;
+}
+static void writeAll(std::FILE* fp, const string& s) {
+    if (!s.empty()) std::fwrite(s.data(), 1, s.size(), fp);
+    std::fclose(fp);
+}
 static fs::path importToPath(const string& utf8) { return toPath(utf8); }
-static void loadWithImports(const string& rawPath, std::set<string>& loaded,
+// "폴더/파일.my" → "폴더". UTF-8 안전하다 — / 와 \ 는 멀티바이트 글자 안에 나올 수 없다.
+static string dirOf(const string& p) {
+    size_t i = p.find_last_of("/\\");
+    return i == string::npos ? "" : p.substr(0, i);
+}
+static bool isAbsPath(const string& p) {
+    return !p.empty() && (p[0] == '/' || p[0] == '\\'
+                          || (p.size() > 1 && p[1] == ':'));   // 윈도우 C:\...
+}
+
+// label 은 에러 메시지에 쓰는 이름 — import 에 적힌 그대로다.
+// 여는 데 쓰는 path 는 "import 를 쓴 파일 옆" 기준으로 풀린 경로라 길어질 수 있는데,
+// 학생에게는 자기가 적은 "utils.my" 로 보여야 찾아갈 수 있다.
+static void loadWithImports(const string& rawPath, const string& rawLabel,
+                            std::set<string>& loaded,
                             string& out, std::vector<string>& lmap,
                             bool& sawImport, const string& fromWhere) {
     string path = rawPath;
+    string label = rawLabel;
+    if (label.size() < FILE_EXT.size()
+        || label.substr(label.size() - FILE_EXT.size()) != FILE_EXT)
+        label += FILE_EXT;
     if (path.size() < FILE_EXT.size()
         || path.substr(path.size() - FILE_EXT.size()) != FILE_EXT)
         path += FILE_EXT;
@@ -363,12 +702,16 @@ static void loadWithImports(const string& rawPath, std::set<string>& loaded,
 
     std::ifstream in(importToPath(path));
     if (!in)
-        throw LangError("import 실패: 파일을 열 수 없습니다: " + path
+        throw LangError("import 실패: 파일을 열 수 없습니다: " + label
                         + (fromWhere.empty() ? "" : "  (" + fromWhere + " 에서)"));
     string line;
     int no = 0;
     while (std::getline(in, line)) {
         no++;
+        // 메모장이 붙인 BOM 은 **파일마다** 앞에 온다. lex() 는 합쳐진 글 맨 앞에서만
+        // 건너뛰므로, 불러온 파일의 BOM 은 중간에 놓여 "보이지 않는 글자" 가 됐다 —
+        // 그 파일에서는 정상적인 자리인데도. import 줄 인식도 이 뒤라야 한다.
+        if (no == 1 && line.compare(0, 3, "\xef\xbb\xbf") == 0) line.erase(0, 3);
         // "import \"파일\"" 형태인지 검사 (앞 공백 허용, 뒤엔 공백/#주석만)
         string t = line;
         size_t a = t.find_first_not_of(" \t\r");
@@ -381,16 +724,32 @@ static void loadWithImports(const string& rawPath, std::set<string>& loaded,
                     size_t r = rest.find_first_not_of(" \t\r");
                     if (r == string::npos || rest[r] == '#') {
                         sawImport = true;
-                        loadWithImports(t.substr(p + 1, q - p - 1), loaded, out, lmap,
-                                        sawImport, path + " 줄 " + std::to_string(no));
+                        // import 는 **그 import 를 쓴 파일 옆**을 기준으로 찾는다.
+                        // 현재 작업 폴더 기준이면 "venos 프로젝트/main.my" 를 프로젝트
+                        // 밖에서 돌릴 때 옆에 둔 utils.my 를 못 연다.
+                        string asWritten = t.substr(p + 1, q - p - 1);
+                        string target = asWritten;
+                        string base = dirOf(path);
+                        if (!base.empty() && !isAbsPath(target)) target = base + "/" + target;
+                        loadWithImports(target, asWritten, loaded, out, lmap,
+                                        sawImport, label + " 줄 " + std::to_string(no));
                         continue;    // import 줄 자체는 출력에 넣지 않음
                     }
                 }
             }
+            // "import" 다음이 공백인데 따옴표가 안 나왔다 — 파이썬처럼 라이브러리를 부른
+            // 것이다. 그냥 흘려보내면 파서가 "= 기호가 필요합니다" 라는, 진짜 문제와
+            // 상관없는 말을 한다. (importValue 같은 이름은 뒤가 공백이 아니라 안 걸린다)
+            if (a + 6 < t.size() && (t[a + 6] == ' ' || t[a + 6] == '\t')
+                && p != string::npos && t[p] != '"')
+                throw LangError("[" + label + " 줄 " + std::to_string(no) + "] "
+                                + "import 는 파일 이름을 따옴표로 적습니다:"
+                                  " import \"파일.my\"  (Venos 에는 불러올 라이브러리가"
+                                  " 없습니다 — 필요한 건 내장 함수로 들어 있습니다)");
         }
         out += line;
         out += "\n";
-        lmap.push_back(path + " 줄 " + std::to_string(no));
+        lmap.push_back(label + " 줄 " + std::to_string(no));
     }
 }
 
@@ -400,7 +759,7 @@ static string expandImports(const string& mainPath) {
     std::vector<string> lmap;
     lmap.push_back("");                  // 줄번호는 1부터라 0번은 비움
     bool sawImport = false;
-    loadWithImports(mainPath, loaded, out, lmap, sawImport, "");
+    loadWithImports(mainPath, mainPath, loaded, out, lmap, sawImport, "");
     if (sawImport) g_lineMap = lmap;     // import 썼을 때만 "파일:줄" 표기
     else           g_lineMap.clear();
     // 에러 표시용으로 소스 줄 보관
@@ -420,6 +779,48 @@ static bool isIdentStart(char c) {
     return isalpha((unsigned char)c) || c == '_' || (unsigned char)c >= 0x80;
 }
 
+// 화면에서는 멀쩡해 보이는데 글자가 다른 것들. 워드·PDF·블로그에서 코드를 붙여넣으면
+// 따옴표가 “ ” 로, 빼기가 – 로 바뀌어 있고, 한글 입력 상태에서 친 공백·괄호는 전각이다.
+// 식별자 글자로 그냥 삼키면 "정의되지 않은 변수:  1" 처럼 **줄을 봐도 고칠 데가
+// 없는** 에러가 난다 — 이름을 불러 주는 것 말고는 학생이 알아낼 방법이 없다.
+// (파일 맨 앞의 BOM 만은 에러가 아니라 건너뛴다 — 메모장이 붙이는 정상적인 표식이다)
+struct Lookalike { const char* bytes; const char* msg; };
+static const Lookalike LOOKALIKES[] = {
+    {"\xef\xbb\xbf", "보이지 않는 글자입니다 (U+FEFF — 파일 앞머리 표식이 중간에 들어왔습니다)"
+                     " — 지우세요"},
+    {"\xc2\xa0",     "보이지 않는 공백입니다 (U+00A0)"
+                     " — 지우고 일반 공백을 치세요 (웹·PDF 에서 붙여넣으면 섞여 들어옵니다)"},
+    {"\xe2\x80\x8b", "폭이 없어 보이지 않는 글자입니다 (U+200B) — 지우세요"},
+    {"\xe3\x80\x80", "전각 공백입니다 (U+3000)"
+                     " — 한글 입력 상태에서 친 공백입니다. 지우고 일반 공백을 치세요"},
+    {"\xe2\x80\x9c", "문자열은 \" 로 씁니다 (“ 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x9d", "문자열은 \" 로 씁니다 (” 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x98", "문자열은 \" 로 씁니다 (‘ 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x99", "문자열은 \" 로 씁니다 (’ 는 워드·블로그가 바꿔 놓은 따옴표입니다)"},
+    {"\xe2\x80\x93", "빼기는 - 입니다 (– 는 워드가 바꿔 놓은 줄표입니다)"},
+    {"\xe2\x80\x94", "빼기는 - 입니다 (— 는 워드가 바꿔 놓은 줄표입니다)"},
+    {"\xef\xbc\x88", "괄호는 ( 입니다 (（ 는 한글 입력 상태에서 나옵니다)"},
+    {"\xef\xbc\x89", "괄호는 ) 입니다 (） 는 한글 입력 상태에서 나옵니다)"},
+    {"\xef\xbc\x8c", "쉼표는 , 입니다 (， 는 한글 입력 상태에서 나옵니다)"},
+};
+static const char* lookalike(const string& s, size_t i) {
+    for (const auto& L : LOOKALIKES)
+        if (s.compare(i, strlen(L.bytes), L.bytes) == 0) return L.msg;
+    return nullptr;
+}
+
+// 에러에 글자를 인용할 때 바이트 하나만 떼면 UTF-8 중간이 잘려 깨진다
+// ("숫자 뒤에 글자" 가 `3` 다음 한 바이트만 찍고 있었다)
+static string utf8At(const string& s, size_t i) {
+    unsigned char c = s[i];
+    size_t len = 1;
+    if      ((c & 0xE0) == 0xC0) len = 2;
+    else if ((c & 0xF0) == 0xE0) len = 3;
+    else if ((c & 0xF8) == 0xF0) len = 4;
+    if (i + len > s.size()) len = 1;
+    return s.substr(i, len);
+}
+
 std::vector<Token> lex(const string& src) {
     std::vector<Token> toks;
     int line = 1;
@@ -431,11 +832,16 @@ std::vector<Token> lex(const string& src) {
         return LangError(lineTag(line) + "" + m);
     };
 
+    // 메모장이 UTF-8 로 저장하면 파일 앞에 BOM 이 붙는다. 삼키면 `let x = 1` 이
+    // "= 기호가 필요합니다" 로 죽는데, 학생 화면에는 고칠 데가 없다.
+    if (src.compare(0, 3, "\xef\xbb\xbf") == 0) i = 3;
+
     while (i < src.size()) {
         char c = src[i];
         if (c == '\n') { line++; i++; continue; }
         if (isspace((unsigned char)c)) { i++; continue; }
         if (c == '#') { while (i < src.size() && src[i] != '\n') i++; continue; }
+        if (const char* bad = lookalike(src, i)) throw err(bad);
 
         // 숫자 — 소수점은 최대 1개, 숫자 바로 뒤에 글자 금지
         if (isdigit((unsigned char)c)) {
@@ -450,8 +856,36 @@ std::vector<Token> lex(const string& src) {
                 throw err("잘못된 숫자: " + numStr + " (소수점은 1개만)");
             if (numStr.back() == '.')
                 throw err("잘못된 숫자: " + numStr + " (소수점 뒤에 숫자가 필요)");
-            if (i < src.size() && isIdentStart(src[i]))
-                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: " + numStr + src[i]);
+            if (i < src.size() && lookalike(src, i))
+                throw err(lookalike(src, i));
+            if (i < src.size() && isIdentStart(src[i])) {
+                // 다른 언어의 숫자 표기는 이름을 불러 준다 (foreignNames 와 같은 뜻).
+                // 특히 지수는 num("1e10") 으로는 되는데 리터럴로만 안 되므로,
+                // 안 된다고만 하면 학생이 어느 쪽이 맞는지 알 길이 없다.
+                char nx = src[i];
+                bool expShape = (nx == 'e' || nx == 'E')
+                    && i + 1 < src.size()
+                    && (isdigit((unsigned char)src[i + 1])
+                        || ((src[i + 1] == '+' || src[i + 1] == '-')
+                            && i + 2 < src.size() && isdigit((unsigned char)src[i + 2])));
+                string hint;
+                if (expShape) {
+                    // 보여 줄 때는 실제로 적힌 글자를 그대로 인용한다 (1e10, 1E-3 …)
+                    size_t e = i;
+                    if (e < src.size()) e++;                                  // e / E
+                    if (e < src.size() && (src[e] == '+' || src[e] == '-')) e++;
+                    while (e < src.size() && isdigit((unsigned char)src[e])) e++;
+                    hint = "  (Venos 에는 지수 표기가 없습니다 — 0 을 붙여 풀어 쓰거나"
+                           " num(\"" + numStr + src.substr(i, e - i) + "\") 처럼"
+                           " 문자열로 넘기세요)";
+                }
+                else if (numStr == "0" && (nx == 'x' || nx == 'X'))
+                    hint = "  (16진수 표기는 없습니다 — 10진수로 적으세요)";
+                else if (nx == '_')
+                    hint = "  (숫자에 밑줄을 넣을 수 없습니다 — 1000 처럼 붙여 쓰세요)";
+                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: "
+                          + numStr + utf8At(src, i) + hint);
+            }
             push(Tok::NUMBER, "", std::stod(numStr));
             continue;
         }
@@ -482,7 +916,7 @@ std::vector<Token> lex(const string& src) {
         }
         if (isIdentStart(c)) {
             size_t start = i;
-            while (i < src.size() && isIdentChar(src[i])) i++;
+            while (i < src.size() && isIdentChar(src[i]) && !lookalike(src, i)) i++;
             string w = src.substr(start, i - start);
             if      (w == KW_LET)      push(Tok::LET);
             else if (w == KW_PRINT)    push(Tok::PRINT);
@@ -507,12 +941,30 @@ std::vector<Token> lex(const string& src) {
             else if (w == KW_CATCH)    push(Tok::CATCH);
             else if (w == KW_TRUE)     push(Tok::NUMBER, "", 1);   // true = 1
             else if (w == KW_FALSE)    push(Tok::NUMBER, "", 0);   // false = 0
-            else                       push(Tok::IDENT, w);
+            else {
+                // 파이썬의 f"..." — 붙어 있는 따옴표까지 봐야 변수 f 와 구분된다.
+                // Venos 는 보간이 **모든** 문자열에서 되므로 f 만 지우면 그대로 돌아간다.
+                if ((w == "f" || w == "F" || w == "rf" || w == "fr") && i < src.size()
+                    && (src[i] == '"' || src[i] == '\''))
+                    throw err("Venos 는 모든 문자열에서 {이름} 이 그대로 값으로 바뀝니다"
+                              " (앞의 " + w + " 를 지우세요)");
+                push(Tok::IDENT, w);
+            }
             continue;
         }
         auto two = [&](char a, char b) {
             return src[i] == a && i + 1 < src.size() && src[i + 1] == b;
         };
+        // 다른 언어의 습관으로 친 것들. 그대로 "알 수 없는 문자" 라고 하면 학생은
+        // 자기가 무슨 언어의 버릇을 썼는지 모른다 — 무엇을 대신 쓰는지까지 말해 준다.
+        if (two('/', '/')) throw err("주석은 // 가 아니라 # 로 씁니다"
+                                     " (정수 나눗셈을 뜻한 거라면 floor(a / b))");
+        if (two('/', '*')) throw err("주석은 /* */ 가 아니라 # 로 씁니다 (여러 줄이면 줄마다 #)");
+        if (two('*', '*')) throw err("거듭제곱 연산자는 없습니다 — x * x 로 쓰거나 반복문으로 곱하세요");
+        if (two('+', '+')) throw err("++ 는 없습니다 — x += 1 로 쓰세요");
+        if (two('<', '>')) throw err("같지 않음은 <> 가 아니라 != 입니다");
+        if (two('&', '&')) throw err("그리고는 && 가 아니라 " + KW_AND + " 입니다");
+        if (two('|', '|')) throw err("또는은 || 가 아니라 " + KW_OR + " 입니다");
         if      (two('=', '=')) { push(Tok::EQ);      i += 2; }
         else if (two('!', '=')) { push(Tok::NEQ);     i += 2; }
         else if (two('<', '=')) { push(Tok::LE);      i += 2; }
@@ -540,6 +992,12 @@ std::vector<Token> lex(const string& src) {
                 case ',': push(Tok::COMMA);    break;
                 case ':': push(Tok::COLON);    break;
                 case '.': push(Tok::DOT);      break;
+                case '!': throw err("논리 부정은 ! 가 아니라 " + KW_NOT + " 을 씁니다"
+                                    " (같지 않음은 != 로 붙여 씁니다)");
+                case ';': throw err("Venos 는 문장 끝에 ; 를 붙이지 않습니다 (그냥 지우세요)");
+                case '^': throw err("거듭제곱 연산자는 없습니다 — x * x 로 쓰거나 반복문으로 곱하세요");
+                case '&': throw err("그리고는 & 가 아니라 " + KW_AND + " 입니다");
+                case '|': throw err("또는은 | 가 아니라 " + KW_OR + " 입니다");
                 default:
                     throw err(string("알 수 없는 문자: '") + c + "'");
             }
@@ -585,7 +1043,7 @@ struct Value {
         if (kind == STR) return str;
         // 자기 자신을 담은 리스트/딕셔너리는 무한 재귀 → deepCopy 와 같은 한도로 차단
         if (depth > 1000)
-            throw LangError("출력할 수 없습니다 (자기 자신을 포함한 구조?)");
+            throw LangError("출력할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
         if (kind == LIST) {
             string out = "[";
             for (size_t i = 0; i < list->size(); i++) {
@@ -637,13 +1095,20 @@ struct Env {
         return parent ? parent->find(n) : nullptr;
     }
     void define(const string& n, Value v) { vars[n] = std::move(v); }
+    // 오타 제안 후보 — 지금 보이는 모든 변수 이름 (지역 → 전역)
+    void collectNames(std::vector<string>& out) {
+        for (auto& [k, v] : vars) out.push_back(k);
+        if (parent) parent->collectNames(out);
+    }
 };
 
-// 제어 흐름 시그널 — break/continue/return 을 예외로 전달
-struct BreakSignal {};
-struct ContinueSignal {};
-struct ReturnSignal { Value v; };
-struct ExitSignal {};   // exit() — 프로그램 정상 종료
+// 제어 흐름 — break/continue/return 은 exec() 의 반환값으로 올라간다.
+// 예전에는 C++ 예외였는데, 예외 하나를 던지는 데 마이크로초가 들어 재귀 함수가
+// CPython 보다 50배 느렸다 (fib(27): 2.0초 vs 0.04초). 반환값이면 공짜다.
+// try/catch(LangError) 를 그대로 통과하는 성질도 유지된다 — 애초에 예외가 아니므로.
+enum class Flow : unsigned char { NORMAL = 0, BREAK, CONTINUE, RETURN };
+static Value g_retVal;  // Flow::RETURN 일 때 돌려줄 값
+// ExitSignal 은 readLine 에서도 쓰므로 위쪽(플랫폼 헬퍼 앞)에 정의돼 있다.
 
 // ============================================================
 //  3. AST 노드
@@ -656,7 +1121,7 @@ using ExprP = std::unique_ptr<Expr>;
 
 struct Stmt {
     virtual ~Stmt() = default;
-    virtual void exec(Env& env) = 0;
+    virtual Flow exec(Env& env) = 0;
 };
 using StmtP = std::unique_ptr<Stmt>;
 
@@ -664,6 +1129,16 @@ struct FuncStmt;
 struct ClassStmt;
 static std::map<string, FuncStmt*> g_funcs;
 static std::map<string, ClassStmt*> g_classes;
+// 이름이 **함수나 클래스로는 있는데** 값 자리에 쓰인 경우. "정의되지 않은 변수" 라고만
+// 하면 있는 것을 없다고 말하는 셈이라, 학생이 오타를 찾으러 간다.
+// 일급 함수는 포지셔닝상 거부한 기능이므로, 없다는 사실 자체를 말해 준다.
+static string notAValue(const string& name, bool isFunc, bool isClass) {
+    if (isFunc)  return "  (" + name + josa(name, "은", "는") + " 함수입니다 — Venos 는 함수를"
+                        " 값으로 담지 않습니다. " + name + "(...) 처럼 불러 쓰세요)";
+    if (isClass) return "  (" + name + josa(name, "은", "는") + " 클래스입니다 — "
+                        + name + "(...) 으로 객체를 만드세요)";
+    return "";
+}
 static Env* g_global = nullptr;
 static int g_callDepth = 0;   // 재귀 깊이 추적
 
@@ -683,7 +1158,15 @@ struct VarExpr : Expr {
     VarExpr(string n, int l) : name(std::move(n)), line(l) {}
     Value eval(Env& env) override {
         Value* v = env.find(name);
-        if (!v) throw LangError(lineTag(line) + "정의되지 않은 변수: " + name);
+        if (!v) {
+            string hint = notAValue(name, g_funcs.count(name) > 0, g_classes.count(name) > 0);
+            if (name == "self") hint = "  (self 는 클래스의 메서드 안에서만 쓸 수 있습니다)";
+            if (hint.empty()) {
+                std::vector<string> names; env.collectNames(names);
+                hint = suggestName(name, names);
+            }
+            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + hint);
+        }
         return *v;
     }
 };
@@ -723,7 +1206,8 @@ static size_t checkIndex(const Value& i, size_t size, int line) {
     long long n = (long long)i.num;
     if (n < 1 || n > (long long)size)
         throw err("인덱스 범위 초과: " + std::to_string(n)
-                  + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)");
+                  + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)"
+                  + (n < 1 ? "  (뒤에서 세는 번호는 없습니다 — 마지막은 xs[len(xs)])" : ""));
     return (size_t)(n - 1);
 }
 
@@ -748,7 +1232,8 @@ struct IndexExpr : Expr {
             return it->second;
         }
         if (t.kind != Value::LIST)
-            throw LangError(lineTag(line) + "" + t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+            throw LangError(lineTag(line) + "" + t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                            + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
         size_t idx = checkIndex(index->eval(env), t.list->size(), line);
         return (*t.list)[idx];
     }
@@ -757,7 +1242,7 @@ struct IndexExpr : Expr {
 // 서로 다른 순환 구조는 deepCopy/toString 과 같은 깊이 한도로 차단
 static bool deepEquals(const Value& a, const Value& b, int depth, int line) {
     if (depth > 1000)
-        throw LangError(lineTag(line) + "비교할 수 없습니다 (자기 자신을 포함한 구조?)");
+        throw LangError(lineTag(line) + "비교할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (a.kind != b.kind) return false;
     if (a.kind == Value::NUM) return a.num == b.num;
     if (a.kind == Value::STR) return a.str == b.str;
@@ -779,6 +1264,23 @@ static bool deepEquals(const Value& a, const Value& b, int depth, int line) {
     }
     return true;
 }
+// 나머지 — 결과가 나누는 수의 부호를 따른다 (수학·파이썬 관례).
+// C 의 fmod 는 나눠지는 수의 부호를 따라 -7 % 3 이 -1 이 되는데, 그러면 시저 암호처럼
+// 음수를 되감는 교과서 예제가 파이썬과 다른 답을 낸다.
+static double floorMod(double a, double b) {
+    double r = std::fmod(a, b);
+    if (r != 0 && ((r < 0) != (b < 0))) r += b;
+    return r;
+}
+// 문자열 반복 횟수 검사 — "*" * 5 의 5 자리. 음수는 파이썬처럼 빈 문자열이 된다.
+static const size_t REPEAT_CAP = 10000000;   // 폭주한 반복이 브라우저를 먹지 않게
+static size_t repeatCount(double n, size_t unit, const std::function<LangError(const string&)>& err) {
+    if (n != std::floor(n)) throw err("문자열을 소수 번 반복할 수는 없습니다 (지금: " + Value::number(n).toString() + ")");
+    if (n <= 0) return 0;
+    if (n > (double)REPEAT_CAP || unit * (size_t)n > REPEAT_CAP)
+        throw err("문자열 반복이 너무 깁니다 (최대 " + std::to_string(REPEAT_CAP) + "자)");
+    return (size_t)n;
+}
 // 이항 연산의 실제 처리 — BinExpr 와 원소 복합 대입(xs[i] += ...)이 공유
 static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
     auto err = [&](const string& m) {
@@ -786,6 +1288,18 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
     };
     if (op == Tok::PLUS && (a.kind == Value::STR || b.kind == Value::STR))
         return Value::text(a.toString() + b.toString());
+    // 문자열 * 숫자 = 그만큼 반복 — 별 찍기, 막대그래프, 구분선
+    if (op == Tok::STAR && ((a.kind == Value::STR) != (b.kind == Value::STR))) {
+        const Value& s = (a.kind == Value::STR) ? a : b;
+        const Value& n = (a.kind == Value::STR) ? b : a;
+        if (n.kind != Value::NUM)
+            throw err("문자열은 숫자만큼만 반복할 수 있습니다 (지금: " + n.kindName() + ")");
+        size_t k = repeatCount(n.num, s.str.size(), err);
+        string out;
+        out.reserve(s.str.size() * k);
+        for (size_t i = 0; i < k; i++) out += s.str;
+        return Value::text(out);
+    }
     // 리스트 + 리스트 = 이어붙인 새 리스트
     if (op == Tok::PLUS && a.kind == Value::LIST && b.kind == Value::LIST) {
         std::vector<Value> xs = *a.list;
@@ -800,7 +1314,9 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
          || a.kind == Value::MAP  || b.kind == Value::MAP
          || a.kind == Value::OBJ  || b.kind == Value::OBJ)
             throw err("리스트/딕셔너리/객체는 비교 연산을 지원하지 않습니다");
-        if (a.kind != b.kind) throw err("숫자와 문자열은 비교할 수 없습니다");
+        if (a.kind != b.kind)
+            throw err("숫자와 문자열은 비교할 수 없습니다"
+                      "  (숫자처럼 보이는 문자열이면 num() 으로 바꿔 쓰세요)");
         bool r = (a.kind == Value::NUM) ? f(a.num, b.num) : f(a.str, b.str);
         return Value::number(r ? 1 : 0);
     };
@@ -812,7 +1328,8 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
         default: break;
     }
     if (a.kind != Value::NUM || b.kind != Value::NUM)
-        throw err(a.kindName() + "와(과) " + b.kindName() + "는 이 연산이 안 됩니다");
+        throw err(a.kindName() + josa(a.kindName(), "과", "와") + " " + b.kindName()
+                  + josa(b.kindName(), "은", "는") + " 이 연산이 안 됩니다");
     switch (op) {
         case Tok::PLUS:  return Value::number(a.num + b.num);
         case Tok::MINUS: return Value::number(a.num - b.num);
@@ -822,7 +1339,7 @@ static Value applyBin(Tok op, const Value& a, const Value& b, int line) {
             return Value::number(a.num / b.num);
         case Tok::PERCENT:
             if (b.num == 0) throw err("0으로 나머지 연산을 할 수 없습니다");
-            return Value::number(std::fmod(a.num, b.num));
+            return Value::number(floorMod(a.num, b.num));
         default: throw err("지원하지 않는 연산자");
     }
 }
@@ -835,8 +1352,11 @@ struct FieldExpr : Expr {
             throw LangError(lineTag(line) + "" + t.kindName()
                             + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
         auto it = t.map->find(field);
-        if (it == t.map->end())
-            throw LangError(lineTag(line) + "필드가 없습니다: ." + field);
+        if (it == t.map->end()) {
+            std::vector<string> names;
+            for (auto& [k, v] : *t.map) names.push_back(k);
+            throw LangError(lineTag(line) + "필드가 없습니다: ." + field + suggestName(field, names));
+        }
         return it->second;
     }
 };
@@ -885,11 +1405,10 @@ struct InputExpr : Expr {
         if (!readLine(line))
             throw LangError("입력을 읽을 수 없습니다");
         line = trim(line);   // 앞뒤 공백 제거 (공백 때문에 숫자 인식 실패 방지)
-        try {
-            size_t used = 0;
-            double d = std::stod(line, &used);
-            if (used == line.size()) return Value::number(d);
-        } catch (...) {}
+        // num() 과 같은 문법만 숫자로 본다 — `0x10` 이나 `inf` 를 숫자로 받아 버리면
+        // 같은 입력에 파이썬 버전이 다른 답을 낸다 (파이썬은 그걸 문자열로 둔다)
+        double d;
+        if (strToNum(line, d)) return Value::number(d);
         return Value::text(line);
     }
 };
@@ -913,17 +1432,21 @@ struct LogicalExpr : Expr {
 struct LetStmt : Stmt {
     string name; ExprP val;
     LetStmt(string n, ExprP v) : name(std::move(n)), val(std::move(v)) {}
-    void exec(Env& env) override { env.define(name, val->eval(env)); }
+    Flow exec(Env& env) override { env.define(name, val->eval(env)); return Flow::NORMAL; }
 };
 struct AssignStmt : Stmt {
     string name; ExprP val; int line;
     AssignStmt(string n, ExprP v, int l) : name(std::move(n)), val(std::move(v)), line(l) {}
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value* slot = env.find(name);
-        if (!slot)
-            throw LangError(lineTag(line) + "선언되지 않은 변수에 대입: " + name
-                            + "  (" + KW_LET + " " + name + " = ... 로 먼저 선언하세요)");
+        if (!slot) {
+            std::vector<string> names; env.collectNames(names);
+            string hint = suggestName(name, names);
+            if (hint.empty()) hint = "  (" + KW_LET + " " + name + " = ... 로 먼저 선언하세요)";
+            throw LangError(lineTag(line) + "선언되지 않은 변수에 대입: " + name + hint);
+        }
         *slot = val->eval(env);
+        return Flow::NORMAL;
     }
 };
 // 경로 접근자: xs[i] 같은 인덱스이거나 obj.필드
@@ -943,7 +1466,11 @@ static Value* stepIntoAcc(Value* cur, Accessor& a, Env& env) {
         if (cur->kind != Value::OBJ)
             throw err(cur->kindName() + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
         auto it = cur->map->find(a.field);
-        if (it == cur->map->end()) throw err("필드가 없습니다: ." + a.field);
+        if (it == cur->map->end()) {
+            std::vector<string> names;
+            for (auto& [k, v] : *cur->map) names.push_back(k);
+            throw err("필드가 없습니다: ." + a.field + suggestName(a.field, names));
+        }
         return &it->second;
     }
     Value key = a.index->eval(env);
@@ -960,7 +1487,8 @@ static Value* stepIntoAcc(Value* cur, Accessor& a, Env& env) {
     }
     if (cur->kind == Value::STR)
         throw err("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다"
+              + (cur->kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
 }
 
 // 마지막 단계 대입용 슬롯 (딕셔너리 키/객체 필드는 새로 생성 가능)
@@ -985,61 +1513,74 @@ static Value* putSlot(Value* cur, Accessor& a, Env& env) {
     }
     if (cur->kind == Value::STR)
         throw err("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    throw err(cur->kindName() + "에는 [ ] 를 쓸 수 없습니다"
+              + (cur->kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
 }
 
 // 경로 대입: x[1] = v,  obj.필드 = v,  obj.점수[2] = v ...
 struct PathAssignStmt : Stmt {
     string name; std::vector<Accessor> path; ExprP val; int line = 0;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value* cur = env.find(name);
-        if (!cur)
-            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name);
+        if (!cur) {
+            std::vector<string> names; env.collectNames(names);
+            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + suggestName(name, names));
+        }
         for (size_t k = 0; k + 1 < path.size(); k++)
             cur = stepIntoAcc(cur, path[k], env);
         cur = putSlot(cur, path.back(), env);
         *cur = val->eval(env);
+        return Flow::NORMAL;
     }
 };
 // 경로 복합 대입: xs[i] += 1,  obj.나이 += 1  (기존 값이 있어야 함)
 struct PathCompoundStmt : Stmt {
     string name; std::vector<Accessor> path; Tok op; ExprP rhs; int line = 0;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value* cur = env.find(name);
-        if (!cur)
-            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name);
+        if (!cur) {
+            std::vector<string> names; env.collectNames(names);
+            throw LangError(lineTag(line) + "정의되지 않은 변수: " + name + suggestName(name, names));
+        }
         for (auto& a : path)
             cur = stepIntoAcc(cur, a, env);
         *cur = applyBin(op, *cur, rhs->eval(env), line);
+        return Flow::NORMAL;
     }
 };
 struct PrintStmt : Stmt {
     std::vector<ExprP> vals;   // print a, b, c → 공백으로 이어서 출력
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         string out;
         for (size_t i = 0; i < vals.size(); i++) {
             if (i) out += " ";
             out += vals[i]->eval(env).toString();
         }
         std::cout << out << "\n";
+        return Flow::NORMAL;
     }
 };
 struct ExprStmt : Stmt {
     ExprP e;
     ExprStmt(ExprP e) : e(std::move(e)) {}
-    void exec(Env& env) override { e->eval(env); }
+    Flow exec(Env& env) override { e->eval(env); return Flow::NORMAL; }
 };
 struct BlockStmt : Stmt {
     std::vector<StmtP> stmts;
-    void exec(Env& env) override {
-        for (auto& s : stmts) s->exec(env);
+    Flow exec(Env& env) override {
+        for (auto& s : stmts) {
+            Flow f = s->exec(env);
+            if (f != Flow::NORMAL) return f;     // break/continue/return 은 위로
+        }
+        return Flow::NORMAL;
     }
 };
 struct IfStmt : Stmt {
     ExprP cond; StmtP thenB, elseB;   // elseB 는 블록이거나 또 다른 IfStmt (else if 체인)
-    void exec(Env& env) override {
-        if (cond->eval(env).truthy()) thenB->exec(env);
-        else if (elseB) elseB->exec(env);
+    Flow exec(Env& env) override {
+        if (cond->eval(env).truthy()) return thenB->exec(env);
+        if (elseB) return elseB->exec(env);
+        return Flow::NORMAL;
     }
 };
 // try { ... } catch 오류 { ... } — 런타임 에러를 잡아 메시지를 변수에 담음.
@@ -1047,38 +1588,40 @@ struct IfStmt : Stmt {
 struct TryStmt : Stmt {
     StmtP tryB, catchB;
     string var;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         try {
-            tryB->exec(env);
+            return tryB->exec(env);                  // break/continue/return 은 그대로 통과
         } catch (LangError& e) {
             env.vars[var] = Value::text(e.what());   // 현재 스코프의 지역 변수로
-            catchB->exec(env);
+            return catchB->exec(env);
         }
     }
 };
 
 struct WhileStmt : Stmt {
     ExprP cond; StmtP body;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
 #ifdef VENOS_WASM
         // 웹에선 무한 루프가 탭을 얼리므로 상한 유지. 네이티브는 상한 없음 (빌드본과 동작 일치)
         long long guard = 0;
 #endif
         while (cond->eval(env).truthy()) {
-            try { body->exec(env); }
-            catch (ContinueSignal&) {}
-            catch (BreakSignal&)    { break; }
+            pumpWeb();
+            Flow f = body->exec(env);
+            if (f == Flow::BREAK)  break;
+            if (f == Flow::RETURN) return f;
 #ifdef VENOS_WASM
             if (++guard > 10'000'000)
                 throw LangError("반복 횟수가 너무 많습니다 (무한 루프?)");
 #endif
         }
+        return Flow::NORMAL;
     }
 };
 // for i = 1 to 10 (step 2) { ... }  — 양끝 포함, step 생략 시 방향 자동
 struct ForStmt : Stmt {
     string var; ExprP start, end, step; StmtP body; int line;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         auto err = [&](const string& m) {
             return LangError(lineTag(line) + "" + m);
         };
@@ -1092,24 +1635,30 @@ struct ForStmt : Stmt {
                 throw err(KW_STEP + " 은 0이 아닌 숫자여야 합니다");
             stepv = sv.num;
         } else {
-            stepv = (s.num <= e.num) ? 1 : -1;
+            // step 이 없으면 **항상 올라간다** — 시작이 끝보다 크면 한 번도 안 돈다.
+            // 교과서의 "for i ← 1 to n" 과 같은 뜻이다. 예전엔 방향을 자동으로 정했는데,
+            // 그러면 `for i = 1 to len(A)` 가 빈 리스트에서 i = 1, 0 으로 **두 번** 돌아
+            // 교과서 알고리즘이 경계에서 전부 깨졌다 (지뢰밭 참고).
+            stepv = 1;
         }
         // 루프 변수는 항상 "현재 스코프"의 지역 변수
         // (find 로 부모 체인을 타면 재귀 호출끼리 전역 변수를 공유하는 버그가 생김)
         env.vars[var] = Value::number(0);
         Value* slot = &env.vars[var];
         for (double i = s.num; stepv > 0 ? i <= e.num : i >= e.num; i += stepv) {
+            pumpWeb();
             *slot = Value::number(i);
-            try { body->exec(env); }
-            catch (ContinueSignal&) {}
-            catch (BreakSignal&)    { return; }
+            Flow f = body->exec(env);
+            if (f == Flow::BREAK)  break;
+            if (f == Flow::RETURN) return f;
         }
+        return Flow::NORMAL;
     }
 };
 // for x in xs { ... } — 리스트/문자열 순회 (스냅샷 방식: 순회 중 수정해도 안전)
 struct ForEachStmt : Stmt {
     string var; ExprP iter; StmtP body; int line;
-    void exec(Env& env) override {
+    Flow exec(Env& env) override {
         Value it = iter->eval(env);
         std::vector<Value> items;
         if (it.kind == Value::LIST) items = *it.list;
@@ -1124,31 +1673,34 @@ struct ForEachStmt : Stmt {
         env.vars[var] = Value::number(0);
         Value* slot = &env.vars[var];
         for (auto& e : items) {
+            pumpWeb();
             *slot = e;
-            try { body->exec(env); }
-            catch (ContinueSignal&) {}
-            catch (BreakSignal&)    { return; }
+            Flow f = body->exec(env);
+            if (f == Flow::BREAK)  break;
+            if (f == Flow::RETURN) return f;
         }
+        return Flow::NORMAL;
     }
 };
 
 struct BreakStmt : Stmt {
-    void exec(Env&) override { throw BreakSignal{}; }
+    Flow exec(Env&) override { return Flow::BREAK; }
 };
 struct ContinueStmt : Stmt {
-    void exec(Env&) override { throw ContinueSignal{}; }
+    Flow exec(Env&) override { return Flow::CONTINUE; }
 };
 struct ReturnStmt : Stmt {
     ExprP val;
-    void exec(Env& env) override {
-        throw ReturnSignal{ val ? val->eval(env) : Value::number(0) };
+    Flow exec(Env& env) override {
+        g_retVal = val ? val->eval(env) : Value::number(0);
+        return Flow::RETURN;
     }
 };
 struct FuncStmt : Stmt {
     string name;
     std::vector<string> params;
     StmtP body;
-    void exec(Env&) override { g_funcs[name] = this; }
+    Flow exec(Env&) override { g_funcs[name] = this; return Flow::NORMAL; }
 };
 
 // class 이름 { func ... }  — 메서드 묶음. init 이 생성자.
@@ -1156,7 +1708,7 @@ struct ClassStmt : Stmt {
     string name;
     std::vector<std::unique_ptr<FuncStmt>> methodList;   // 소유권
     std::map<string, FuncStmt*> methods;                  // 이름 → 메서드
-    void exec(Env&) override { g_classes[name] = this; }
+    Flow exec(Env&) override { g_classes[name] = this; return Flow::NORMAL; }
 };
 
 // 메서드 실행 공통부: self + 인자를 지역 스코프에 바인딩하고 본문 실행
@@ -1166,7 +1718,7 @@ static Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
 // 깊은 복사 — 리스트/딕셔너리/객체를 재귀적으로 새로 만든다
 static Value deepCopy(const Value& v, int depth, int line) {
     if (depth > 1000)
-        throw LangError(lineTag(line) + "복사할 수 없습니다 (자기 자신을 포함한 구조?)");
+        throw LangError(lineTag(line) + "복사할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (v.kind == Value::LIST) {
         std::vector<Value> xs;
         for (auto& e : *v.list) xs.push_back(deepCopy(e, depth + 1, line));
@@ -1185,14 +1737,22 @@ static Value deepCopy(const Value& v, int depth, int line) {
 
 // 재귀 깊이 카운터 — 생성 시 +1, 소멸 시 -1 (예외로 빠져나가도 자동 복원)
 struct DepthGuard {
-    DepthGuard(int line) {
+    DepthGuard(int line, const string& name) {
+        pumpWeb();   // 루프 없이 재귀만 도는 프로그램(fib)도 멈출 수 있게. 프레임을
+                     // 건드리기 전에 부른다 — 여기서 ExitSignal 이 나가도 셈이 어긋나지 않는다
         if (++g_callDepth > MAX_RECURSION) {
             --g_callDepth;
-            throw LangError(lineTag(line) + "함수 호출이 너무 깊습니다 (재귀 " 
-                            + std::to_string(MAX_RECURSION) + "회 초과 — 무한 재귀?)");
+            throw LangError(lineTag(line) + "함수 호출이 너무 깊습니다 (재귀 "
+                            + std::to_string(MAX_RECURSION) + "회 초과 — 무한 재귀?)"
+#ifdef VENOS_WASM
+                            + "  (브라우저에서는 " + std::to_string(MAX_RECURSION)
+                            + "까지만 됩니다. 내려받아 쓰면 " + std::to_string(RECURSION_DESKTOP) + ")"
+#endif
+                            );
         }
+        g_frames.push_back({ &name, line });
     }
-    ~DepthGuard() { --g_callDepth; }
+    ~DepthGuard() { --g_callDepth; g_frames.pop_back(); }
 };
 
 Value MethodCallExpr::eval(Env& env) {
@@ -1200,18 +1760,25 @@ Value MethodCallExpr::eval(Env& env) {
     auto err = [&](const string& m) {
         return LangError(lineTag(line) + "" + m);
     };
-    if (obj.kind != Value::OBJ)
-        throw err(obj.kindName() + "에는 메서드를 호출할 수 없습니다");
+    if (obj.kind != Value::OBJ) {
+        // "abc".upper() 는 파이썬 버릇이다. 그 이름이 내장 함수면 쓰는 법을 알려 준다.
+        throw err(obj.kindName() + "에는 메서드를 호출할 수 없습니다" + methodHint(method));
+    }
     auto cit = g_classes.find(obj.className);
     if (cit == g_classes.end()) throw err("알 수 없는 클래스: " + obj.className);
     auto mit = cit->second->methods.find(method);
-    if (mit == cit->second->methods.end())
-        throw err("클래스 '" + obj.className + "' 에 메서드 '" + method + "' 이(가) 없습니다");
+    if (mit == cit->second->methods.end()) {
+        std::vector<string> names;
+        for (auto& [k, v] : cit->second->methods) names.push_back(k);
+        throw err("클래스 '" + obj.className + "' 에 메서드 '" + method + "'"
+                  + josa(method, "이", "가") + " 없습니다" + suggestName(method, names));
+    }
     FuncStmt* fn = mit->second;
     if (args.size() != fn->params.size())
         throw err(method + "() 는 인자 " + std::to_string(fn->params.size())
                   + "개가 필요합니다 (지금 " + std::to_string(args.size()) + "개)");
     std::vector<Value> vals;
+    vals.reserve(args.size());
     for (auto& a : args) vals.push_back(a->eval(env));
     return runMethod(cit->second, fn, obj, vals, line);
 }
@@ -1225,6 +1792,7 @@ struct CallExpr : Expr {
             return LangError(lineTag(line) + "" + m);
         };
         std::vector<Value> vals;
+        vals.reserve(args.size());
         for (auto& a : args) vals.push_back(a->eval(env));
         auto needNum = [&](size_t i) {
             if (vals[i].kind != Value::NUM)
@@ -1240,11 +1808,21 @@ struct CallExpr : Expr {
             needArgs(2, "random(최소, 최대)");
             long long a = (long long)needNum(0), b = (long long)needNum(1);
             if (a > b) std::swap(a, b);
-            static std::mt19937_64 rng{ std::random_device{}() };
+            static std::mt19937_64 rng{ seedFromEnv() };
             std::uniform_int_distribution<long long> dist(a, b);
             return Value::number((double)dist(rng));
         }
-        if (name == "round") { needArgs(1, "round(숫자)"); return Value::number(std::round(needNum(0))); }
+        if (name == "round") {     // round(3.7) → 4 / round(3.14159, 2) → 3.14
+            if (vals.size() != 1 && vals.size() != 2)
+                throw err("round(숫자) 또는 round(숫자, 자릿수) 로 써야 합니다");
+            double x = needNum(0);
+            if (vals.size() == 1) return Value::number(std::round(x));
+            double d = needNum(1);
+            if (d != std::floor(d) || d < 0 || d > 15)
+                throw err("round() 의 자릿수는 0 이상 15 이하의 정수여야 합니다");
+            double p = std::pow(10.0, d);
+            return Value::number(std::round(x * p) / p);
+        }
         if (name == "floor") { needArgs(1, "floor(숫자)"); return Value::number(std::floor(needNum(0))); }
         if (name == "ceil")  { needArgs(1, "ceil(숫자)");  return Value::number(std::ceil(needNum(0)));  }
         if (name == "abs")   { needArgs(1, "abs(숫자)");   return Value::number(std::fabs(needNum(0)));  }
@@ -1260,13 +1838,9 @@ struct CallExpr : Expr {
             needArgs(1, "num(값)");
             if (vals[0].kind == Value::NUM) return vals[0];
             if (vals[0].kind == Value::STR) {
-                string s = trim(vals[0].str);
-                try {
-                    size_t used = 0;
-                    double d = std::stod(s, &used);
-                    if (used == s.size()) return Value::number(d);
-                } catch (...) {}
-                throw err("숫자로 바꿀 수 없는 문자열: \"" + vals[0].str + "\"");
+                double d;
+                if (strToNum(vals[0].str, d)) return Value::number(d);
+                throw err("숫자로 바꿀 수 없는 문자열: \"" + ellipsize(vals[0].str, 40) + "\"");
             }
             throw err("리스트는 숫자로 바꿀 수 없습니다");
         }
@@ -1346,7 +1920,13 @@ struct CallExpr : Expr {
             return Value::text(s);
         }
         if (name == "find") {      // find("안녕하세요", "하세") → 3 (글자 위치, 없으면 0)
-            needArgs(2, "find(문자열, 찾을것)");
+            needArgs(2, "find(문자열, 찾을것) 또는 find(리스트, 값)");
+            if (vals[0].kind == Value::LIST) {    // 리스트에서 값의 위치 (순차 탐색)
+                auto& xs = *vals[0].list;
+                for (size_t i = 0; i < xs.size(); i++)
+                    if (deepEquals(xs[i], vals[1], 0, line)) return Value::number((double)(i + 1));
+                return Value::number(0);
+            }
             auto hay = utf8Chars(needStr(0));
             auto nee = utf8Chars(needStr(1));
             if (nee.empty()) throw err("find() 로 빈 문자열은 찾을 수 없습니다");
@@ -1392,17 +1972,24 @@ struct CallExpr : Expr {
         }
         if (name == "readfile") {  // readfile("data.txt") → 파일 전체를 문자열로
             needArgs(1, "readfile(경로)");
-            std::ifstream f(toPath(needStr(0)));
-            if (!f) throw err("파일을 열 수 없습니다: " + vals[0].str);
-            std::stringstream buf;
-            buf << f.rdbuf();
-            return Value::text(buf.str());
+            // 리눅스의 fopen 은 **폴더도 열어 준다** (읽으려 할 때 비로소 실패한다).
+            // 그냥 두면 readfile(".") 이 빈 문자열을 돌려줬다 — 윈도우에서는 에러,
+            // 파이썬에서는 IsADirectoryError 라 세 곳이 갈렸다. exists() 와 같은
+            // 검사(is_regular_file)를 먼저 한다.
+            {
+                std::error_code ec;
+                if (!fs::is_regular_file(toPath(needStr(0)), ec))
+                    throw err("파일을 열 수 없습니다: " + vals[0].str);
+            }
+            std::FILE* fp = openFile(needStr(0), "rb", L"rb");
+            if (!fp) throw err("파일을 열 수 없습니다: " + vals[0].str);
+            return Value::text(readAll(fp));
         }
         if (name == "writefile") { // writefile("out.txt", 내용) → 파일에 저장
             needArgs(2, "writefile(경로, 내용)");
-            std::ofstream f(toPath(needStr(0)));
-            if (!f) throw err("파일을 만들 수 없습니다: " + vals[0].str);
-            f << vals[1].toString();
+            std::FILE* fp = openFile(needStr(0), "wb", L"wb");
+            if (!fp) throw err("파일을 만들 수 없습니다: " + vals[0].str);
+            writeAll(fp, vals[1].toString());
             return Value::number(1);
         }
         if (name == "time") {      // time() → 1970년부터 지난 초 (소수점 포함)
@@ -1412,14 +1999,15 @@ struct CallExpr : Expr {
         }
         if (name == "exists") {    // exists("save.txt") → 파일 있으면 true
             needArgs(1, "exists(경로)");
-            std::ifstream f(toPath(needStr(0)));
-            return Value::number(f.good() ? 1 : 0);
+            // "열리는가"가 아니라 "있는가"를 묻는다 — 트랜스파일 빌드본과 같은 판단이어야 한다
+            std::error_code ec;
+            return Value::number(fs::is_regular_file(toPath(needStr(0)), ec) ? 1 : 0);
         }
         if (name == "appendfile") { // appendfile(경로, 내용) → 파일 끝에 이어쓰기
             needArgs(2, "appendfile(경로, 내용)");
-            std::ofstream f(toPath(needStr(0)), std::ios::app);
-            if (!f) throw err("파일을 열 수 없습니다: " + vals[0].str);
-            f << vals[1].toString();
+            std::FILE* fp = openFile(needStr(0), "ab", L"ab");
+            if (!fp) throw err("파일을 열 수 없습니다: " + vals[0].str);
+            writeAll(fp, vals[1].toString());
             return Value::number(1);
         }
         if (name == "error") {     // error("메시지") → 일부러 에러 발생 (try 로 잡기)
@@ -1441,10 +2029,30 @@ struct CallExpr : Expr {
             for (auto& [k, v] : *vals[0].map) out.push_back(Value::text(k));
             return Value::makeList(std::move(out));
         }
-        if (name == "has") {       // has(d, "키") → true/false
-            needArgs(2, "has(딕셔너리, 키)");
-            if (vals[0].kind != Value::MAP) throw err("has() 의 1번째 인자는 딕셔너리여야 합니다");
+        if (name == "has") {       // has(d, "키") / has(리스트, 값) → true/false
+            needArgs(2, "has(딕셔너리, 키) 또는 has(리스트, 값)");
+            if (vals[0].kind == Value::LIST) {
+                for (auto& x : *vals[0].list)
+                    if (deepEquals(x, vals[1], 0, line)) return Value::number(1);
+                return Value::number(0);
+            }
+            if (vals[0].kind != Value::MAP)
+                throw err("has() 의 1번째 인자는 딕셔너리나 리스트여야 합니다");
             return Value::number(vals[0].map->count(needStr(1)) ? 1 : 0);
+        }
+        if (name == "reverse") {   // reverse(리스트) → 제자리 뒤집기 / reverse("문자열") → 뒤집은 새 문자열
+            needArgs(1, "reverse(리스트) 또는 reverse(문자열)");
+            if (vals[0].kind == Value::LIST) {
+                std::reverse(vals[0].list->begin(), vals[0].list->end());
+                return vals[0];
+            }
+            if (vals[0].kind == Value::STR) {
+                auto cs = utf8Chars(vals[0].str);
+                string out;
+                for (size_t i = cs.size(); i > 0; i--) out += cs[i - 1];
+                return Value::text(out);
+            }
+            throw err("reverse() 의 인자는 리스트나 문자열이어야 합니다");
         }
         if (name == "remove") {    // remove(d, "키") → 있었으면 1 / remove(xs, i) → 빠진 원소
             needArgs(2, "remove(딕셔너리, 키) 또는 remove(리스트, 위치)");
@@ -1480,21 +2088,24 @@ struct CallExpr : Expr {
 
         // ---- 사용자 정의 함수 ----
         auto it = g_funcs.find(name);
-        if (it == g_funcs.end()) throw err("정의되지 않은 함수 또는 클래스: " + name);
+        if (it == g_funcs.end()) {
+            std::vector<string> names = BUILTIN_NAMES;
+            for (auto& [k, v] : g_funcs)   names.push_back(k);
+            for (auto& [k, v] : g_classes) names.push_back(k);
+            throw err("정의되지 않은 함수 또는 클래스: " + name + suggestName(name, names));
+        }
         FuncStmt* fn = it->second;
         if (vals.size() != fn->params.size())
             throw err(name + "() 는 인자 " + std::to_string(fn->params.size())
                       + "개가 필요합니다 (지금 " + std::to_string(vals.size()) + "개)");
-        DepthGuard guard(line);   // 무한 재귀 방지
+        DepthGuard guard(line, name);   // 무한 재귀 방지 + 호출 경로
         Env local;
         local.parent = g_global;
+        // vals 는 여기서 끝이라 옮겨 담는다 — Value 하나에 문자열 둘과 shared_ptr 둘이 들어
+        // 있어서 복사가 공짜가 아니다 (인자 하나당 130ns 쯤이 여기서 나왔다)
         for (size_t i = 0; i < vals.size(); i++)
-            local.define(fn->params[i], vals[i]);
-        try {
-            fn->body->exec(local);
-        } catch (ReturnSignal& r) {
-            return r.v;
-        }
+            local.define(fn->params[i], std::move(vals[i]));
+        if (fn->body->exec(local) == Flow::RETURN) return g_retVal;
         return Value::number(0);
     }
 };
@@ -1502,17 +2113,14 @@ struct CallExpr : Expr {
 Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
                 std::vector<Value>& args, int line) {
     (void)cls;
-    DepthGuard guard(line);
+    DepthGuard guard(line, fn->name);
     Env local;
     local.parent = g_global;
     local.define("self", self);   // self 는 같은 필드 맵을 공유 → 수정이 원본에 반영
+    // 부르는 쪽(MethodCallExpr, 생성자)이 args 를 이 호출 뒤로 쓰지 않으므로 옮겨 담는다
     for (size_t i = 0; i < args.size(); i++)
-        local.define(fn->params[i], args[i]);
-    try {
-        fn->body->exec(local);
-    } catch (ReturnSignal& r) {
-        return r.v;
-    }
+        local.define(fn->params[i], std::move(args[i]));
+    if (fn->body->exec(local) == Flow::RETURN) return g_retVal;
     return Value::number(0);
 }
 
@@ -1542,9 +2150,47 @@ Value runMethod(ClassStmt* cls, FuncStmt* fn, Value& self,
 //  primary   = NUMBER | STRING | IDENT | IDENT "(" args ")"
 //            | "[" (expr ("," expr)*)? "]" | "input" STRING? | "(" expr ")"
 // ============================================================
+
+// 재귀 하강 파서의 중첩 깊이 제한.
+//
+// 이게 없으면 "((((((...1...))))))" 같은 입력에 파서가 그대로 재귀해 스택을 넘기고
+// 세그폴트로 죽는다 (퍼저가 찾았다). 인터프리터는 128MB 스택 스레드 위에서 돌아
+// 수만 단계까지 버티지만 topython·build 는 메인 스레드에서 파싱하므로 5천 단계에
+// 이미 죽었다 — 같은 파일이 실행은 되는데 변환만 죽는 상태였다.
+//
+// 깊이를 여기서 막으면 AST 깊이가 같이 묶여서 eval·CodeGen·PyGen·소멸자 재귀까지
+// 한 번에 안전해진다. 교과서 코드는 10단계도 안 쓴다.
+//
+// 보간 "{...}" 안은 별도 Parser 로 파싱되므로 카운터는 전역이어야 한다.
+static const int MAX_NEST = 200;
+static int g_parseNest = 0;
+struct NestGuard {
+    explicit NestGuard(int line) {
+        if (++g_parseNest > MAX_NEST) {
+            --g_parseNest;
+            throw LangError(lineTag(line) + "식이나 블록이 너무 깊게 중첩되었습니다 ("
+                            + std::to_string(MAX_NEST) + "단계 초과)"
+                            + " — 괄호가 제대로 닫혔는지 확인하세요");
+        }
+    }
+    ~NestGuard() { --g_parseNest; }
+};
+
+// 파싱 시점에 값이 정해지는 수인가 (-3 은 NegExpr(NumExpr) 로 파싱된다)
+static bool constNum(Expr* e, double& out) {
+    if (auto* n = dynamic_cast<NumExpr*>(e)) { out = n->v; return true; }
+    if (auto* g = dynamic_cast<NegExpr*>(e)) {
+        double v;
+        if (!constNum(g->inner.get(), v)) return false;
+        out = -v; return true;
+    }
+    return false;
+}
+
 struct Parser {
     std::vector<Token> toks;
     size_t pos = 0;
+    bool inClassBody = false;   // 메서드 이름만은 내장 함수와 겹쳐도 된다 (obj.len() 로 부르니까)
     Parser(std::vector<Token> t) : toks(std::move(t)) {}
 
     const Token& peek(size_t ahead = 0) {
@@ -1556,7 +2202,8 @@ struct Parser {
     bool match(Tok t) { if (check(t)) { pos++; return true; } return false; }
     Token expect(Tok t, const string& what) {
         if (!check(t))
-            throw LangError(lineTag(peek().line) + "문법 오류: " + what + " 이(가) 필요합니다");
+            throw LangError(lineTag(peek().line) + "문법 오류: " + what
+                            + josa(what, "이", "가") + " 필요합니다");
         return advance();
     }
     // 다음 토큰이 표현식의 시작이 될 수 있는가? (값 없는 return 판별용)
@@ -1571,6 +2218,7 @@ struct Parser {
     }
 
     std::vector<StmtP> parseProgram() {
+        g_parseNest = 0;
         std::vector<StmtP> out;
         while (!check(Tok::END)) out.push_back(parseStatement());
         return out;
@@ -1594,6 +2242,7 @@ struct Parser {
         if (match(Tok::IF)) {
             auto node = std::make_unique<IfStmt>();
             node->cond = parseExpr();
+            checkCompareTypo(KW_IF);
             match(Tok::FILLER);
             node->thenB = parseBlock();
             if (match(Tok::ELSE)) {
@@ -1605,6 +2254,7 @@ struct Parser {
         if (match(Tok::WHILE)) {
             auto node = std::make_unique<WhileStmt>();
             node->cond = parseExpr();
+            checkCompareTypo(KW_WHILE);
             match(Tok::FILLER);
             node->body = parseBlock();
             return node;
@@ -1627,6 +2277,18 @@ struct Parser {
             expect(Tok::TO, KW_TO);
             node->end = parseExpr();
             if (match(Tok::STEP)) node->step = parseExpr();
+            else {
+                // step 없는 for 는 항상 올라간다. 양끝이 상수인데 거꾸로면 학생이 거꾸로
+                // 세려던 것이므로, 조용히 0번 도는 대신 이름을 불러 준다. 한쪽이라도
+                // 식이면 `for i = 1 to n-1` 이 n=1 에서 0번 도는 **정상**인 경우라 막지 않는다.
+                double s, e;
+                if (constNum(node->start.get(), s) && constNum(node->end.get(), e) && s > e)
+                    throw LangError(lineTag(node->line) + KW_FOR + " 의 시작이 끝보다 큽니다: "
+                                    + KW_FOR + " " + node->var + " = "
+                                    + Value::number(s).toString() + " " + KW_TO + " "
+                                    + Value::number(e).toString()
+                                    + "  (거꾸로 세려면 " + KW_STEP + " -1 을 붙이세요)");
+            }
             node->body = parseBlock();
             return node;
         }
@@ -1640,8 +2302,14 @@ struct Parser {
         }
         if (match(Tok::CLASS)) {
             auto node = std::make_unique<ClassStmt>();
-            node->name = expect(Tok::IDENT, "클래스 이름").text;
+            Token nameTok = expect(Tok::IDENT, "클래스 이름");
+            node->name = nameTok.text;
+            if (isBuiltinName(node->name))
+                throw LangError(lineTag(nameTok.line) + "클래스 이름 '" + node->name
+                                + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요)");
             expect(Tok::LBRACE, "{");
+            bool wasInClass = inClassBody;
+            inClassBody = true;                 // 메서드 이름은 내장과 겹쳐도 된다 (obj.len() 로 부른다)
             while (!check(Tok::RBRACE) && !check(Tok::END)) {
                 if (!check(Tok::FUNC))
                     throw LangError(lineTag(peek().line) + "클래스 안에는 " + KW_FUNC + " (메서드)만 쓸 수 있습니다");
@@ -1650,15 +2318,21 @@ struct Parser {
                 node->methods[fp->name] = fp;
                 node->methodList.emplace_back(fp);
             }
+            inClassBody = wasInClass;
             expect(Tok::RBRACE, "}");
             return node;
         }
         if (match(Tok::FUNC)) {
             auto node = std::make_unique<FuncStmt>();
-            node->name = expect(Tok::IDENT, "함수 이름").text;
+            Token nameTok = expect(Tok::IDENT, "함수 이름");
+            node->name = nameTok.text;
+            if (!inClassBody && isBuiltinName(node->name))
+                throw LangError(lineTag(nameTok.line) + "함수 이름 '" + node->name
+                                + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요 — 내장 함수는 가릴 수 없습니다)");
             expect(Tok::LPAREN, "(");
             if (!check(Tok::RPAREN)) {
                 do {
+                    if (check(Tok::RPAREN)) break;          // 마지막 쉼표 허용
                     node->params.push_back(expect(Tok::IDENT, "인자 이름").text);
                 } while (match(Tok::COMMA));
             }
@@ -1758,21 +2432,41 @@ struct Parser {
             }
             // 대입이 아니면: 호출 문장만 허용 (경로가 있으면 원래 표현식으로 복원 불가하므로 검사 먼저)
             if (!path.empty())
-                throw LangError(lineTag(line) + "문법 오류: = 이(가) 필요합니다");
+                throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다");
             if (dynamic_cast<CallExpr*>(e.get()) || dynamic_cast<MethodCallExpr*>(e.get()))
                 return std::make_unique<ExprStmt>(std::move(e));
-            throw LangError(lineTag(line) + "문법 오류: = 이(가) 필요합니다");
+            // "elif x == 2 {" 나 "def f():" 는 여기로 떨어진다 — 그냥 "= 기호가 필요합니다"
+            // 라고 하면 학생은 자기가 어느 언어의 버릇을 썼는지 모른다.
+            throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다"
+                            + (root ? foreignHint(root->name) : string()));
         }
+        if (check(Tok::INKW))
+            throw LangError(lineTag(peek().line) + KW_IN + " 은 for 반복에서만 씁니다"
+                            " (리스트에 있는지 보려면 has(리스트, 값))");
         throw LangError(lineTag(line) + "문법 오류: 문장이 될 수 없는 토큰입니다");
     }
 
     StmtP parseBlock() {
+        int openLine = peek().line;
+        NestGuard g(openLine);          // if 안에 if 안에 if ... 로 깊어지는 쪽
+        if (check(Tok::COLON))
+            throw LangError(lineTag(openLine) + "Venos 는 들여쓰기가 아니라 { } 로 묶습니다"
+                            " (: 를 지우고 { 로 열어서 } 로 닫으세요)");
         expect(Tok::LBRACE, "{");
         auto block = std::make_unique<BlockStmt>();
         while (!check(Tok::RBRACE) && !check(Tok::END))
             block->stmts.push_back(parseStatement());
-        expect(Tok::RBRACE, "}");
+        // 파일 끝까지 } 가 안 나왔다 — 끝 줄이 아니라 열린 자리를 가리켜야 찾을 수 있다
+        if (!check(Tok::RBRACE))
+            throw LangError(lineTag(openLine) + "여기서 연 { 를 닫는 } 가 없습니다");
+        advance();
         return block;
+    }
+    // if/while 조건 뒤에 = 가 오면 == 를 잘못 쓴 것이다 (초보자 최빈 실수)
+    void checkCompareTypo(const string& kw) {
+        if (check(Tok::ASSIGN))
+            throw LangError(lineTag(peek().line) + kw + " 조건에서 값을 견줄 때는 == 를 씁니다"
+                                                       " (= 는 값을 넣을 때)");
     }
 
     ExprP parseExpr() { return parseOr(); }
@@ -1790,12 +2484,24 @@ struct Parser {
         return left;
     }
     ExprP parseNot() {
-        if (match(Tok::NOT))
+        if (check(Tok::NOT)) {
+            NestGuard g(peek().line);   // not not not ... 은 여기서만 깊어진다
+            advance();
             return std::make_unique<NotExpr>(parseNot());
+        }
         return parseComparison();
     }
     ExprP parseComparison() {
         ExprP left = parseAddSub();
+        // 파이썬의 `in`·`is` 가 여기로 온다. 여기서 안 잡으면 조건이 그냥 끝난 걸로 보여
+        // "{ 이(가) 필요합니다" 라는, 진짜 문제와 상관없는 말이 나온다.
+        if (check(Tok::INKW) || (check(Tok::NOT) && peek(1).type == Tok::INKW))
+            throw LangError(lineTag(peek().line) + KW_IN + " 은 " + KW_FOR
+                            + " 반복에서만 씁니다 (안에 있는지 보려면 has(리스트, 값),"
+                              " 없는지는 not has(리스트, 값))");
+        if (check(Tok::IDENT) && (peek().text == "is" || peek().text == "isnt"))
+            throw LangError(lineTag(peek().line)
+                            + "같은지 보려면 is 가 아니라 == 입니다 (다른지는 !=)");
         if (check(Tok::EQ) || check(Tok::NEQ) || check(Tok::LT)
          || check(Tok::GT) || check(Tok::LE)  || check(Tok::GE)) {
             Token op = advance();
@@ -1824,7 +2530,10 @@ struct Parser {
         }
         return left;
     }
+    // 괄호·리스트·딕셔너리·인덱스·호출 인자 — 식이 한 겹 깊어지는 길은 모두
+    // 여기를 한 번씩 지난다. 단항 빼기(-)의 자기 재귀도 같이 막힌다.
     ExprP parseUnary() {
+        NestGuard g(peek().line);
         if (check(Tok::MINUS)) {
             int line = peek().line;
             advance();
@@ -1839,6 +2548,9 @@ struct Parser {
                 int line = peek().line;
                 advance();
                 ExprP idx = parseExpr();
+                if (check(Tok::COLON))
+                    throw LangError(lineTag(peek().line) + "Venos 에는 xs[1:3] 같은 슬라이스가 없습니다"
+                                    " (문자열은 substr(s, 시작, 개수), 리스트는 반복문으로)");
                 expect(Tok::RBRACKET, "]");
                 e = std::make_unique<IndexExpr>(std::move(e), std::move(idx), line);
                 continue;
@@ -1853,7 +2565,10 @@ struct Parser {
                     mc->method = nameTok.text;
                     mc->line = line;
                     if (!check(Tok::RPAREN)) {
-                        do { mc->args.push_back(parseExpr()); } while (match(Tok::COMMA));
+                        do {
+                            if (check(Tok::RPAREN)) break;  // 마지막 쉼표 허용
+                            mc->args.push_back(parseExpr());
+                        } while (match(Tok::COMMA));
                     }
                     expect(Tok::RPAREN, ")");
                     e = std::move(mc);
@@ -1890,19 +2605,32 @@ struct Parser {
                 }
                 if (depth != 0)
                     throw LangError(lineTag(line)
-                        + "문자열 보간의 { 에 짝이 되는 } 가 없습니다 (진짜 { 를 쓰려면 {{)");
+                        + "문자열 보간의 { 에 짝이 되는 } 가 없습니다"
+                          " — {} 안에서 따옴표를 쓰면 문자열이 거기서 끝나 버립니다"
+                          " (\\\" 로 쓰거나, 먼저 변수에 담으세요. 진짜 { 를 쓰려면 {{)");
                 string inner = s.substr(i + 1, j - i - 1);
                 if (trim(inner).empty())
                     throw LangError(lineTag(line) + "문자열 보간 {} 안이 비어 있습니다");
                 if (!lit.empty()) { parts.push_back(std::make_unique<StrExpr>(lit)); lit.clear(); }
                 try {
-                    Parser sub(lex(inner));
+                    // 하위 파서는 {} 안쪽 조각만 보므로 줄 번호가 1부터 다시 시작한다.
+                    // 그대로 두면 "{없는변수}" 의 실행 에러가 엉뚱한 줄을 가리킨다.
+                    auto innerToks = lex(inner);
+                    for (auto& t : innerToks) t.line = line;
+                    Parser sub(innerToks);
                     ExprP e = sub.parseExpr();
-                    if (!sub.check(Tok::END)) throw LangError("남는 토큰");
+                    if (!sub.check(Tok::END))
+                        throw LangError("{} 안에는 식 하나만 들어갈 수 있습니다");
                     parts.push_back(std::move(e));
-                } catch (LangError&) {
-                    throw LangError(lineTag(line)
-                        + "문자열 보간 {" + inner + "} 안의 식이 잘못되었습니다");
+                } catch (LangError& inErr) {
+                    // 왜 잘못됐는지까지 말해 준다. 하위 파서는 {} 안쪽 조각만 보므로
+                    // 그쪽 [줄 1] 은 바깥 줄 번호와 어긋난다 — 떼어 내고 바깥 것을 쓴다.
+                    string why = inErr.what();
+                    size_t close = why.find("] ");
+                    if (!why.empty() && why[0] == '[' && close != string::npos)
+                        why = why.substr(close + 2);
+                    throw LangError(lineTag(line) + "문자열 보간 {" + ellipsize(inner, 40)
+                                    + "} 안의 식이 잘못되었습니다: " + why);
                 }
                 interpolated = true;
                 i = j + 1;
@@ -1938,7 +2666,10 @@ struct Parser {
                 advance();  // (
                 std::vector<ExprP> args;
                 if (!check(Tok::RPAREN)) {
-                    do { args.push_back(parseExpr()); } while (match(Tok::COMMA));
+                    do {
+                        if (check(Tok::RPAREN)) break;      // 마지막 쉼표 허용
+                        args.push_back(parseExpr());
+                    } while (match(Tok::COMMA));
                 }
                 expect(Tok::RPAREN, ")");
                 return std::make_unique<CallExpr>(name.text, std::move(args), name.line);
@@ -1949,7 +2680,11 @@ struct Parser {
         if (match(Tok::LBRACKET)) {
             auto list = std::make_unique<ListExpr>();
             if (!check(Tok::RBRACKET)) {
-                do { list->items.push_back(parseExpr()); } while (match(Tok::COMMA));
+                // 마지막 쉼표를 허용한다 (여러 줄로 쓴 리스트에서 흔하고, 파이썬도 받아 준다)
+                do {
+                    if (check(Tok::RBRACKET)) break;
+                    list->items.push_back(parseExpr());
+                } while (match(Tok::COMMA));
             }
             expect(Tok::RBRACKET, "]");
             return list;
@@ -1959,6 +2694,7 @@ struct Parser {
             m->line = t.line;
             if (!check(Tok::RBRACE)) {
                 do {
+                    if (check(Tok::RBRACE)) break;          // 마지막 쉼표 허용
                     ExprP k = parseExpr();
                     expect(Tok::COLON, ":");
                     ExprP v = parseExpr();
@@ -1987,6 +2723,7 @@ void runSource(const string& src) {
     g_funcs.clear();
     g_classes.clear();
     g_callDepth = 0;
+    g_frames.clear();   // 앞 실행이 스택 넘침 등으로 중간에 끊겼으면 프레임이 남아 있다
     // 함수/클래스 호이스팅: 정의보다 위에서 사용하는 코드도 작동
     for (auto& stmt : program) {
         if (auto* fn = dynamic_cast<FuncStmt*>(stmt.get()))
@@ -1997,19 +2734,17 @@ void runSource(const string& src) {
     Env global;
     g_global = &global;
     try {
-        for (auto& stmt : program) stmt->exec(global);
+        for (auto& stmt : program) {
+            Flow f = stmt->exec(global);
+            if (f == Flow::NORMAL) continue;
+            g_global = nullptr;
+            throw LangError(f == Flow::BREAK    ? KW_BREAK + " 는 반복문 안에서만 쓸 수 있습니다"
+                          : f == Flow::CONTINUE ? KW_CONTINUE + " 는 반복문 안에서만 쓸 수 있습니다"
+                                                : KW_RETURN + " 은 함수 안에서만 쓸 수 있습니다");
+        }
     } catch (ExitSignal&) {
         g_global = nullptr;
         return;                       // exit() = 정상 종료
-    } catch (BreakSignal&) {
-        g_global = nullptr;
-        throw LangError(KW_BREAK + " 는 반복문 안에서만 쓸 수 있습니다");
-    } catch (ContinueSignal&) {
-        g_global = nullptr;
-        throw LangError(KW_CONTINUE + " 는 반복문 안에서만 쓸 수 있습니다");
-    } catch (ReturnSignal&) {
-        g_global = nullptr;
-        throw LangError(KW_RETURN + " 은 함수 안에서만 쓸 수 있습니다");
     } catch (...) {
         g_global = nullptr;
         throw;
@@ -2089,6 +2824,8 @@ static const char* RUNTIME = R"RT(// ---- Venos 런타임 (자동 생성) ----
 #include <sstream>
 #include <stdexcept>
 #include <map>
+#include <cstdio>
+#include <filesystem>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -2125,11 +2862,18 @@ struct Value {
     string toString(int depth = 0) const;
 };
 using Map = std::map<string, Value>;
-struct RunErr : std::runtime_error { RunErr(const string& m) : std::runtime_error(m) {} };
+// 본체의 LangError 와 같은 이유로 문구를 넉넉히 잘라 둔다 (3천 자짜리 이름이 들어와도
+// 에러 한 줄이 화면을 덮지 않게). 글자 경계에서 자른다.
+static string rt_cut(const string& s, size_t limit) {
+    size_t i = 0, n = 0;
+    while (i < s.size() && n < limit) { i++; while (i < s.size() && (s[i] & 0xC0) == 0x80) i++; n++; }
+    return i >= s.size() ? s : s.substr(0, i) + " \u2026";
+}
+struct RunErr : std::runtime_error { RunErr(const string& m) : std::runtime_error(rt_cut(m, 300)) {} };
 string Value::toString(int depth) const {
     if (kind == STR) return str;
     if (depth > 1000)
-        throw RunErr("출력할 수 없습니다 (자기 자신을 포함한 구조?)");
+        throw RunErr("출력할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (kind == LIST) {
         string o = "[";
         for (size_t i = 0; i < list->size(); i++) {
@@ -2177,6 +2921,19 @@ static std::vector<string> u8chars(const string& s) {
     }
     return out;
 }
+// 한국어 조사 (인터프리터와 같은 문구를 내기 위해 그대로 옮겨 온다)
+static string josa(const string& word, const char* withJong, const char* without) {
+    auto cs = u8chars(word);
+    if (!cs.empty() && cs.back().size() == 3) {
+        const string& last = cs.back();
+        unsigned cp = ((unsigned char)last[0] & 0x0Fu) << 12
+                    | ((unsigned char)last[1] & 0x3Fu) << 6
+                    | ((unsigned char)last[2] & 0x3Fu);
+        if (cp >= 0xAC00 && cp <= 0xD7A3)
+            return ((cp - 0xAC00) % 28) ? withJong : without;
+    }
+    return " " + string(withJong) + "(" + without + ")";   // 기호·영어는 띄어서 둘 다
+}
 static List iter_items(const Value& v) {
     if (v.kind == Value::LIST) return *v.list;
     if (v.kind == Value::STR) { List o; for (auto& c : u8chars(v.str)) o.push_back(Value(c)); return o; }
@@ -2195,14 +2952,27 @@ static Value mk_map(std::initializer_list<std::pair<Value, Value>> xs) {
     }
     return v;
 }
-static double needNum(const Value& v, const char* what) {
-    if (v.kind != Value::NUM) throw RunErr(string(what) + ": 숫자가 필요합니다 (지금: " + v.kindName() + ")");
+// 인터프리터와 **글자까지 같은** 문구를 내야 한다. 예전엔 여기가 "min: 숫자가 필요합니다
+// (지금: 리스트)" 였고 인터프리터는 "min() 의 2번째 인자는 숫자여야 합니다" 였다 —
+// 같은 실수에 학생이 어떻게 실행했는지에 따라 다른 말을 들었다. 몇 번째 인자인지는
+// 빌드본이 알 수 없어서 부르는 쪽이 넘겨 준다.
+static double needNum(const Value& v, const char* what, int pos) {
+    if (v.kind != Value::NUM)
+        throw RunErr(string(what) + "() 의 " + std::to_string(pos) + "번째 인자는 숫자여야 합니다");
+    return v.num;
+}
+// for 의 시작/끝/step 은 내장 함수가 아니라 문구가 다르다 (인터프리터와 같게)
+static double needNumFor(const Value& v, const char* kw, bool isStep) {
+    if (v.kind != Value::NUM)
+        throw RunErr(isStep ? string(kw) + " 은 0이 아닌 숫자여야 합니다"
+                            : string(kw) + " 의 시작/끝 값은 숫자여야 합니다");
     return v.num;
 }
 // 산술 이항 연산의 타입 검사 — 인터프리터와 동일한 에러 문구
 static void needNums(const Value& a, const Value& b) {
     if (a.kind != Value::NUM || b.kind != Value::NUM)
-        throw RunErr(a.kindName() + "와(과) " + b.kindName() + "는 이 연산이 안 됩니다");
+        throw RunErr(a.kindName() + josa(a.kindName(), "과", "와") + " " + b.kindName()
+                     + josa(b.kindName(), "은", "는") + " 이 연산이 안 됩니다");
 }
 static Value vadd(const Value& a, const Value& b) {
     if (a.kind == Value::STR || b.kind == Value::STR) return Value(a.toString() + b.toString());
@@ -2216,7 +2986,26 @@ static Value vadd(const Value& a, const Value& b) {
     return Value(a.num + b.num);
 }
 static Value vsub(const Value& a, const Value& b) { needNums(a, b); return Value(a.num - b.num); }
-static Value vmul(const Value& a, const Value& b) { needNums(a, b); return Value(a.num * b.num); }
+static const size_t RT_REPEAT_CAP = 10000000;
+static Value vmul(const Value& a, const Value& b) {
+    // 문자열 * 숫자 = 그만큼 반복 — 별 찍기, 막대그래프, 구분선
+    if ((a.kind == Value::STR) != (b.kind == Value::STR)) {
+        const Value& s = (a.kind == Value::STR) ? a : b;
+        const Value& n = (a.kind == Value::STR) ? b : a;
+        if (n.kind != Value::NUM)
+            throw RunErr("문자열은 숫자만큼만 반복할 수 있습니다 (지금: " + n.kindName() + ")");
+        if (n.num != std::floor(n.num))
+            throw RunErr("문자열을 소수 번 반복할 수는 없습니다 (지금: " + Value(n.num).toString() + ")");
+        size_t k = n.num <= 0 ? 0 : (size_t)n.num;
+        if (n.num > (double)RT_REPEAT_CAP || s.str.size() * k > RT_REPEAT_CAP)
+            throw RunErr("문자열 반복이 너무 깁니다 (최대 10000000자)");
+        string out; out.reserve(s.str.size() * k);
+        for (size_t i = 0; i < k; i++) out += s.str;
+        return Value(out);
+    }
+    needNums(a, b);
+    return Value(a.num * b.num);
+}
 static Value vdiv(const Value& a, const Value& b) {
     needNums(a, b);
     if (b.num == 0) throw RunErr("0으로 나눌 수 없습니다");
@@ -2225,7 +3014,10 @@ static Value vdiv(const Value& a, const Value& b) {
 static Value vmod(const Value& a, const Value& b) {
     needNums(a, b);
     if (b.num == 0) throw RunErr("0으로 나머지 연산을 할 수 없습니다");
-    return Value(std::fmod(a.num, b.num));
+    // 나머지는 나누는 수의 부호를 따른다 (수학·파이썬 관례) — -7 % 3 = 2
+    double r = std::fmod(a.num, b.num);
+    if (r != 0 && ((r < 0) != (b.num < 0))) r += b.num;
+    return Value(r);
 }
 static Value vneg(const Value& a) {
     if (a.kind != Value::NUM) throw RunErr(a.kindName() + "에는 - 를 붙일 수 없습니다");
@@ -2235,13 +3027,14 @@ template<class F> static Value vcmp(const Value& a, const Value& b, F f) {
     if (a.kind == Value::LIST || b.kind == Value::LIST || a.kind == Value::MAP || b.kind == Value::MAP
      || a.kind == Value::OBJ  || b.kind == Value::OBJ)
         throw RunErr("리스트/딕셔너리/객체는 비교 연산을 지원하지 않습니다");
-    if (a.kind != b.kind) throw RunErr("숫자와 문자열은 비교할 수 없습니다");
+    if (a.kind != b.kind) throw RunErr("숫자와 문자열은 비교할 수 없습니다"
+                                      "  (숫자처럼 보이는 문자열이면 num() 으로 바꿔 쓰세요)");
     bool r = (a.kind == Value::NUM) ? f(a.num, b.num) : f(a.str, b.str);
     return Value(r ? 1.0 : 0.0);
 }
 // ==/!= 깊은 비교 — 인터프리터의 deepEquals 와 동일 규칙 (타입 다르면 false, 순환은 깊이 한도)
 static bool veqDeep(const Value& a, const Value& b, int depth) {
-    if (depth > 1000) throw RunErr("비교할 수 없습니다 (자기 자신을 포함한 구조?)");
+    if (depth > 1000) throw RunErr("비교할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (a.kind != b.kind) return false;
     if (a.kind == Value::NUM) return a.num == b.num;
     if (a.kind == Value::STR) return a.str == b.str;
@@ -2273,7 +3066,8 @@ static size_t chkIdx(const Value& i, size_t size) {
     if (i.num != std::floor(i.num)) throw RunErr("인덱스는 정수여야 합니다 (지금: " + i.toString() + ")");
     long long n = (long long)i.num;
     if (n < 1 || n > (long long)size)
-        throw RunErr("인덱스 범위 초과: " + std::to_string(n) + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)");
+        throw RunErr("인덱스 범위 초과: " + std::to_string(n) + " (리스트 크기: " + std::to_string(size) + ", 인덱스는 1부터)"
+                     + (n < 1 ? "  (뒤에서 세는 번호는 없습니다 — 마지막은 xs[len(xs)])" : ""));
     return (size_t)(n - 1);
 }
 static const string& mapKey(const Value& i) {
@@ -2291,7 +3085,8 @@ static Value idx_get(const Value& t, const Value& i) {
             throw RunErr("키가 없습니다: \"" + i.str + "\"  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)");
         return it->second;
     }
-    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                                           + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
 // 인덱스 체인 중간 (반드시 존재해야 함) — 복합 대입의 마지막에도 사용
@@ -2302,7 +3097,8 @@ static Value& idx_mid(Value& t, const Value& i) {
         return it->second;
     }
     if (t.kind == Value::STR) throw RunErr("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                                           + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
 static Value fld_get(const Value& t, const string& f) {
@@ -2328,13 +3124,26 @@ static Value& fld_put(Value& t, const string& f) {
 static Value& idx_put(Value& t, const Value& i) {
     if (t.kind == Value::MAP) return (*t.map)[mapKey(i)];
     if (t.kind == Value::STR) throw RunErr("문자열의 글자는 직접 바꿀 수 없습니다 (replace() 를 쓰세요)");
-    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다");
+    if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
+                                           + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
 static void my_print(std::initializer_list<string> vs) {
     string o; bool first = true;
     for (auto& v : vs) { if (!first) o += " "; first = false; o += v; }
     std::cout << o << "\n";
+}
+// 파일 경로 — 윈도우는 좁은 문자열 경로를 ANSI 코드페이지로 읽는다.
+// 그대로 두면 readfile("자료.txt") 가 한글 이름을 못 찾는다 (인터프리터는 이미 이렇게 한다).
+static std::filesystem::path rt_path(const string& utf8) {
+#ifdef _WIN32
+    int len = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), (int)utf8.size(), nullptr, 0);
+    std::wstring w(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), (int)utf8.size(), &w[0], len);
+    return std::filesystem::path(w);
+#else
+    return std::filesystem::path(utf8);
+#endif
 }
 static string trimS(const string& s) {
     size_t a = s.find_first_not_of(" \t\r");
@@ -2361,39 +3170,85 @@ static bool rt_readline(string& out) {
 #endif
     return (bool)std::getline(std::cin, out);
 }
+// 문자열이 "학생이 숫자라고 생각하는 것"인가 (본체의 strToNum 과 같은 문법).
+// std::stod 는 0x10·inf·nan 까지 받는데 파이썬의 float() 은 셋 다 거절한다 —
+// 그대로 두면 세 백엔드가 다른 답을 낸다.
+static bool rt_strToNum(const std::string& s, double& out) {
+    size_t i = 0, n = s.size();
+    auto skipSpace = [&] {
+        while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n'
+                         || s[i] == '\r' || s[i] == '\v' || s[i] == '\f')) i++;
+    };
+    auto digits = [&] {
+        size_t k = 0;
+        while (i < n && s[i] >= '0' && s[i] <= '9') { i++; k++; }
+        return k;
+    };
+    skipSpace();
+    if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+    size_t whole = digits(), frac = 0;
+    if (i < n && s[i] == '.') { i++; frac = digits(); }
+    if (whole == 0 && frac == 0) return false;
+    if (i < n && (s[i] == 'e' || s[i] == 'E')) {
+        i++;
+        if (i < n && (s[i] == '+' || s[i] == '-')) i++;
+        if (digits() == 0) return false;
+    }
+    skipSpace();
+    if (i != n) return false;
+    try { out = std::stod(s); } catch (...) { return false; }
+    return out == out && out < HUGE_VAL && out > -HUGE_VAL;
+}
 static Value my_input(const string& prompt) {
     if (!prompt.empty()) std::cout << prompt << std::flush;
     string line;
     if (!rt_readline(line)) throw RunErr("입력을 읽을 수 없습니다");
     line = trimS(line);
-    try { size_t u = 0; double d = std::stod(line, &u); if (u == line.size()) return Value(d); } catch (...) {}
+    double d;
+    if (rt_strToNum(line, d)) return Value(d);
     return Value(line);
 }
 static size_t u8len(const string& s) { size_t n = 0; for (unsigned char c : s) if ((c & 0xC0) != 0x80) n++; return n; }
+// 본체의 seedFromEnv() 와 같은 규칙 — 같은 씨앗이면 두 백엔드가 같은 수열을 돈다
+static unsigned long long rt_seedFromEnv() {
+    if (const char* e = std::getenv("VENOS_SEED")) {
+        char* end = nullptr;
+        unsigned long long v = std::strtoull(e, &end, 10);
+        if (end && end != e && *end == '\0') return v;
+    }
+    return std::random_device{}();
+}
 static Value b_random(const Value& a, const Value& b) {
-    long long x = (long long)needNum(a, "random"), y = (long long)needNum(b, "random");
+    long long x = (long long)needNum(a, "random", 1), y = (long long)needNum(b, "random", 2);
     if (x > y) std::swap(x, y);
-    static std::mt19937_64 rng{ std::random_device{}() };
+    static std::mt19937_64 rng{ rt_seedFromEnv() };
     std::uniform_int_distribution<long long> d(x, y);
     return Value((double)d(rng));
 }
-static Value b_round(const Value& a) { return Value(std::round(needNum(a, "round"))); }
-static Value b_floor(const Value& a) { return Value(std::floor(needNum(a, "floor"))); }
-static Value b_ceil (const Value& a) { return Value(std::ceil (needNum(a, "ceil" ))); }
-static Value b_abs  (const Value& a) { return Value(std::fabs (needNum(a, "abs"  ))); }
+static Value b_round(const Value& a) { return Value(std::round(needNum(a, "round", 1))); }
+static Value b_round(const Value& a, const Value& b) {
+    double x = needNum(a, "round", 1), d = needNum(b, "round", 2);
+    if (d != std::floor(d) || d < 0 || d > 15)
+        throw RunErr("round() 의 자릿수는 0 이상 15 이하의 정수여야 합니다");
+    double p = std::pow(10.0, d);
+    return Value(std::round(x * p) / p);
+}
+static Value b_floor(const Value& a) { return Value(std::floor(needNum(a, "floor", 1))); }
+static Value b_ceil (const Value& a) { return Value(std::ceil (needNum(a, "ceil", 1))); }
+static Value b_abs  (const Value& a) { return Value(std::fabs (needNum(a, "abs", 1))); }
 static Value b_sqrt (const Value& a) {
-    double x = needNum(a, "sqrt");
+    double x = needNum(a, "sqrt", 1);
     if (x < 0) throw RunErr("sqrt() 에 음수는 넣을 수 없습니다");
     return Value(std::sqrt(x));
 }
-static Value b_min(const Value& a, const Value& b) { return Value(std::min(needNum(a,"min"), needNum(b,"min"))); }
-static Value b_max(const Value& a, const Value& b) { return Value(std::max(needNum(a,"max"), needNum(b,"max"))); }
+static Value b_min(const Value& a, const Value& b) { return Value(std::min(needNum(a,"min",1), needNum(b,"min",2))); }
+static Value b_max(const Value& a, const Value& b) { return Value(std::max(needNum(a,"max",1), needNum(b,"max",2))); }
 static Value b_num(const Value& v) {
     if (v.kind == Value::NUM) return v;
     if (v.kind == Value::STR) {
-        string s = trimS(v.str);
-        try { size_t u = 0; double d = std::stod(s, &u); if (u == s.size()) return Value(d); } catch (...) {}
-        throw RunErr("숫자로 바꿀 수 없는 문자열: \"" + v.str + "\"");
+        double d;
+        if (rt_strToNum(v.str, d)) return Value(d);
+        throw RunErr("숫자로 바꿀 수 없는 문자열: \"" + rt_cut(v.str, 40) + "\"");
     }
     throw RunErr("리스트는 숫자로 바꿀 수 없습니다");
 }
@@ -2426,12 +3281,14 @@ static Value b_sort(Value a) {
     else        std::sort(xs.begin(), xs.end(), [](const Value& x, const Value& y) { return x.str < y.str; });
     return a;
 }
-static const string& needStrR(const Value& v, const char* what) {
-    if (v.kind != Value::STR) throw RunErr(string(what) + ": 문자열이 필요합니다 (지금: " + v.kindName() + ")");
+// needNum 과 같은 이유로 인자 번호를 받는다 — 인터프리터와 글자까지 같아야 한다
+static const string& needStrR(const Value& v, const char* what, int pos) {
+    if (v.kind != Value::STR)
+        throw RunErr(string(what) + "() 의 " + std::to_string(pos) + "번째 인자는 문자열이어야 합니다");
     return v.str;
 }
 static Value b_split(const Value& a, const Value& b) {
-    const string& s = needStrR(a, "split"); const string& sep = needStrR(b, "split");
+    const string& s = needStrR(a, "split", 1); const string& sep = needStrR(b, "split", 2);
     if (sep.empty()) throw RunErr("split() 의 구분자는 빈 문자열일 수 없습니다");
     Value out; out.kind = Value::LIST; out.list = std::make_shared<List>();
     size_t start = 0, p;
@@ -2444,15 +3301,21 @@ static Value b_split(const Value& a, const Value& b) {
 }
 static Value b_join(const Value& a, const Value& b) {
     if (a.kind != Value::LIST) throw RunErr("join() 의 1번째 인자는 리스트여야 합니다");
-    const string& sep = needStrR(b, "join");
+    const string& sep = needStrR(b, "join", 2);
     string out;
     for (size_t i = 0; i < a.list->size(); i++) { if (i) out += sep; out += (*a.list)[i].toString(); }
     return Value(out);
 }
-static Value b_upper(const Value& a) { string s = needStrR(a, "upper"); for (auto& c : s) c = toupper((unsigned char)c); return Value(s); }
-static Value b_lower(const Value& a) { string s = needStrR(a, "lower"); for (auto& c : s) c = tolower((unsigned char)c); return Value(s); }
+static Value b_upper(const Value& a) { string s = needStrR(a, "upper", 1); for (auto& c : s) c = toupper((unsigned char)c); return Value(s); }
+static Value b_lower(const Value& a) { string s = needStrR(a, "lower", 1); for (auto& c : s) c = tolower((unsigned char)c); return Value(s); }
 static Value b_find(const Value& a, const Value& b) {
-    auto hay = u8chars(needStrR(a, "find")), nee = u8chars(needStrR(b, "find"));
+    if (a.kind == Value::LIST) {              // 리스트에서 값의 위치 (순차 탐색)
+        auto& xs = *a.list;
+        for (size_t i = 0; i < xs.size(); i++)
+            if (veqDeep(xs[i], b, 0)) return Value((double)(i + 1));
+        return Value(0.0);
+    }
+    auto hay = u8chars(needStrR(a, "find", 1)), nee = u8chars(needStrR(b, "find", 2));
     if (nee.empty()) throw RunErr("find() 로 빈 문자열은 찾을 수 없습니다");
     if (nee.size() <= hay.size())
         for (size_t i = 0; i + nee.size() <= hay.size(); i++) {
@@ -2463,7 +3326,7 @@ static Value b_find(const Value& a, const Value& b) {
     return Value(0.0);
 }
 static Value b_replace(const Value& a, const Value& b, const Value& c) {
-    string s = needStrR(a, "replace"); const string& from = needStrR(b, "replace"); const string& to = needStrR(c, "replace");
+    string s = needStrR(a, "replace", 1); const string& from = needStrR(b, "replace", 2); const string& to = needStrR(c, "replace", 3);
     if (from.empty()) throw RunErr("replace() 의 바꿀 문자열은 비어 있을 수 없습니다");
     string out; size_t start = 0, p;
     while ((p = s.find(from, start)) != string::npos) { out += s.substr(start, p - start); out += to; start = p + from.size(); }
@@ -2471,8 +3334,8 @@ static Value b_replace(const Value& a, const Value& b, const Value& c) {
     return Value(out);
 }
 static Value b_substr(const Value& a, const Value& b, const Value& c) {
-    auto chars = u8chars(needStrR(a, "substr"));
-    double st = needNum(b, "substr"), cn = needNum(c, "substr");
+    auto chars = u8chars(needStrR(a, "substr", 1));
+    double st = needNum(b, "substr", 2), cn = needNum(c, "substr", 3);
     if (st != std::floor(st) || cn != std::floor(cn)) throw RunErr("substr() 의 시작/개수는 정수여야 합니다");
     long long start = (long long)st, count = (long long)cn;
     if (start < 1) throw RunErr("substr() 의 시작 위치는 1 이상이어야 합니다");
@@ -2482,16 +3345,42 @@ static Value b_substr(const Value& a, const Value& b, const Value& c) {
     return Value(out);
 }
 #include <fstream>
+// 파일 열기 — 인터프리터와 같은 방식(넓은 경로, 바이너리 모드)이어야 한다.
+// std::ifstream 의 filesystem::path 생성자는 MinGW 에서 없는 파일도 열린 것처럼 굴었다.
+static std::FILE* rt_open(const string& path, const char* mode, const wchar_t* wmode) {
+#ifdef _WIN32
+    (void)mode;
+    return _wfopen(rt_path(path).c_str(), wmode);
+#else
+    (void)wmode;
+    return std::fopen(path.c_str(), mode);
+#endif
+}
+static string rt_read_all(std::FILE* fp) {
+    string out;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, fp)) > 0) out.append(buf, n);
+    std::fclose(fp);
+    return out;
+}
+static void rt_write_all(std::FILE* fp, const string& s) {
+    if (!s.empty()) std::fwrite(s.data(), 1, s.size(), fp);
+    std::fclose(fp);
+}
 static Value b_readfile(const Value& a) {
-    std::ifstream f(needStrR(a, "readfile"));
-    if (!f) throw RunErr("파일을 열 수 없습니다: " + a.str);
-    std::ostringstream buf; buf << f.rdbuf();
-    return Value(buf.str());
+    // 본체와 같은 이유 — 리눅스의 fopen 은 폴더도 열어 준다 (exists() 와 같은 검사를 먼저)
+    std::error_code rec;
+    if (!std::filesystem::is_regular_file(rt_path(needStrR(a, "readfile", 1)), rec))
+        throw RunErr("파일을 열 수 없습니다: " + a.str);
+    std::FILE* fp = rt_open(needStrR(a, "readfile", 1), "rb", L"rb");
+    if (!fp) throw RunErr("파일을 열 수 없습니다: " + a.str);
+    return Value(rt_read_all(fp));
 }
 static Value b_writefile(const Value& a, const Value& b) {
-    std::ofstream f(needStrR(a, "writefile"));
-    if (!f) throw RunErr("파일을 만들 수 없습니다: " + a.str);
-    f << b.toString();
+    std::FILE* fp = rt_open(needStrR(a, "writefile", 1), "wb", L"wb");
+    if (!fp) throw RunErr("파일을 만들 수 없습니다: " + a.str);
+    rt_write_all(fp, b.toString());
     return Value(1.0);
 }
 #include <chrono>
@@ -2504,7 +3393,7 @@ struct ExitSig {};
 static Value b_exit() { throw ExitSig{}; }
 static Value b_error(const Value& m) { throw RunErr(m.toString()); }
 static Value rt_deepcopy(const Value& v, int depth) {
-    if (depth > 1000) throw RunErr("복사할 수 없습니다 (자기 자신을 포함한 구조?)");
+    if (depth > 1000) throw RunErr("복사할 수 없습니다: 1000단계보다 깊게 중첩되었거나 자기 자신을 포함한 구조입니다");
     if (v.kind == Value::LIST) {
         Value out; out.kind = Value::LIST; out.list = std::make_shared<List>();
         for (auto& e : *v.list) out.list->push_back(rt_deepcopy(e, depth + 1));
@@ -2520,13 +3409,13 @@ static Value rt_deepcopy(const Value& v, int depth) {
 }
 static Value b_copy(const Value& v) { return rt_deepcopy(v, 0); }
 static Value b_exists(const Value& a) {
-    std::ifstream f(needStrR(a, "exists"));
-    return Value(f.good() ? 1.0 : 0.0);
+    std::error_code ec;
+    return Value(std::filesystem::is_regular_file(rt_path(needStrR(a, "exists", 1)), ec) ? 1.0 : 0.0);
 }
 static Value b_appendfile(const Value& a, const Value& b) {
-    std::ofstream f(needStrR(a, "appendfile"), std::ios::app);
-    if (!f) throw RunErr("파일을 열 수 없습니다: " + a.str);
-    f << b.toString();
+    std::FILE* fp = rt_open(needStrR(a, "appendfile", 1), "ab", L"ab");
+    if (!fp) throw RunErr("파일을 열 수 없습니다: " + a.str);
+    rt_write_all(fp, b.toString());
     return Value(1.0);
 }
 static Value b_keys(const Value& v) {
@@ -2536,8 +3425,22 @@ static Value b_keys(const Value& v) {
     return out;
 }
 static Value b_has(const Value& v, const Value& k) {
-    if (v.kind != Value::MAP) throw RunErr("has() 의 1번째 인자는 딕셔너리여야 합니다");
-    return Value(v.map->count(mapKey(k)) ? 1.0 : 0.0);
+    if (v.kind == Value::LIST) {
+        for (auto& x : *v.list) if (veqDeep(x, k, 0)) return Value(1.0);
+        return Value(0.0);
+    }
+    if (v.kind != Value::MAP) throw RunErr("has() 의 1번째 인자는 딕셔너리나 리스트여야 합니다");
+    // mapKey() 를 쓰면 "딕셔너리 키는 문자열이어야 합니다" 가 나가는데, 인터프리터는
+    // 여기서 needStr(1) 을 써서 "has() 의 2번째 인자는..." 이라고 한다. 문구를 맞춘다.
+    return Value(v.map->count(needStrR(k, "has", 2)) ? 1.0 : 0.0);
+}
+static Value b_reverse(Value v) {
+    if (v.kind == Value::LIST) { std::reverse(v.list->begin(), v.list->end()); return v; }
+    if (v.kind != Value::STR)  throw RunErr("reverse() 의 인자는 리스트나 문자열이어야 합니다");
+    auto cs = u8chars(v.str);
+    string out;
+    for (size_t i = cs.size(); i > 0; i--) out += cs[i - 1];
+    return Value(out);
 }
 static Value b_remove(Value v, const Value& k) {
     if (v.kind == Value::MAP) return Value(v.map->erase(mapKey(k)) ? 1.0 : 0.0);
@@ -2585,8 +3488,10 @@ struct CodeGen {
         {"exit", {0, "b_exit"}},     {"error", {1, "b_error"}},
         {"copy", {1, "b_copy"}},
         {"keys", {1, "b_keys"}},     {"has", {2, "b_has"}},
-        {"remove", {2, "b_remove"}},
+        {"remove", {2, "b_remove"}}, {"reverse", {1, "b_reverse"}},
     };
+    // 인자를 하나 더 받을 수 있는 내장 함수: 이름 → 최대 인자 수
+    std::map<string, int> builtinMaxArgs = { {"round", 2} };
 
     static LangError err(int line, const string& m) {
         return LangError(lineTag(line) + "" + m);
@@ -2606,6 +3511,18 @@ struct CodeGen {
 
     bool declared(const string& n) {
         return (inFunc && localSet.count(n)) || globalSet.count(n);
+    }
+    // 오타 제안 후보 — 지금 보이는 변수 이름들 / 부를 수 있는 이름들
+    std::vector<string> visibleVars() {
+        std::vector<string> out(globalSet.begin(), globalSet.end());
+        if (inFunc) out.insert(out.end(), localSet.begin(), localSet.end());
+        return out;
+    }
+    std::vector<string> callableNames() {
+        std::vector<string> out = BUILTIN_NAMES;
+        for (auto& [k, v] : funcs)   out.push_back(k);
+        for (auto& [k, v] : classes) out.push_back(k);
+        return out;
     }
 
     // 문자열 리터럴 → C++ 소스용 이스케이프
@@ -2690,7 +3607,13 @@ struct CodeGen {
         if (auto* s = dynamic_cast<StrExpr*>(e))
             return "Value(string(" + cppStr(s->s) + "))";
         if (auto* v = dynamic_cast<VarExpr*>(e)) {
-            if (!declared(v->name)) throw err(v->line, "정의되지 않은 변수: " + v->name);
+            if (!declared(v->name))
+            {
+                string hint = notAValue(v->name, funcs.count(v->name) > 0, classes.count(v->name) > 0);
+                if (v->name == "self") hint = "  (self 는 클래스의 메서드 안에서만 쓸 수 있습니다)";
+                if (hint.empty()) hint = suggestName(v->name, visibleVars());
+                throw err(v->line, "정의되지 않은 변수: " + v->name + hint);
+            }
             return varName(v->name);
         }
         if (auto* l = dynamic_cast<ListExpr*>(e)) {
@@ -2715,6 +3638,27 @@ struct CodeGen {
         if (auto* f = dynamic_cast<FieldExpr*>(e))
             return "fld_get(" + genExpr(f->target.get()) + ", " + cppStr(f->field) + ")";
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
+            // 어느 클래스에도 없는 메서드면 오타다. 인터프리터는 그 줄이 돌 때
+            // 오타 제안까지 붙여 알려 주는데, 빌드본은 클래스를 런타임에나 알아
+            // 제안을 못 한다 — 그래서 여기서, 빌드 시점에 같은 수준으로 잡는다
+            // (변수·필드를 빌드 시점에 잡는 것과 같은 방식).
+            {
+                bool known = false;
+                std::vector<string> names;
+                for (auto& [cn, cls] : classes) {
+                    (void)cn;
+                    for (auto& [mn, fn] : cls->methods) { (void)fn; names.push_back(mn); }
+                    if (cls->methods.count(mc->method)) known = true;
+                }
+                if (!known) {
+                    // upper/append 처럼 "파이썬이었으면 메서드였을" 이름이면 오타 제안보다
+                    // 쓰는 법을 알려 주는 쪽이 낫다 (인터프리터와 같은 문구).
+                    string hint = methodHint(mc->method);
+                    throw err(mc->line, "메서드 '" + mc->method + "'"
+                              + josa(mc->method, "이", "가") + " 어느 클래스에도 없습니다"
+                              + (hint.empty() ? suggestName(mc->method, names) : hint));
+                }
+            }
             methodCalls.insert({mc->method, (int)mc->args.size()});
             string o = "d_" + mangle(mc->method, "") + "_" + std::to_string(mc->args.size())
                      + "(" + genExpr(mc->target.get());
@@ -2756,9 +3700,13 @@ struct CodeGen {
             }
             auto bi = builtins.find(c->name);
             if (bi != builtins.end()) {
-                if ((int)c->args.size() != bi->second.first)
-                    throw err(c->line, c->name + "() 는 인자 " + std::to_string(bi->second.first)
-                              + "개가 필요합니다 (지금 " + std::to_string(c->args.size()) + "개)");
+                int lo = bi->second.first, n = (int)c->args.size();
+                auto mx = builtinMaxArgs.find(c->name);
+                int hi = (mx != builtinMaxArgs.end()) ? mx->second : lo;
+                if (n < lo || n > hi)
+                    throw err(c->line, c->name + "() 는 인자 "
+                              + (lo == hi ? std::to_string(lo) : std::to_string(lo) + "~" + std::to_string(hi))
+                              + "개가 필요합니다 (지금 " + std::to_string(n) + "개)");
                 return bi->second.second + "(" + argsCode + ")";
             }
             auto cc = classes.find(c->name);
@@ -2771,7 +3719,9 @@ struct CodeGen {
                 return "new_" + mangle(c->name, "") + "(" + argsCode + ")";
             }
             auto uf = funcs.find(c->name);
-            if (uf == funcs.end()) throw err(c->line, "정의되지 않은 함수 또는 클래스: " + c->name);
+            if (uf == funcs.end())
+                throw err(c->line, "정의되지 않은 함수 또는 클래스: " + c->name
+                                   + suggestName(c->name, callableNames()));
             if (c->args.size() != uf->second->params.size())
                 throw err(c->line, c->name + "() 는 인자 " + std::to_string(uf->second->params.size())
                           + "개가 필요합니다 (지금 " + std::to_string(c->args.size()) + "개)");
@@ -2790,15 +3740,18 @@ struct CodeGen {
             return;
         }
         if (auto* a = dynamic_cast<AssignStmt*>(s)) {
-            if (!declared(a->name))
-                throw err(a->line, "선언되지 않은 변수에 대입: " + a->name
-                          + "  (" + KW_LET + " " + a->name + " = ... 로 먼저 선언하세요)");
+            if (!declared(a->name)) {
+                string hint = suggestName(a->name, visibleVars());
+                if (hint.empty()) hint = "  (" + KW_LET + " " + a->name + " = ... 로 먼저 선언하세요)";
+                throw err(a->line, "선언되지 않은 변수에 대입: " + a->name + hint);
+            }
             ind(out, depth);
             out << varName(a->name) << " = " << genExpr(a->val.get()) << ";\n";
             return;
         }
         if (auto* pa = dynamic_cast<PathAssignStmt*>(s)) {
-            if (!declared(pa->name)) throw err(pa->line, "정의되지 않은 변수: " + pa->name);
+            if (!declared(pa->name))
+                throw err(pa->line, "정의되지 않은 변수: " + pa->name + suggestName(pa->name, visibleVars()));
             string target = varName(pa->name);
             for (size_t k = 0; k + 1 < pa->path.size(); k++) {
                 Accessor& a = pa->path[k];
@@ -2815,7 +3768,8 @@ struct CodeGen {
             return;
         }
         if (auto* pc = dynamic_cast<PathCompoundStmt*>(s)) {
-            if (!declared(pc->name)) throw err(pc->line, "정의되지 않은 변수: " + pc->name);
+            if (!declared(pc->name))
+                throw err(pc->line, "정의되지 않은 변수: " + pc->name + suggestName(pc->name, visibleVars()));
             string target = varName(pc->name);
             for (auto& a : pc->path)
                 target = a.isField
@@ -2883,16 +3837,16 @@ struct CodeGen {
                    T = "__t" + std::to_string(id), I = "__i" + std::to_string(id);
             ind(out, depth); out << "{\n";
             ind(out, depth + 1);
-            out << "double " << S << " = needNum(" << genExpr(f->start.get()) << ", \"" << KW_FOR << "\");\n";
+            out << "double " << S << " = needNumFor(" << genExpr(f->start.get()) << ", \"" << KW_FOR << "\", false);\n";
             ind(out, depth + 1);
-            out << "double " << E << " = needNum(" << genExpr(f->end.get()) << ", \"" << KW_FOR << "\");\n";
+            out << "double " << E << " = needNumFor(" << genExpr(f->end.get()) << ", \"" << KW_FOR << "\", false);\n";
             ind(out, depth + 1);
             if (f->step) {
-                out << "double " << T << " = needNum(" << genExpr(f->step.get()) << ", \"" << KW_STEP << "\");\n";
+                out << "double " << T << " = needNumFor(" << genExpr(f->step.get()) << ", \"" << KW_STEP << "\", true);\n";
                 ind(out, depth + 1);
                 out << "if (" << T << " == 0) throw RunErr(\"" << KW_STEP << " 은 0이 아닌 숫자여야 합니다\");\n";
             } else {
-                out << "double " << T << " = (" << S << " <= " << E << ") ? 1.0 : -1.0;\n";
+                out << "double " << T << " = 1.0;   // step 이 없으면 항상 올라간다\n";
             }
             ind(out, depth + 1);
             out << "for (double " << I << " = " << S << "; " << T << " > 0 ? " << I << " <= " << E
@@ -3047,7 +4001,8 @@ struct CodeGen {
             dispDecls << "static Value " << dn << "(" << params << ");\n";
             dispDefs << "static Value " << dn << "(" << params << ") {\n"
                      << "    if (__self.kind != Value::OBJ)\n"
-                     << "        throw RunErr(__self.kindName() + \"에는 메서드를 호출할 수 없습니다\");\n";
+                     << "        throw RunErr(__self.kindName() + "
+                     << cppStr("에는 메서드를 호출할 수 없습니다" + methodHint(mname)) << ");\n";
             for (auto& [cname, cls] : classes) {
                 auto mit = cls->methods.find(mname);
                 if (mit == cls->methods.end()) continue;
@@ -3060,7 +4015,7 @@ struct CodeGen {
                 dispDefs << "    }\n";
             }
             dispDefs << "    throw RunErr(\"클래스 '\" + __self.className + \"' 에 메서드 '"
-                     << mname << "' 이(가) 없습니다\");\n}\n\n";
+                     << mname << "'" << josa(mname, "이", "가") << " 없습니다\");\n}\n\n";
         }
 
         // ---- 최종 조립 ----
@@ -3122,12 +4077,21 @@ struct PyGen {
     std::set<string> localSet;               // 현재 함수의 지역 (인자 + let)
     std::set<string> touchedGlobals;         // 현재 함수가 대입한 전역 → global 선언
     std::set<string> intVars;                // for i = a to b 로 묶인 변수 (range 라 항상 정수)
+    std::set<string> strVars;                // 대입이 전부 문자열인 변수 (inferStrVars 가 채운다)
     bool inFunc = false;
     bool sawMap = false;                     // 딕셔너리가 존재할 수 있는가 (1차 통과에서 알아낸다)
+    // sawMap 은 has() 처럼 "딕셔너리일 수도 있는" 자리에서도 켜진다. 딕셔너리를 **글자로
+    // 적은** 적이 있는지는 따로 세야, 리스트만 쓰는 프로그램의 has 가 도우미로 안 밀린다.
+    bool sawMapReal = false;
+    // 2^53 을 넘는 수를 **글자로 적은** 프로그램인가. 파이썬 정수에는 한계가 없어서
+    // 거기서는 정확히 계산되고 Venos(실수 하나)에서는 어긋난다 — 머리말에 적어 둔다.
+    bool sawBigNum = false;
     bool sawList = false;                    // 리스트가 존재할 수 있는가
     bool sawIndex = false;                   // [ ] 인덱싱을 쓰는가 (머리말에 1부터 얘기를 넣을지)
-    bool sawMod = false;                     // % 를 쓰는가
     bool sawFloat = false;                   // 소수가 나올 수 있는가 (/ · sqrt · 입력 등)
+    bool sawCase  = false;                   // upper()/lower() 를 썼는가 (머리말 주의 문구용)
+    bool sawNonAscii = false;                // 문자열 리터럴에 ASCII 밖 글자가 있는가 (출력 인코딩)
+    bool sawInput = false;                   // input 을 쓰는가 (입력 인코딩)
     bool lastRangeIsInt = false;             // 방금 만든 for 범위가 진짜 range() 인가 (rangeOf 가 설정)
 
 
@@ -3154,6 +4118,10 @@ struct PyGen {
     static string pyName(const string& n) { return taken(n) ? n + "_" : n; }
 
     // 문자열 리터럴 → 파이썬 소스
+    string pyStrTracked(const string& s) {
+        for (unsigned char c : s) if (c > 0x7F) { sawNonAscii = true; break; }
+        return pyStr(s);
+    }
     static string pyStr(const string& s) {
         string o = "\"";
         for (char c : s) {
@@ -3171,15 +4139,23 @@ struct PyGen {
     // 숫자 리터럴 — 정수는 정수로 낸다 (그래야 파이썬에서도 5 가 5 로 찍힌다)
     static string pyNum(double v) {
         char b[64];
-        if (std::fabs(v) < 9.0e18 && v == (long long)v) snprintf(b, sizeof b, "%lld", (long long)v);
-        else                                            snprintf(b, sizeof b, "%.17g", v);
+        if (std::fabs(v) < 9.0e18 && v == (long long)v) { snprintf(b, sizeof b, "%lld", (long long)v); return b; }
+        // 되돌려 읽어 같은 값이 되는 가장 짧은 표기 — 3.14159 를 3.1415899999999999 로 쓰지 않는다
+        for (int prec = 15; prec <= 17; prec++) {
+            snprintf(b, sizeof b, "%.*g", prec, v);
+            if (std::strtod(b, nullptr) == v) break;
+        }
         return b;
     }
     string need(const string& h) { helpers.insert(h); return "_" + h; }
 
     // ---- 우선순위 (Venos 와 파이썬이 같은 순서라 괄호를 최소로 낼 수 있다) ----
     enum { P_OR = 0, P_AND, P_NOT, P_CMP, P_ADD, P_MUL, P_UNARY, P_ATOM };
-    static int precOf(Expr* e) {
+    // floor(a / b) 는 파이썬에서 a // b 로 낸다 (아래 floorDiv). 그러면 그 자리의
+    // 우선순위가 원자가 아니라 곱셈이 되므로 여기서도 그렇게 답해야 한다 —
+    // 안 그러면 2 * floor(x/2) 가 2 * x // 2 로 나가 (2*x)//2 가 된다.
+    int precOf(Expr* e) {
+        if (floorDiv(e)) return P_MUL;
         // not/and/or 는 int(...) 로 감싸서 내보내므로 밖에서 보면 원자다 (괄호가 필요 없다)
         if (dynamic_cast<LogicalExpr*>(e)) return P_ATOM;
         if (dynamic_cast<NotExpr*>(e))     return P_ATOM;
@@ -3194,22 +4170,329 @@ struct PyGen {
         if (dynamic_cast<NegExpr*>(e)) return P_UNARY;
         return P_ATOM;
     }
+    // **점을 찍기 전에는 무조건 이걸 통과시킬 것.** 숫자 리터럴 뒤의 점을 파이썬은
+    // 소수점으로 읽어서 `5.뭐()` 도 `0.upper()` 도 문법 오류다 — 틀린 답보다 나쁜,
+    // **파싱도 안 되는 .py** 가 나간다. 학생 프로그램에는 이상한 데가 하나도 없는데도.
+    // (메서드 호출·필드 접근에서 한 번 고쳤는데, 내장 함수의 `atom(0) + ".upper()"`
+    //  경로가 남아 있어 생성 퍼저가 다시 찾았다. 그래서 한 군데로 모았다.)
+    string dotted(Expr* e) {
+        string o = wrap(e, P_ATOM);
+        return dynamic_cast<NumExpr*>(e) ? "(" + o + ")" : o;
+    }
     string wrap(Expr* e, int parentPrec) {
         string s = expr(e);
         return precOf(e) < parentPrec ? "(" + s + ")" : s;
     }
 
-    // 문자열이 확실한 식인가 — Venos 의 "문자열 + 숫자" 자동 변환을 어디서 흉내낼지 판단
-    static bool stringish(Expr* e) {
+    // ---- 조건 자리 ----
+    // if/while 은 값이 1 인지 0 인지가 아니라 참/거짓만 본다. 그래서 not/and/or 를
+    // int(...) 로 감쌀 이유가 없다 — while int(not q.비었나()) 가 아니라
+    // while not q.비었나() 로 나가야 학생이 알아본다.
+    // (Venos 와 파이썬의 참/거짓 판정은 0·""·빈 리스트·빈 딕셔너리에서 이미 같다)
+    // 파이썬에서 이미 0/1 또는 bool 로 나오는 식인가 (bool() 을 덧씌울 필요가 없다)
+    bool boolish(Expr* e) {
+        if (dynamic_cast<NotExpr*>(e) || dynamic_cast<LogicalExpr*>(e)) return true;
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return false;
+            switch (b->op) {
+                case Tok::EQ: case Tok::NEQ: case Tok::LT:
+                case Tok::GT: case Tok::LE:  case Tok::GE: return true;
+                default: return false;
+            }
+        }
+        if (auto* c = dynamic_cast<CallExpr*>(e))
+            return c->name == "has" && c->args.size() == 2 && !funcs.count("has");
+        return false;
+    }
+    int condPrec(Expr* e) {
+        if (dynamic_cast<NotExpr*>(e)) return P_NOT;
+        if (auto* lg = dynamic_cast<LogicalExpr*>(e)) return lg->op == Tok::AND ? P_AND : P_OR;
+        return precOf(e);
+    }
+    string condWrap(Expr* e, int parentPrec) {
+        string s = cond(e);
+        return condPrec(e) < parentPrec ? "(" + s + ")" : s;
+    }
+    string cond(Expr* e) {
+        if (auto* n = dynamic_cast<NotExpr*>(e))
+            return "not " + condWrap(n->inner.get(), P_NOT + 1);
+        if (auto* lg = dynamic_cast<LogicalExpr*>(e)) {
+            int p = (lg->op == Tok::AND) ? P_AND : P_OR;
+            return condWrap(lg->lhs.get(), p)
+                 + ((lg->op == Tok::AND) ? " and " : " or ")
+                 + condWrap(lg->rhs.get(), p + 1);
+        }
+        return expr(e);
+    }
+
+    // 문자열이 확실한 식인가 — Venos 의 "문자열 + 숫자" 자동 변환을 어디서 흉내낼지,
+    // 그리고 파이썬에서 s * n / s.find(x) 를 그대로 써도 되는지 판단한다.
+    bool stringish(Expr* e) {
         if (dynamic_cast<StrExpr*>(e)) return true;
-        if (auto* b = dynamic_cast<BinExpr*>(e))
-            return b->interpN > 0
-                || (b->op == Tok::PLUS && (stringish(b->lhs.get()) || stringish(b->rhs.get())));
+        if (auto* v = dynamic_cast<VarExpr*>(e)) return strVars.count(v->name) > 0;
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return true;
+            if (b->op == Tok::PLUS)  return stringish(b->lhs.get()) || stringish(b->rhs.get());
+            if (b->op == Tok::STAR)  return stringish(b->lhs.get()) || stringish(b->rhs.get());
+            return false;
+        }
         if (auto* c = dynamic_cast<CallExpr*>(e)) {
             static const std::set<string> S = {"str","upper","lower","join","replace","substr","readfile"};
-            return S.count(c->name) > 0;
+            if (c->name == "reverse" && c->args.size() == 1) return stringish(c->args[0].get());
+            return S.count(c->name) > 0 && !funcs.count(c->name);
         }
         return false;
+    }
+
+    // ---- 어떤 변수가 확실히 문자열인가 (최대 고정점) ----
+    // 낙관적으로 전부 후보로 두고, 문자열이 아닌 대입이 하나라도 있으면 뺀다.
+    // 그래야 결과 = 결과 + 글자 처럼 자기 자신을 쓰는 누적도 문자열로 인정된다.
+    // 함수 인자·for 범위 변수처럼 값을 알 수 없는 이름은 아예 후보에서 뺀다 (안전한 쪽).
+    std::map<string, std::vector<Expr*>> strSites;   // nullptr = 무조건 문자열인 자리
+    std::set<string> strBanned;
+    // 정수 쪽도 같은 자리를 모은다. 규칙만 다르다 — `let x` 는 0 이라 정수고(문자열에선 금지),
+    // catch 변수는 에러 메시지라 정수가 아니다(문자열에선 허용). for 의 루프 변수는
+    // **범위가 정수일 때만** 정수라서 고정점이 필요하다 (그래서 식이 아니라 ForStmt 를 담는다).
+    // 키는 이름이 아니라 **범위\x01이름** 이다. 한 이름이 어느 함수의 인자이면서
+    // 다른 함수의 지역일 수 있어서(실제로 selection-sort 의 n 이 그랬다), 이름으로만
+    // 묶으면 인자 하나가 전부를 막아 실익이 0 이 된다.
+    // 값에 범위를 같이 담는다 — 고정점이 그 식을 **그 식이 있던 범위**로 평가해야 하므로
+    std::map<string, std::vector<std::pair<string, Expr*>>> intSites;   // nullptr = 무조건 정수
+    std::map<string, std::vector<std::pair<string, ForStmt*>>> intLoops;
+    std::set<string> intBanned;
+    std::set<string> intStatic;                      // 대입이 전부 정수인 (범위,이름)
+    std::map<string, std::set<string>> scopeLocals;  // 함수 이름 → 그 안의 지역 이름 전부
+    string scanScope;                                // 걷는 중인 함수 (최상위는 "")
+    string curScope;                                 // 내보내는 중인 함수
+    string curClass;                                 // 내보내는 중인 클래스 (메서드 범위 이름용)
+    // 이 이름이 이 범위의 지역인가 — 걷는 쪽과 내보내는 쪽이 **같은 규칙**을 써야 한다.
+    // (방출 시점의 localSet 은 그 지점까지만 채워져 있어서 못 쓴다. 함수 전체를 미리 모은다.)
+    string scopeKey(const string& scope, const string& name) const {
+        auto it = scopeLocals.find(scope);
+        bool local = it != scopeLocals.end() && it->second.count(name) > 0;
+        return (local ? scope : string()) + "\x01" + name;
+    }
+    // 함수 본문에서 let 으로 묶이는 이름 모으기 (안쪽 함수는 자기 범위이므로 건너뛴다)
+    static void letNames(Stmt* s, std::set<string>& out) {
+        if (!s) return;
+        if (auto* l = dynamic_cast<LetStmt*>(s))  { out.insert(l->name); return; }
+        if (auto* f = dynamic_cast<ForStmt*>(s))  { out.insert(f->var); letNames(f->body.get(), out); return; }
+        if (auto* fe = dynamic_cast<ForEachStmt*>(s)) { out.insert(fe->var); letNames(fe->body.get(), out); return; }
+        if (auto* t = dynamic_cast<TryStmt*>(s))  { out.insert(t->var); letNames(t->tryB.get(), out);
+                                                    letNames(t->catchB.get(), out); return; }
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) { for (auto& c : b->stmts) letNames(c.get(), out); return; }
+        if (auto* i = dynamic_cast<IfStmt*>(s))   { letNames(i->thenB.get(), out); letNames(i->elseB.get(), out); return; }
+        if (auto* w = dynamic_cast<WhileStmt*>(s)){ letNames(w->body.get(), out); return; }
+        // FuncStmt·ClassStmt 는 자기 범위다 — 들어가지 않는다
+    }
+
+    void scanStr(Stmt* s) {
+        if (!s) return;
+        if (auto* l = dynamic_cast<LetStmt*>(s)) {
+            if (l->val) { strSites[l->name].push_back(l->val.get());
+                          intSites[scopeKey(scanScope, l->name)].push_back({scanScope, l->val.get()}); }
+            else        { strBanned.insert(l->name);          // let x  → 0
+                          intSites[scopeKey(scanScope, l->name)].push_back({scanScope, nullptr}); }   // 0 은 정수다
+            return;
+        }
+        if (auto* a = dynamic_cast<AssignStmt*>(s)) {
+            strSites[a->name].push_back(a->val.get());
+            intSites[scopeKey(scanScope, a->name)].push_back({scanScope, a->val.get()});
+            return;
+        }
+        if (auto* f = dynamic_cast<ForStmt*>(s))   {
+            strBanned.insert(f->var);
+            intLoops[scopeKey(scanScope, f->var)].push_back({scanScope, f});   // 범위가 정수면 루프 변수도 정수
+            scanStr(f->body.get());
+            return;
+        }
+        if (auto* fe = dynamic_cast<ForEachStmt*>(s)) {
+            if (stringishLiteral(fe->iter.get())) strSites[fe->var].push_back(nullptr);
+            else                                  strBanned.insert(fe->var);
+            intBanned.insert(scopeKey(scanScope, fe->var));   // 무엇이 나올지 모른다
+            scanStr(fe->body.get());
+            return;
+        }
+        if (auto* t = dynamic_cast<TryStmt*>(s)) {
+            strSites[t->var].push_back(nullptr);            // catch 변수는 항상 에러 메시지(문자열)
+            intBanned.insert(scopeKey(scanScope, t->var));
+            scanStr(t->tryB.get()); scanStr(t->catchB.get());
+            return;
+        }
+        if (auto* b = dynamic_cast<BlockStmt*>(s)) { for (auto& c : b->stmts) scanStr(c.get()); return; }
+        if (auto* i = dynamic_cast<IfStmt*>(s))    { scanStr(i->thenB.get()); scanStr(i->elseB.get()); return; }
+        if (auto* w = dynamic_cast<WhileStmt*>(s)) { scanStr(w->body.get()); return; }
+        if (auto* fn = dynamic_cast<FuncStmt*>(s)) {
+            string outer = scanScope;
+            scanScope = fn->name;
+            auto& locals = scopeLocals[scanScope];
+            for (auto& p : fn->params) locals.insert(p);
+            letNames(fn->body.get(), locals);
+            for (auto& p : fn->params) { strBanned.insert(p); intBanned.insert(scopeKey(scanScope, p)); }
+            scanStr(fn->body.get());
+            scanScope = outer;
+            return;
+        }
+        if (auto* cl = dynamic_cast<ClassStmt*>(s)) {
+            for (auto& m : cl->methodList) {
+                string outer = scanScope;
+                scanScope = cl->name + "." + m->name;
+                auto& locals = scopeLocals[scanScope];
+                for (auto& p : m->params) locals.insert(p);
+                letNames(m->body.get(), locals);
+                for (auto& p : m->params) { strBanned.insert(p); intBanned.insert(scopeKey(scanScope, p)); }
+                scanStr(m->body.get());
+                scanScope = outer;
+            }
+            return;
+        }
+    }
+    // for ... in 의 대상이 글자 단위로 도는 문자열인가 (strVars 를 아직 모르는 단계라 리터럴만 본다)
+    static bool stringishLiteral(Expr* e) {
+        if (dynamic_cast<StrExpr*>(e)) return true;
+        if (auto* b = dynamic_cast<BinExpr*>(e)) return b->interpN > 0;
+        // 문자열만 들어 있는 리스트 리터럴을 돌면 그 변수도 문자열이다
+        if (auto* l = dynamic_cast<ListExpr*>(e)) {
+            if (l->items.empty()) return false;
+            for (auto& it : l->items) if (!stringishLiteral(it.get())) return false;
+            return true;
+        }
+        return false;
+    }
+    // ---- 재귀가 있는가 ----
+    // Venos 는 재귀를 2000번까지 허용하고 파이썬 기본값은 1000이다. 그대로 두면 Venos 에선
+    // 잘 돌던 재귀가 파이썬에서 RecursionError 로 죽는다 — "같은 프로그램"이 아니게 된다.
+    // 호출 그래프에 회로가 있으면(자기 자신 호출 포함) 파이썬 쪽 한도를 올려 준다.
+    std::map<string, std::set<string>> callGraph;
+    void callsIn(Expr* e, std::set<string>& out) {
+        if (!e) return;
+        if (auto* c = dynamic_cast<CallExpr*>(e)) {
+            if (funcs.count(c->name)) out.insert(c->name);
+            for (auto& a : c->args) callsIn(a.get(), out);
+            return;
+        }
+        if (auto* m = dynamic_cast<MethodCallExpr*>(e)) {
+            out.insert("." + m->method);          // 메서드는 이름만 보고 잇는다 (동적 호출이라)
+            callsIn(m->target.get(), out);
+            for (auto& a : m->args) callsIn(a.get(), out);
+            return;
+        }
+        if (auto* b = dynamic_cast<BinExpr*>(e))   { callsIn(b->lhs.get(), out); callsIn(b->rhs.get(), out); return; }
+        if (auto* l = dynamic_cast<LogicalExpr*>(e)){ callsIn(l->lhs.get(), out); callsIn(l->rhs.get(), out); return; }
+        if (auto* n = dynamic_cast<NotExpr*>(e))   { callsIn(n->inner.get(), out); return; }
+        if (auto* g = dynamic_cast<NegExpr*>(e))   { callsIn(g->inner.get(), out); return; }
+        if (auto* i = dynamic_cast<IndexExpr*>(e)) { callsIn(i->target.get(), out); callsIn(i->index.get(), out); return; }
+        if (auto* f = dynamic_cast<FieldExpr*>(e)) { callsIn(f->target.get(), out); return; }
+        if (auto* li = dynamic_cast<ListExpr*>(e)) { for (auto& x : li->items) callsIn(x.get(), out); return; }
+        if (auto* mp = dynamic_cast<MapExpr*>(e))  {
+            for (auto& [k, v] : mp->items) { callsIn(k.get(), out); callsIn(v.get(), out); }
+            return;
+        }
+    }
+    void callsIn(Stmt* s, std::set<string>& out) {
+        if (!s) return;
+        if (auto* l  = dynamic_cast<LetStmt*>(s))          { callsIn(l->val.get(), out); return; }
+        if (auto* a  = dynamic_cast<AssignStmt*>(s))       { callsIn(a->val.get(), out); return; }
+        if (auto* pa = dynamic_cast<PathAssignStmt*>(s))   {
+            for (auto& ac : pa->path) callsIn(ac.index.get(), out);
+            callsIn(pa->val.get(), out); return;
+        }
+        if (auto* pc = dynamic_cast<PathCompoundStmt*>(s)) {
+            for (auto& ac : pc->path) callsIn(ac.index.get(), out);
+            callsIn(pc->rhs.get(), out); return;
+        }
+        if (auto* p  = dynamic_cast<PrintStmt*>(s))        { for (auto& v : p->vals) callsIn(v.get(), out); return; }
+        if (auto* es = dynamic_cast<ExprStmt*>(s))         { callsIn(es->e.get(), out); return; }
+        if (auto* b  = dynamic_cast<BlockStmt*>(s))        { for (auto& c : b->stmts) callsIn(c.get(), out); return; }
+        if (auto* i  = dynamic_cast<IfStmt*>(s))           {
+            callsIn(i->cond.get(), out); callsIn(i->thenB.get(), out); callsIn(i->elseB.get(), out); return;
+        }
+        if (auto* w  = dynamic_cast<WhileStmt*>(s))        { callsIn(w->cond.get(), out); callsIn(w->body.get(), out); return; }
+        if (auto* f  = dynamic_cast<ForStmt*>(s))          {
+            callsIn(f->start.get(), out); callsIn(f->end.get(), out); callsIn(f->step.get(), out);
+            callsIn(f->body.get(), out); return;
+        }
+        if (auto* fe = dynamic_cast<ForEachStmt*>(s))      { callsIn(fe->iter.get(), out); callsIn(fe->body.get(), out); return; }
+        if (auto* t  = dynamic_cast<TryStmt*>(s))          { callsIn(t->tryB.get(), out); callsIn(t->catchB.get(), out); return; }
+        if (auto* r  = dynamic_cast<ReturnStmt*>(s))       { callsIn(r->val.get(), out); return; }
+    }
+    bool hasRecursion() {
+        callGraph.clear();
+        for (auto& [name, fn] : funcs) callsIn(fn->body.get(), callGraph[name]);
+        for (auto& [cname, cls] : classes)
+            for (auto& m : cls->methodList) callsIn(m->body.get(), callGraph["." + m->name]);
+        std::set<string> done, onPath;
+        std::function<bool(const string&)> cyclic = [&](const string& n) -> bool {
+            if (onPath.count(n)) return true;            // 회로
+            if (done.count(n) || !callGraph.count(n)) return false;
+            onPath.insert(n);
+            for (const string& next : callGraph[n]) if (cyclic(next)) return true;
+            onPath.erase(n);
+            done.insert(n);
+            return false;
+        };
+        for (auto& [n, _] : callGraph) if (cyclic(n)) return true;
+        return false;
+    }
+
+    void inferStrVars(std::vector<StmtP>& program) {
+        strSites.clear(); strBanned.clear(); strVars.clear();
+        // scanStr 이 정수 쪽도 같이 채운다 — 한 번에 걷으므로 비우는 것도 여기서 같이 한다
+        intSites.clear(); intLoops.clear(); intBanned.clear(); scopeLocals.clear(); scanScope.clear();
+        for (auto& st : program) scanStr(st.get());
+        for (auto& [n, sites] : strSites)
+            if (!strBanned.count(n)) strVars.insert(n);
+        for (bool changed = true; changed; ) {      // 아닌 것부터 걷어낸다
+            changed = false;
+            for (auto it = strVars.begin(); it != strVars.end(); ) {
+                bool ok = true;
+                for (Expr* e : strSites[*it]) if (e && !stringish(e)) { ok = false; break; }
+                if (ok) ++it;
+                else { it = strVars.erase(it); changed = true; }
+            }
+        }
+    }
+
+    // 대입이 전부 정수인 변수 찾기 — inferStrVars 와 같은 모양의 최대 고정점.
+    //
+    // 이게 없으면 `let n = len(A)` 의 n 을 정수로 못 봐서, 그 뒤가 같이 무너진다:
+    //   "{i}번째"        →  f"{_show(i)}번째"        ({i} 면 된다)
+    //   floor((a+b)/2)   →  math.floor((a + b) / 2)  ((a + b) // 2 가 관용구다)
+    // 예제집에서 _show 182→169곳, math.floor 11→9 가 됐다. binary-search 의 출력 줄이
+    // _show 다섯 개짜리 벽에서 읽을 수 있는 f-string 으로 바뀌는 게 제일 큰 몫이다.
+    //
+    // `for i = 1 to n` 의 _rng 는 **여기서 못 고친다** — Venos 의 for 는 n < 1 이면
+    // 거꾸로 돌아서 방향이 실행할 때 정해지고, range(1, n+1) 은 그냥 틀린 번역이다.
+    //
+    // 건전성은 scanStr 이 **이름이 묶이는 자리를 전부** 지나는 데서 온다 (let·대입·for 변수·
+    // for-in 변수·catch 변수·인자). 문자열 추론이 이미 같은 자리에 기대고 있고, 거기서
+    // 잘못 짚으면 `+` 가 이어붙기로 바뀌므로 요구되는 건전성도 같다.
+    void inferIntVars(std::vector<StmtP>& program) {
+        (void)program;                              // 수집은 scanStr 이 이미 했다
+        intStatic.clear();
+        for (auto& [k, sites] : intSites) { (void)sites; if (!intBanned.count(k)) intStatic.insert(k); }
+        for (auto& [k, loops] : intLoops) { (void)loops; if (!intBanned.count(k)) intStatic.insert(k); }
+        string saved = curScope;
+        for (bool changed = true; changed; ) {      // 아닌 것부터 걷어낸다
+            changed = false;
+            for (auto it = intStatic.begin(); it != intStatic.end(); ) {
+                bool ok = true;
+                for (auto& [sc, e] : intSites[*it]) {
+                    if (!e) continue;               // 무조건 정수인 자리
+                    curScope = sc;                  // 그 식이 있던 범위로 본다
+                    if (!intish(e)) { ok = false; break; }
+                }
+                if (ok)
+                    for (auto& [sc, f] : intLoops[*it]) {
+                        curScope = sc;
+                        if (!intish(f->start.get()) || !intish(f->end.get())
+                            || (f->step && !intish(f->step.get()))) { ok = false; break; }
+                    }
+                if (ok) ++it;
+                else { it = intStatic.erase(it); changed = true; }
+            }
+        }
+        curScope = saved;
     }
 
     // 컴파일 시점에 값이 정해지는 정수인가. -1 은 NegExpr(NumExpr) 로 파싱되므로 같이 본다.
@@ -3230,10 +4513,15 @@ struct PyGen {
     // 아니면 _show() 로 감싼다 (딕셔너리 따옴표, 참/거짓, 5.0 표기 때문).
     bool plainSafe(Expr* e) {
         if (stringish(e)) return true;
+        // not/and/or 는 int(...) 로 감싸 내보내므로 파이썬에서도 정수다
+        if (dynamic_cast<NotExpr*>(e) || dynamic_cast<LogicalExpr*>(e)) return true;
         double k;
         if (constInt(e, k)) return true;
-        if (auto* v = dynamic_cast<VarExpr*>(e)) return intVars.count(v->name) > 0;
-        if (auto* c = dynamic_cast<CallExpr*>(e)) return c->name == "len" && !funcs.count("len");
+        if (auto* v = dynamic_cast<VarExpr*>(e))
+            return intVars.count(v->name) > 0 || intStatic.count(scopeKey(curScope, v->name)) > 0;
+        // len() 은 정수, has() 는 int(... in ...) 라 둘 다 파이썬에서도 정수로 찍힌다
+        if (auto* c = dynamic_cast<CallExpr*>(e))
+            return (c->name == "len" || c->name == "has") && !funcs.count(c->name);
         // 정수끼리의 + - * % 는 파이썬에서도 정수라 그대로 찍어도 된다 (/ 는 소수가 되므로 제외)
         if (auto* b = dynamic_cast<BinExpr*>(e)) {
             if (b->interpN > 0) return true;
@@ -3268,33 +4556,72 @@ struct PyGen {
             cur = b->lhs.get();
         }
         std::reverse(parts.begin(), parts.end());
-        string o = "f\"";
+
+        // 값 자리를 먼저 만들어 둔다. print 와 같은 규칙 — 파이썬 표기가 새어 나올 수 있으면
+        // _show() 로 감싼다 (안 감싸면 True / 5.0 / {'a': 1} / 83.33333333333333 이 찍힌다).
+        std::map<Expr*, string> code;
+        bool hasDq = false, hasSq = false;
         for (Expr* p : parts) {
-            if (auto* s = dynamic_cast<StrExpr*>(p)) {
-                for (char c : s->s) {
+            if (dynamic_cast<StrExpr*>(p)) continue;
+            string c = plainSafe(p) ? expr(p) : need("show") + "(" + expr(p) + ")";
+            hasDq = hasDq || c.find('"')  != string::npos;
+            hasSq = hasSq || c.find('\'') != string::npos;
+            code[p] = c;
+        }
+        // 파이썬 3.11 까지는 f-문자열 안에서 바깥과 같은 따옴표를 다시 못 쓴다.
+        // "{replace(s, \"a\", \"b\")}" 같은 보간이 여기 걸린다 — 따옴표를 바꿔 피하고,
+        // 양쪽 다 들어 있으면 f-문자열을 포기하고 이어붙이기로 낸다.
+        if (hasDq && hasSq) {
+            string o;
+            for (Expr* p : parts) {
+                if (!o.empty()) o += " + ";
+                if (auto* st = dynamic_cast<StrExpr*>(p)) o += pyStr(st->s);
+                else                                     o += code[p];
+            }
+            return o.empty() ? "\"\"" : "(" + o + ")";
+        }
+        const char q = hasDq ? '\'' : '"';
+        string o = string("f") + q;
+        for (Expr* p : parts) {
+            if (auto* st = dynamic_cast<StrExpr*>(p)) {
+                for (unsigned char uc : st->s) if (uc > 0x7F) { sawNonAscii = true; break; }
+                for (char c : st->s) {
                     if (c == '{')       o += "{{";
                     else if (c == '}')  o += "}}";
-                    else if (c == '"')  o += "\\\"";
+                    else if (c == q)    { o += '\\'; o += c; }
                     else if (c == '\\') o += "\\\\";
                     else if (c == '\n') o += "\\n";
                     else if (c == '\t') o += "\\t";
                     else                o += c;
                 }
             } else {
-                o += "{" + expr(p) + "}";
+                o += "{" + code[p] + "}";
             }
         }
-        return o + "\"";
+        return o + q;
     }
 
     // ---- 표현식 ----
     string expr(Expr* e) {
         if (auto* n = dynamic_cast<NumExpr*>(e)) {
             if (n->v != (long long)n->v) sawFloat = true;
+            if (std::fabs(n->v) >= 9007199254740992.0) sawBigNum = true;
             return pyNum(n->v);
         }
-        if (auto* s = dynamic_cast<StrExpr*>(e))  return pyStr(s->s);
-        if (auto* v = dynamic_cast<VarExpr*>(e))  return pyName(v->name);
+        if (auto* s = dynamic_cast<StrExpr*>(e))  return pyStrTracked(s->s);
+        if (auto* v = dynamic_cast<VarExpr*>(e)) {
+            // 인터프리터와 build 는 둘 다 막는데 여기만 그냥 냈다. 그래서 `let g = f` 가
+            // 파이썬에서 **함수를 값으로 묶어** 다른 프로그램이 됐다 (g() 가 돌아간다).
+            // 일급 함수는 포지셔닝상 거부한 기능이라 통과시키면 안 된다.
+            if (!globalSet.count(v->name) && !(inFunc && localSet.count(v->name))) {
+                string hint = notAValue(v->name, funcs.count(v->name) > 0,
+                                        classes.count(v->name) > 0);
+                if (v->name == "self") hint = "  (self 는 클래스의 메서드 안에서만 쓸 수 있습니다)";
+                if (hint.empty()) hint = suggestName(v->name, visibleNames());
+                throw err(v->line, "정의되지 않은 변수: " + v->name + hint);
+            }
+            return pyName(v->name);
+        }
         if (auto* l = dynamic_cast<ListExpr*>(e)) {
             sawList = true;
             string o = "[";
@@ -3306,6 +4633,7 @@ struct PyGen {
         }
         if (auto* m = dynamic_cast<MapExpr*>(e)) {
             sawMap = true;
+            sawMapReal = true;
             string o = "{";
             for (size_t i = 0; i < m->items.size(); i++) {
                 if (i) o += ", ";
@@ -3314,11 +4642,30 @@ struct PyGen {
             return o + "}";
         }
         if (auto* ix = dynamic_cast<IndexExpr*>(e))
-            return indexGet(ix->target.get(), ix->index.get());
+            return indexGet(ix->target.get(), ix->index.get(), ix->line);
         if (auto* f = dynamic_cast<FieldExpr*>(e))
-            return wrap(f->target.get(), P_ATOM) + "." + pyName(f->field);
+            return dotted(f->target.get()) + "." + pyName(f->field);
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
-            string o = wrap(mc->target.get(), P_ATOM) + "." + pyName(mc->method) + "(";
+            // 어느 클래스에도 없는 메서드는 여기서 거절한다. 인터프리터와 build 는 둘 다
+            // 막고 있었는데 여기만 그냥 내보냈고, 그래서 `"abc".upper()` 가 Venos 에서는
+            // 에러, 파이썬에서는 ABC 였다 — 딱 이 기능이 막으려는 모양이다.
+            // (tests/diag 를 topython 으로도 걸어 보다 나왔다)
+            {
+                bool known = false;
+                std::vector<string> names;
+                for (auto& [cn, cls] : classes) {
+                    (void)cn;
+                    for (auto& [mn, fn] : cls->methods) { (void)fn; names.push_back(mn); }
+                    if (cls->methods.count(mc->method)) known = true;
+                }
+                if (!known) {
+                    string hint = methodHint(mc->method);
+                    throw err(mc->line, "메서드 '" + mc->method + "'"
+                              + josa(mc->method, "이", "가") + " 어느 클래스에도 없습니다"
+                              + (hint.empty() ? suggestName(mc->method, names) : hint));
+                }
+            }
+            string o = dotted(mc->target.get()) + "." + pyName(mc->method) + "(";
             for (size_t i = 0; i < mc->args.size(); i++) {
                 if (i) o += ", ";
                 o += expr(mc->args[i].get());
@@ -3334,13 +4681,19 @@ struct PyGen {
                 if (!stringish(b->lhs.get())) L = need("show") + "(" + expr(b->lhs.get()) + ")";
                 if (!stringish(b->rhs.get())) R = need("show") + "(" + expr(b->rhs.get()) + ")";
             }
+            // "*" * 5 — 파이썬은 반복 횟수가 정수여야 한다 (Venos 의 수는 소수일 수 있다)
+            if (b->op == Tok::STAR) {
+                double k;
+                if (stringish(b->lhs.get()) && !constInt(b->rhs.get(), k)) R = "int(" + expr(b->rhs.get()) + ")";
+                if (stringish(b->rhs.get()) && !constInt(b->lhs.get(), k)) L = "int(" + expr(b->lhs.get()) + ")";
+            }
             const char* op = "+";
             switch (b->op) {
                 case Tok::PLUS: op = "+";  break;
                 case Tok::MINUS:op = "-";  break;
                 case Tok::STAR: op = "*";  break;
                 case Tok::SLASH:op = "/";  sawFloat = true; break;
-                case Tok::PERCENT: op = "%"; sawMod = true; break;
+                case Tok::PERCENT: op = "%"; break;
                 case Tok::EQ:   op = "=="; break;
                 case Tok::NEQ:  op = "!="; break;
                 case Tok::LT:   op = "<";  break;
@@ -3352,16 +4705,24 @@ struct PyGen {
             return L + " " + op + " " + R;
         }
         if (auto* n = dynamic_cast<NegExpr*>(e))  return "-" + wrap(n->inner.get(), P_UNARY);
-        // Venos 의 not/and/or 는 1/0 을 낸다 — 파이썬 bool 이 그대로 찍히지 않도록 int() 로 맞춘다
-        if (auto* n = dynamic_cast<NotExpr*>(e))  return "int(not " + wrap(n->inner.get(), P_NOT + 1) + ")";
+        // Venos 의 not/and/or 는 1/0 을 낸다 — 파이썬 bool 이 그대로 찍히지 않도록 int() 로 맞춘다.
+        // 안쪽은 참/거짓만 보면 되므로 조건 형태로 낸다 (int(not int(not a)) 같은 겹침 방지).
+        if (auto* n = dynamic_cast<NotExpr*>(e))
+            return "int(not " + condWrap(n->inner.get(), P_NOT + 1) + ")";
         if (auto* lg = dynamic_cast<LogicalExpr*>(e)) {
             int p = (lg->op == Tok::AND) ? P_AND : P_OR;   // 내부 자식용 (밖에서는 원자)
-            string op = (lg->op == Tok::AND) ? " and " : " or ";
-            return "int(bool(" + wrap(lg->lhs.get(), p) + ")" + op
-                 + "bool(" + wrap(lg->rhs.get(), p + 1) + "))";
+            // 파이썬의 and/or 는 피연산자를 그대로 돌려준다 — 1 or 2 는 2 다.
+            // Venos 는 1/0 이므로 이미 0/1 인 식이 아니면 bool() 로 눌러 둔다.
+            auto side = [&](Expr* x, int pp) {
+                return boolish(x) ? condWrap(x, pp) : "bool(" + expr(x) + ")";
+            };
+            return "int(" + side(lg->lhs.get(), p)
+                 + ((lg->op == Tok::AND) ? " and " : " or ")
+                 + side(lg->rhs.get(), p + 1) + ")";
         }
         if (auto* in = dynamic_cast<InputExpr*>(e)) {
             sawFloat = true;   // 사용자가 1.5 를 칠 수도 있다
+            sawInput = true;
             return need("input") + "(" + (in->prompt.empty() ? "" : pyStr(in->prompt)) + ")";
         }
         if (auto* c = dynamic_cast<CallExpr*>(e)) return call(c);
@@ -3370,11 +4731,47 @@ struct PyGen {
 
     // xs[1] 은 첫 번째, d["키"] 는 키 조회 — 리터럴이면 그 자리에서 정하고,
     // 변수라서 알 수 없으면 도우미로 넘긴다.
-    string indexGet(Expr* target, Expr* index) {
+    // 부작용 없이 두 번 적어도 되는 식인가 (호출이 끼면 안 된다 — 두 번 도는 셈이 된다)
+    static bool pureRef(Expr* e) {
+        if (dynamic_cast<VarExpr*>(e)) return true;
+        if (auto* f = dynamic_cast<FieldExpr*>(e)) return pureRef(f->target.get());
+        return false;
+    }
+
+    // 자리 번호가 **글자로 적혀 있는가**. -1 은 NegExpr(NumExpr) 로 파싱되므로
+    // NumExpr 만 보면 그냥 빠져나간다 — 그러면 xs[-1] 이 파이썬에서 xs[-1 - 1] =
+    // xs[-2] 가 되어, Venos 가 에러를 내는 자리에서 **뒤에서 두 번째 값**이 나온다.
+    // 1부터를 0부터로 옮기는 자리는 읽기와 쓰기 둘 다 이 함수를 거쳐야 한다.
+    bool litIndex(Expr* e, double& out, int line) {
+        if (!constNum(e, out)) return false;
+        // 소수 자리 번호는 Venos 에서 에러다. 그냥 내보내면 파이썬이 xs[0.5] 로 죽거나
+        // (문구가 다르다) 도우미가 int() 로 잘라 **값을 돌려준다**.
+        if (out != std::floor(out))
+            throw err(line, "리스트와 문자열의 인덱스는 정수여야 합니다 (지금 " + pyNum(out) + ")");
+        if (out < 1)
+            throw err(line, "리스트와 문자열의 인덱스는 1부터입니다 (지금 "
+                            + pyNum(out) + ") — 파이썬으로 옮기면 뒤에서 세는 뜻이 되어 버립니다");
+        return true;
+    }
+
+    string indexGet(Expr* target, Expr* index, int line) {
         sawIndex = true;
         string T = wrap(target, P_ATOM);
+        // xs[len(xs)] 는 "마지막 원소"다. 파이썬 사람은 그걸 xs[-1] 이라고 쓴다 —
+        // 교과서의 스택 맨 위·마지막 원소가 전부 이 모양이라 여기만 관용구로 낸다.
+        // 두 뜻은 정확히 같다 (빈 리스트에서 둘 다 에러인 것까지). 대상에 호출이 끼면
+        // 두 번 평가하는 셈이라 손대지 않는다.
+        if (auto* c = dynamic_cast<CallExpr*>(index))
+            if (c->name == "len" && c->args.size() == 1 && !funcs.count("len")
+                && pureRef(target) && pureRef(c->args[0].get())
+                && wrap(c->args[0].get(), P_ATOM) == T)
+                return T + "[-1]";
         if (dynamic_cast<StrExpr*>(index)) return T + "[" + expr(index) + "]";
-        if (auto* n = dynamic_cast<NumExpr*>(index)) return T + "[" + pyNum(n->v - 1) + "]";
+        // 숫자를 글자로 적은 자리. 프로그램에 딕셔너리가 하나도 없으면 리스트가 확실하므로
+        // 그냥 0부터로 옮긴다. 딕셔너리가 있으면 **이게 어느 쪽인지 모른다** — 리스트로
+        // 단정하면 딕[1] 이 파이썬에서 딕[0] 이 되어 Venos 가 거절하는 자리에 키가 생긴다.
+        double lit;
+        if (litIndex(index, lit, line) && !sawMap) return T + "[" + pyNum(lit - 1) + "]";
         if (!sawMap) return T + "[" + wrap(index, P_MUL) + " - 1]";   // 딕셔너리가 없으면 리스트뿐
         return need("idx") + "(" + expr(target) + ", " + expr(index) + ")";
     }
@@ -3383,7 +4780,8 @@ struct PyGen {
         auto A = [&](size_t i) { return expr(c->args[i].get()); };
         // .메서드() 를 붙일 인자는 원자로 만들어야 한다.
         // upper(a + b) → (a + b).upper()  (괄호가 없으면 b.upper() 가 되어 조용히 틀린다)
-        auto atom = [&](size_t i) { return wrap(c->args[i].get(), P_ATOM); };
+        // atom 뒤에는 거의 항상 `.메서드()` 가 붙는다 — dotted 를 거쳐야 한다
+        auto atom = [&](size_t i) { return dotted(c->args[i].get()); };
         size_t n = c->args.size();
         const string& f = c->name;
         auto argsJoined = [&]() {
@@ -3399,14 +4797,57 @@ struct PyGen {
                 throw err(c->line, f + "() 는 인자 " + std::to_string(want)
                                      + "개가 필요합니다 (지금 " + std::to_string(n) + "개)");
         };
+        // 파이썬이 Venos 와 다르게 답하는 인자들. 리터럴로 적혀 있으면 여기서 거절한다 —
+        // 틀린 파이썬을 내느니 줄 번호를 대고 거절하는 게 약속이다.
+        auto noEmptyStr = [&](size_t i, const char* what) {
+            auto* lit = dynamic_cast<StrExpr*>(c->args[i].get());
+            if (lit && lit->s.empty())
+                throw err(c->line, string(what) + josa(what, "은", "는") + " 비어 있을 수 없습니다"
+                                   " (파이썬은 글자 사이마다 끼워 넣어 다른 답을 냅니다)");
+        };
+        // 파이썬의 min/max 는 문자열도 리스트도 비교한다 — Venos 는 수만 받으므로
+        // 그냥 넘기면 **에러가 답으로 바뀐다**. 리터럴이면 거절하고, 아니면 도우미로 보낸다.
+        // (생성 퍼저가 min(["b","a"], []) 로 찾았다 — 예전 검사는 문자열 리터럴만 봤다)
+        auto numbersOnly = [&](size_t i) {
+            Expr* e = c->args[i].get();
+            const char* 무엇 = dynamic_cast<StrExpr*>(e)  ? "문자열"
+                             : dynamic_cast<ListExpr*>(e) ? "리스트"
+                             : dynamic_cast<MapExpr*>(e)  ? "딕셔너리"
+                             : stringish(e)               ? "문자열" : nullptr;
+            if (무엇)
+                throw err(c->line, f + "() 에는 수만 넣을 수 있습니다 (지금 "
+                                   + 무엇 + josa(무엇, "을", "를") + " 넣었습니다 —"
+                                     " 파이썬은 그것도 비교해 다른 답을 냅니다)");
+        };
         if (f == "len")   { need2(1); return "len(" + A(0) + ")"; }
         if (f == "abs")   { need2(1); return "abs(" + A(0) + ")"; }
-        if (f == "min")   { need2(2); return "min(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "max")   { need2(2); return "max(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "floor") { need2(1); imports.insert("math"); return "math.floor(" + A(0) + ")"; }
+        if (f == "min" || f == "max") {
+            need2(2); numbersOnly(0); numbersOnly(1);
+            // 수인 게 확실하면 파이썬의 min/max 를 그대로 쓴다 — 학생이 배워야 할 표기다.
+            // 확실하지 않으면(인자·리스트 원소처럼) 같은 검사를 하는 도우미로 보낸다.
+            if (numericSure(c->args[0].get()) && numericSure(c->args[1].get()))
+                return f + "(" + A(0) + ", " + A(1) + ")";
+            return need(f) + "(" + A(0) + ", " + A(1) + ")";
+        }
+        if (f == "floor") {
+            need2(1);
+            // 교과서의 중간값 계산 floor((왼쪽+오른쪽)/2) 는 파이썬에서 // 로 쓴다.
+            if (auto* d = floorDiv(c))
+                return wrap(d->lhs.get(), P_MUL) + " // " + wrap(d->rhs.get(), P_MUL + 1);
+            imports.insert("math");
+            return "math.floor(" + A(0) + ")";
+        }
         if (f == "ceil")  { need2(1); imports.insert("math"); return "math.ceil("  + A(0) + ")"; }
         if (f == "sqrt")  { need2(1); imports.insert("math"); sawFloat = true; return "math.sqrt("  + A(0) + ")"; }
-        if (f == "round") { need2(1); imports.insert("math"); return need("round") + "(" + A(0) + ")"; }
+        if (f == "round") {
+            if (n != 1 && n != 2)
+                throw err(c->line, "round() 는 인자 1~2개가 필요합니다 (지금 " + std::to_string(n) + "개)");
+            imports.insert("math");
+            if (n == 2) sawFloat = true;
+            return need("round") + "(" + A(0) + (n == 2 ? ", " + A(1) : "") + ")";
+        }
+        if (f == "reverse") { need2(1); if (!stringish(c->args[0].get())) sawList = true;
+                              return need("reverse") + "(" + A(0) + ")"; }
         if (f == "random"){ need2(2); imports.insert("random"); return need("random") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "time")  { need2(0); imports.insert("time"); sawFloat = true; return "time.time()"; }
         if (f == "num")   { need2(1); sawFloat = true; return need("num")  + "(" + A(0) + ")"; }
@@ -3414,18 +4855,51 @@ struct PyGen {
         if (f == "push")  { need2(2); sawList = true; return need("push") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "pop")   { need2(1); return atom(0) + ".pop()"; }
         if (f == "sort")  { need2(1); sawList = true; return need("sort") + "(" + A(0) + ")"; }
-        if (f == "keys")  { need2(1); sawMap = true; sawList = true; return "sorted(" + atom(0) + ".keys())"; }
+        if (f == "keys")  { need2(1); sawMap = true; sawMapReal = true; sawList = true; return "sorted(" + atom(0) + ".keys())"; }
+        // Venos 의 has() 는 딕셔너리와 리스트에만 된다. 파이썬의 `in` 은 문자열에도 되어서
+        // has("abc", "b") 가 여기서는 에러, 파이썬에서는 1 이다 — 에러가 답으로 바뀌는 쪽이다.
+        // 문자열인 줄 알 수 있으면 거절한다. `int(x in d)` 라는 표기는 그대로 남는다.
         if (f == "has")   { need2(2); sawMap = true;
-                            return "int(" + wrap(c->args[1].get(), P_CMP + 1) + " in "
-                                          + wrap(c->args[0].get(), P_CMP + 1) + ")"; }
+                            // 딕셔너리를 글자로 적어 놓고 수로 찾는 자리. Venos 는 "키는
+                            // 문자열" 이라 에러인데 파이썬은 그냥 0 을 돌려준다. 담는 것이
+                            // 리스트면 has(자료, 23) 이 정상이라, **딕셔너리인 게 보일 때만**
+                            // 막는다. (담는 것이 변수면 못 본다 — STRATEGY §6 에 적어 뒀다)
+                            if (dynamic_cast<MapExpr*>(c->args[0].get())
+                                && numericSure(c->args[1].get()))
+                                throw nope(c->line, "딕셔너리의 키는 문자열이어야 합니다"
+                                                    " (파이썬은 없는 키로 보고 0 을 돌려줍니다)");
+                            if (stringish(c->args[0].get()))
+                                throw nope(c->line, "has() 는 딕셔너리나 리스트에만 쓸 수 있습니다"
+                                                    " (파이썬의 in 은 문자열에도 되어 다른 답을 냅니다"
+                                                    " — 문자열 안을 찾으려면 find(문자열, 조각) 을 쓰세요)");
+                            // 키가 문자열로 보이거나(딕셔너리의 보통 모양) 프로그램에
+                            // 딕셔너리가 아예 없으면 리스트가 확실하므로 `in` 을 그대로 쓴다 —
+                            // 학생이 배워야 할 표기다. 나머지만 같은 검사를 하는 도우미로.
+                            if (stringish(c->args[1].get()) || !sawMapReal)
+                                return "int(" + wrap(c->args[1].get(), P_CMP + 1) + " in "
+                                              + wrap(c->args[0].get(), P_CMP + 1) + ")";
+                            return need("has") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "remove"){ need2(2); return need("remove") + "(" + A(0) + ", " + A(1) + ")"; }
         if (f == "split") { need2(2); sawList = true; return atom(0) + ".split(" + A(1) + ")"; }
         if (f == "join")  { need2(2); return need("join") + "(" + A(0) + ", " + A(1) + ")"; }
-        if (f == "upper") { need2(1); return atom(0) + ".upper()"; }
-        if (f == "lower") { need2(1); return atom(0) + ".lower()"; }
+        // Venos 의 upper()/lower() 는 영문자만 바꾼다. 파이썬의 str.upper() 는 유니코드
+        // 전체를 바꿔서 é→É, ß→SS(길이가 늘어난다!), 터키어 ı→I 까지 간다.
+        // 한글·이모지·숫자에는 둘 다 손대지 않으므로 교과서 프로그램에서는 같은 답이 나온다.
+        // 도우미로 감싸면 s.upper() 라는 표기를 못 배우게 되므로, 리스트 인덱스와 같은
+        // 판단으로 그대로 두고 **생성 파일 머리말에 차이를 적는다** (STRATEGY §6).
+        if (f == "upper") { need2(1); sawCase = true; return atom(0) + ".upper()"; }
+        if (f == "lower") { need2(1); sawCase = true; return atom(0) + ".lower()"; }
         // find 는 + 1 이 붙으므로 통째로 괄호를 씌운다 (find(s,x) * 10 이 s.find(x) + 1 * 10 이 되면 안 된다)
-        if (f == "find")  { need2(2); return "(" + atom(0) + ".find(" + A(1) + ") + 1)"; }
-        if (f == "replace"){need2(3); return atom(0) + ".replace(" + A(1) + ", " + A(2) + ")"; }
+        // 찾을 문자열이 리터럴이면 s.find(x) + 1 이 그대로 읽힌다. 변수면 빈 문자열이
+        // 들어올 수 있고, 그때 파이썬은 0 을 주지만 Venos 는 에러다 — 검사하는 쪽으로 보낸다.
+        if (f == "find")  { need2(2); noEmptyStr(1, "find() 로 찾을 문자열");
+                            if (stringish(c->args[0].get()) && dynamic_cast<StrExpr*>(c->args[1].get()))
+                                return "(" + atom(0) + ".find(" + A(1) + ") + 1)";
+                            return need("find") + "(" + A(0) + ", " + A(1) + ")"; }
+        if (f == "replace"){need2(3); noEmptyStr(1, "replace() 의 바꿀 문자열");
+                            if (dynamic_cast<StrExpr*>(c->args[1].get()))
+                                return atom(0) + ".replace(" + A(1) + ", " + A(2) + ")";
+                            return need("replace") + "(" + A(0) + ", " + A(1) + ", " + A(2) + ")"; }
         if (f == "substr"){ need2(3); return need("substr") + "(" + A(0) + ", " + A(1) + ", " + A(2) + ")"; }
         if (f == "readfile")  { need2(1); return need("readfile")   + "(" + A(0) + ")"; }
         if (f == "writefile") { need2(2); return need("writefile")  + "(" + A(0) + ", " + A(1) + ")"; }
@@ -3440,21 +4914,51 @@ struct PyGen {
     // ---- 문장 ----
     static string pad(int d) { return string(d * 4, ' '); }
 
-    // 대입 대상이 전역이면 함수 안에서 global 선언이 필요하다
-    void noteAssign(const string& name) {
+    // 대입 대상이 전역이면 함수 안에서 global 선언이 필요하다.
+    // 겸해서 "선언되지 않은 변수에 대입"을 여기서 막는다 — 세 백엔드가 갈라지던 자리다:
+    // 인터프리터는 잡을 수 있는 에러, build 는 빌드 거절, 파이썬은 **그냥 새 변수를 만든다**.
+    // try 안에서 났을 때 인터프리터는 "잡음"을 찍고 파이썬은 대입을 해 버려 다른 프로그램이 된다.
+    void noteAssign(const string& name, int line) {
+        if (!(inFunc && localSet.count(name)) && !globalSet.count(name)) {
+            string hint = suggestName(name, visibleNames());
+            if (hint.empty()) hint = "  (" + KW_LET + " " + name + " = ... 로 먼저 선언하세요)";
+            throw err(line, "선언되지 않은 변수에 대입: " + name + hint);
+        }
         if (inFunc && !localSet.count(name) && globalSet.count(name)) touchedGlobals.insert(name);
         // for 루프 변수에 다시 대입하면 더 이상 정수라고 볼 수 없다
         intVars.erase(name);
     }
 
+    // 생성된 파이썬 조각 안에 그 이름이 **낱말로** 나오는가 (부분 문자열 오탐 방지)
+    static bool mentionsName(const string& text, const string& name) {
+        auto idChar = [](unsigned char c) { return isalnum(c) || c == '_' || c >= 0x80; };
+        for (size_t i = text.find(name); i != string::npos; i = text.find(name, i + 1)) {
+            bool lOK = (i == 0) || !idChar(text[i - 1]);
+            size_t e = i + name.size();
+            bool rOK = (e >= text.size()) || !idChar(text[e]);
+            if (lOK && rOK) return true;
+        }
+        return false;
+    }
+
+    std::vector<string> visibleNames() const {
+        std::vector<string> out(globalSet.begin(), globalSet.end());
+        if (inFunc) out.insert(out.end(), localSet.begin(), localSet.end());
+        return out;
+    }
+
     // 경로 대입의 앞부분: xs[1][2] / obj.필드 를 파이썬 좌변으로
-    string lvalue(const string& name, const std::vector<Accessor>& path) {
+    string lvalue(const string& name, const std::vector<Accessor>& path, int line) {
         string cur = pyName(name);
         for (auto& a : path) {
             if (a.isField) { cur += "." + pyName(a.field); continue; }
             Expr* ix = a.index.get();
+            double lit;
             if (dynamic_cast<StrExpr*>(ix))            cur += "[" + expr(ix) + "]";
-            else if (auto* nn = dynamic_cast<NumExpr*>(ix)) cur += "[" + pyNum(nn->v - 1) + "]";
+            // 읽는 쪽과 **같은 검사**를 해야 한다. 여기만 빠져 있어서 xs[0] = 9 가
+            // 파이썬에서 xs[-1] = 9 로 나갔다 — 읽기보다 나쁘다, 리스트가 조용히 바뀐다.
+            // !sawMap 조건도 읽는 쪽과 같다 (딕셔너리가 있으면 어느 쪽인지 모른다).
+            else if (litIndex(ix, lit, line) && !sawMap) cur += "[" + pyNum(lit - 1) + "]";
             else if (!sawMap)                          cur += "[" + wrap(ix, P_MUL) + " - 1]";
             else                                       cur += "[" + need("k") + "(" + cur + ", " + expr(ix) + ")]";
         }
@@ -3469,7 +4973,7 @@ struct PyGen {
             return;
         }
         if (auto* a = dynamic_cast<AssignStmt*>(s)) {
-            noteAssign(a->name);
+            noteAssign(a->name, a->line);
             // 파서가 x += 1 을 x = x + 1 로 풀어놓는다 — 읽기 좋게 되돌린다
             if (auto* b = dynamic_cast<BinExpr*>(a->val.get())) {
                 auto* lv = dynamic_cast<VarExpr*>(b->lhs.get());
@@ -3493,13 +4997,13 @@ struct PyGen {
             return;
         }
         if (auto* pa = dynamic_cast<PathAssignStmt*>(s)) {
-            noteAssign(pa->name);
-            o << pad(d) << lvalue(pa->name, pa->path) << " = " << expr(pa->val.get()) << "\n";
+            noteAssign(pa->name, pa->line);
+            o << pad(d) << lvalue(pa->name, pa->path, pa->line) << " = " << expr(pa->val.get()) << "\n";
             return;
         }
         if (auto* pc = dynamic_cast<PathCompoundStmt*>(s)) {
-            noteAssign(pc->name);
-            string slot = lvalue(pc->name, pc->path);
+            noteAssign(pc->name, pc->line);
+            string slot = lvalue(pc->name, pc->path, pc->line);
             const char* op = "+";
             switch (pc->op) {
                 case Tok::PLUS: op = "+="; break;
@@ -3524,6 +5028,31 @@ struct PyGen {
             return;
         }
         if (auto* es = dynamic_cast<ExprStmt*>(s)) {
+            // 값을 안 쓰는 자리라면 파이썬이 실제로 쓰는 모양으로 낸다
+            // (_push(xs, v) 가 아니라 xs.append(v))
+            // 여기도 점을 찍는 자리다 — dotted 를 거치지 않으면 push(5, 1) 이
+            // 5.append(1) 로 나가 파일이 통째로 파싱되지 않는다 (네 번째 경로였다).
+            if (auto* c = dynamic_cast<CallExpr*>(es->e.get())) {
+                if (!funcs.count(c->name) && !classes.count(c->name)) {
+                    if (c->name == "push" && c->args.size() == 2) {
+                        sawList = true;
+                        o << pad(d) << dotted(c->args[0].get())
+                          << ".append(" << expr(c->args[1].get()) << ")\n";
+                        return;
+                    }
+                    if (c->name == "sort" && c->args.size() == 1) {
+                        sawList = true;
+                        o << pad(d) << dotted(c->args[0].get()) << ".sort()\n";
+                        return;
+                    }
+                    if (c->name == "reverse" && c->args.size() == 1
+                        && !stringish(c->args[0].get())) {
+                        sawList = true;
+                        o << pad(d) << dotted(c->args[0].get()) << ".reverse()\n";
+                        return;
+                    }
+                }
+            }
             o << pad(d) << expr(es->e.get()) << "\n";
             return;
         }
@@ -3532,12 +5061,12 @@ struct PyGen {
             return;
         }
         if (auto* i = dynamic_cast<IfStmt*>(s)) {
-            o << pad(d) << "if " << expr(i->cond.get()) << ":\n";
+            o << pad(d) << "if " << cond(i->cond.get()) << ":\n";
             body(i->thenB.get(), o, d + 1);
             Stmt* els = i->elseB.get();
             while (els) {
                 if (auto* chain = dynamic_cast<IfStmt*>(els)) {   // else if → elif
-                    o << pad(d) << "elif " << expr(chain->cond.get()) << ":\n";
+                    o << pad(d) << "elif " << cond(chain->cond.get()) << ":\n";
                     body(chain->thenB.get(), o, d + 1);
                     els = chain->elseB.get();
                 } else {
@@ -3558,7 +5087,7 @@ struct PyGen {
             return;
         }
         if (auto* w = dynamic_cast<WhileStmt*>(s)) {
-            o << pad(d) << "while " << expr(w->cond.get()) << ":\n";
+            o << pad(d) << "while " << cond(w->cond.get()) << ":\n";
             body(w->body.get(), o, d + 1);
             return;
         }
@@ -3576,12 +5105,23 @@ struct PyGen {
         if (auto* fe = dynamic_cast<ForEachStmt*>(s)) {
             if (inFunc) localSet.insert(fe->var);
             Expr* it = fe->iter.get();
+            // 몸통을 먼저 만들어 둔다 — 그 안에서 도는 리스트를 건드리는지 봐야 하기 때문.
+            std::ostringstream fb;
+            body(fe->body.get(), fb, d + 1);
             // 리터럴이면 그대로 돈다. 변수면 딕셔너리일 수 있어 도우미를 거친다
             // (Venos 는 딕셔너리를 키 정렬 순서로 순회한다).
-            string src = (!sawMap || dynamic_cast<ListExpr*>(it) || dynamic_cast<StrExpr*>(it))
-                       ? expr(it) : need("iter") + "(" + expr(it) + ")";
+            bool viaIter = sawMap && !dynamic_cast<ListExpr*>(it) && !dynamic_cast<StrExpr*>(it);
+            string src = viaIter ? need("iter") + "(" + expr(it) + ")" : expr(it);
+            // Venos 의 for..in 은 **루프에 들어갈 때의 리스트**를 돈다. 파이썬의 for 는
+            // 살아 있는 리스트를 돌기 때문에, 몸통에서 push 하면 무한 루프가 된다
+            // (생성 퍼저가 찾았다 — 에러 하나 없이 답만 달라진다).
+            // _iter 를 거치면 거기서 이미 사본을 주므로 덧씌우지 않는다. 그 밖에는
+            // 몸통이 그 이름을 건드릴 때만 감싼다 — 읽기 좋은 쪽을 지킨다.
+            if (!viaIter)
+                if (auto* v = dynamic_cast<VarExpr*>(it))
+                    if (mentionsName(fb.str(), pyName(v->name))) src = "list(" + src + ")";
             o << pad(d) << "for " << pyName(fe->var) << " in " << src << ":\n";
-            body(fe->body.get(), o, d + 1);
+            o << fb.str();
             return;
         }
         if (dynamic_cast<BreakStmt*>(s))    { o << pad(d) << "break\n";    return; }
@@ -3595,23 +5135,108 @@ struct PyGen {
         throw LangError("파이썬으로 변환할 수 없는 문장이 있습니다");
     }
 
+    // 끝값 + 1 을 사람이 쓰듯 낸다 — Venos 의 for 는 양끝을 포함하고 range 는 끝을 빼므로
+    // 한 칸 밀어야 하는데, `n - 1 + 1` 을 그대로 내면 읽는 사람이 한 번 멈춘다.
+    // `for i = 1 to n - 1` 은 `range(1, n)` 이 되고, 그게 파이썬 교과서에 적힌 모양이다.
+    string endPlusOne(Expr* e) {
+        double k;
+        if (constInt(e, k)) return pyNum(k + 1);
+        if (auto* b = dynamic_cast<BinExpr*>(e))
+            if (b->interpN == 0 && constInt(b->rhs.get(), k)) {
+                if (b->op == Tok::MINUS)
+                    return k == 1 ? wrap(b->lhs.get(), P_ADD)
+                                  : wrap(b->lhs.get(), P_ADD) + " - " + pyNum(k - 1);
+                if (b->op == Tok::PLUS)
+                    return wrap(b->lhs.get(), P_ADD) + " + " + pyNum(k + 1);
+            }
+        return wrap(e, P_ADD) + " + 1";
+    }
+
     // for i = a to b step s  →  range. Venos 는 양끝을 포함하므로 끝값을 한 칸 민다.
     string rangeOf(ForStmt* f) {
         string a = expr(f->start.get()), b = expr(f->end.get());
         double sa, sb, st;
         bool ka = constInt(f->start.get(), sa), kb = constInt(f->end.get(), sb);
+        (void)sa;
         lastRangeIsInt = true;
         if (!f->step) {
-            if (ka && kb)                       // 둘 다 상수면 방향이 확정된다
-                return sa <= sb ? "range(" + a + ", " + pyNum(sb + 1) + ")"
-                                : "range(" + a + ", " + pyNum(sb - 1) + ", -1)";
-            lastRangeIsInt = false;             // _rng 는 소수도 내줄 수 있다
+            // step 이 없으면 **항상 올라간다** — 방향이 실행할 때 정해지지 않으므로
+            // 양끝이 정수인 것만 알면 그대로 range() 다. 교과서에서 제일 흔한 모양
+            // (`for i = 1 to len(A)`)이 여기 걸려서 `range(1, len(A) + 1)` 로 나간다.
+            if ((ka || intish(f->start.get())) && (kb || intish(f->end.get())))
+                return "range(" + a + ", " + endPlusOne(f->end.get()) + ")";
+            // 소수가 섞일 수 있으면 range() 가 TypeError 다 — _rng 가 리스트로 펴 준다.
+            lastRangeIsInt = false;
             return need("rng") + "(" + a + ", " + b + ")";
         }
-        if (kb && constInt(f->step.get(), st) && st != 0)
+        // range() 는 정수만 받는다 — 시작값이 정수라고 확신할 수 있을 때만 쓴다.
+        // (for i = 어떤소수 to 10 step 2 를 range 로 내면 파이썬이 TypeError 를 낸다)
+        if (kb && (ka || intish(f->start.get())) && constInt(f->step.get(), st) && st != 0)
             return "range(" + a + ", " + pyNum(sb + (st > 0 ? 1 : -1)) + ", " + pyNum(st) + ")";
-        lastRangeIsInt = false;
+        lastRangeIsInt = intish(f->start.get()) && intish(f->end.get())
+                      && intish(f->step.get());
         return need("rng") + "(" + a + ", " + b + ", " + expr(f->step.get()) + ")";
+    }
+    // 파이썬에서 정수로 나오는 게 확실한 식인가 (range() 에 그대로 넣어도 되는가)
+    // floor(a / b) 를 파이썬의 a // b 로 낼 수 있는가. **양쪽이 정수로 보일 때만** 이다 —
+    // 소수끼리면 파이썬의 // 는 3.0 같은 소수를 내고, 그게 인덱스 자리에 오면 TypeError 다
+    // (math.floor 는 늘 정수를 낸다). 학생이 floor 라는 함수를 직접 만들었으면 손대지 않는다.
+    BinExpr* floorDiv(Expr* e) {
+        auto* c = dynamic_cast<CallExpr*>(e);
+        if (!c || c->name != "floor" || c->args.size() != 1 || funcs.count("floor")) return nullptr;
+        auto* b = dynamic_cast<BinExpr*>(c->args[0].get());
+        if (!b || b->op != Tok::SLASH || b->interpN > 0) return nullptr;
+        if (!intish(b->lhs.get()) || !intish(b->rhs.get())) return nullptr;
+        return b;
+    }
+
+    // 파이썬에서 **수인 게 확실한** 식인가. intish 보다 넓다 — 소수여도 된다.
+    // min/max 를 도우미로 감쌀지 그대로 낼지 여기서 갈린다.
+    bool numericSure(Expr* e) {
+        if (dynamic_cast<NumExpr*>(e)) return true;
+        if (auto* n = dynamic_cast<NegExpr*>(e)) return numericSure(n->inner.get());
+        if (intish(e)) return true;
+        if (auto* c = dynamic_cast<CallExpr*>(e)) {
+            if (funcs.count(c->name) || classes.count(c->name)) return false;
+            static const std::set<string> N = {"abs", "sqrt", "num", "time", "min", "max"};
+            return N.count(c->name) > 0;
+        }
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return false;                 // f-string 은 문자열
+            switch (b->op) {
+                case Tok::PLUS: case Tok::MINUS: case Tok::STAR:
+                case Tok::SLASH: case Tok::PERCENT:
+                    return numericSure(b->lhs.get()) && numericSure(b->rhs.get());
+                default: return false;
+            }
+        }
+        return false;
+    }
+
+    bool intish(Expr* e) {
+        double k;
+        if (constInt(e, k)) return true;
+        if (auto* v = dynamic_cast<VarExpr*>(e))
+            return intVars.count(v->name) > 0 || intStatic.count(scopeKey(curScope, v->name)) > 0;
+        if (auto* n = dynamic_cast<NegExpr*>(e)) return intish(n->inner.get());
+        if (auto* c = dynamic_cast<CallExpr*>(e)) {
+            if (funcs.count(c->name) || classes.count(c->name)) return false;
+            if (c->name == "len"    && c->args.size() == 1) return true;
+            if (c->name == "floor"  && c->args.size() == 1) return true;
+            if (c->name == "ceil"   && c->args.size() == 1) return true;
+            if (c->name == "round"  && c->args.size() == 1) return true;
+            if (c->name == "random" && c->args.size() == 2) return true;
+            return false;
+        }
+        if (auto* b = dynamic_cast<BinExpr*>(e)) {
+            if (b->interpN > 0) return false;
+            switch (b->op) {
+                case Tok::PLUS: case Tok::MINUS: case Tok::STAR: case Tok::PERCENT:
+                    return intish(b->lhs.get()) && intish(b->rhs.get());
+                default: return false;     // / 는 소수가 된다
+            }
+        }
+        return false;
     }
 
     // 빈 블록은 파이썬에서 pass 가 필요하다
@@ -3662,6 +5287,8 @@ struct PyGen {
 
     string defOf(FuncStmt* fn, const string& name, bool method, int d, bool ctor = false) {
         inFunc = true;
+        // 걷는 쪽(scanStr)이 쓴 것과 **같은 범위 이름**이어야 한다
+        curScope = method ? curClass + "." + fn->name : fn->name;
         localSet.clear();
         touchedGlobals.clear();
         if (method) localSet.insert("self");
@@ -3687,6 +5314,7 @@ struct PyGen {
         // 파이썬 __init__ 은 값을 돌려주면 TypeError 다. 그 밖에는 Venos 처럼 기본 0 을 돌려준다.
         if (!ctor && !endsWithReturn(fn->body.get())) o << pad(d + 1) << "return 0\n";
         inFunc = false;
+        curScope.clear();
         localSet.clear();
         touchedGlobals.clear();
         return o.str();
@@ -3695,6 +5323,8 @@ struct PyGen {
     string generate(std::vector<StmtP>& program) {
         for (auto& s : program) collect(s.get());
         for (auto& s : program) collectVars(s.get(), globalSet);
+        inferStrVars(program);
+        inferIntVars(program);
 
         // 본문을 두 번 만든다. 1차는 딕셔너리가 등장하는지(sawMap)와 필요한 도우미를 알아내는 용도 —
         // 딕셔너리가 아예 없는 프로그램이면 _idx/_iter 같은 도우미 없이 훨씬 읽기 좋은 코드가 나온다.
@@ -3702,9 +5332,11 @@ struct PyGen {
         auto buildAll = [&](std::ostringstream& defsOut, std::ostringstream& mainOut) {
             for (auto& [cname, cls] : classes) {
                 defsOut << "class " << pyName(cname) << ":\n";
+                curClass = cname;
                 for (auto& m : cls->methodList)
                     defsOut << defOf(m.get(), m->name == "init" ? "__init__" : pyName(m->name),
                                      true, 1, m->name == "init") << "\n";
+                curClass.clear();
                 // Venos 는 객체를 내용으로 보여주고 내용으로 비교한다 — 파이썬 기본 동작과 달라 맞춰 준다
                 defsOut << pad(1) << "def __str__(self):\n"
                         << pad(2) << "return " << need("show") << "(self)\n\n"
@@ -3721,30 +5353,79 @@ struct PyGen {
         helpers.clear();
         imports.clear();
         buildAll(defs, main);
+        bool deepRecursion = hasRecursion();
+        // 도우미의 예외 문구는 전부 한글이라 stderr 도 UTF-8 로 바꾼다 → sys 가 필요하다.
+        // (이걸 빼먹어 영어 레슨 넷이 NameError 로 **한 줄도 못 찍고** 죽었다 —
+        //  레슨 체커가 바로 잡았다. 검사를 만들어 두면 그 검사가 다음 실수를 잡는다.)
+        if (deepRecursion || sawNonAscii || sawInput || !helpers.empty()) imports.insert("sys");
 
         std::ostringstream out;
         out << "# 이 파일은 Venos 프로그램을 파이썬으로 옮긴 것입니다 (venos topython).\n";
         int noteN = 0;
-        if (sawIndex || sawFloat || sawMod || !helpers.empty())
+        if (sawIndex || sawFloat || sawBigNum || deepRecursion || !helpers.empty())
             out << "#\n# Venos 와 파이썬이 다른 점 — 숨기지 않고 적어 둡니다:\n";
         if (sawIndex)
             out << "#   " << ++noteN << ") 리스트를 Venos 는 1번부터, 파이썬은 0번부터 셉니다."
-                   " 그래서 xs[1] 이 xs[0] 이 됩니다.\n";
+                   " 그래서 xs[1] 이 xs[0] 이 됩니다.\n"
+                   "#      번호가 1 아래로 내려가면 Venos 는 에러를 내지만 파이썬은 뒤에서부터 셉니다"
+                   " (xs[0] 이 마지막 원소가 됩니다).\n";
+        // 예전엔 여기서 "소수 표기가 다릅니다" 라고 했는데, _show 가 Venos 의 규칙을
+        // 그대로 따르게 된 뒤로는 **같다**. 낡은 설명은 없느니만 못하다 — 학생이 다른 줄의
+        // 진짜 차이를 찾을 때 이 줄을 먼저 의심하게 된다. 그래서 문구를 바꿨다.
         if (sawFloat)
-            out << "#   " << ++noteN << ") 소수를 보여주는 방식이 다릅니다. Venos 는 5.0 을 5 로,"
-                   " 91.66666...을 91.6667 로\n"
-                   "#      줄여서 보여주지만 파이썬은 있는 그대로 보여줍니다.\n";
-        if (sawMod)
-            out << "#   " << ++noteN << ") 음수 나머지가 다릅니다 — Venos 는 -7 % 3 이 -1,"
-                   " 파이썬은 2 입니다.\n";
+            out << "#   " << ++noteN << ") 소수를 파이썬이 그대로 찍으면 91.66666666666667"
+                   " 처럼 끝까지 나옵니다.\n"
+                   "#      Venos 와 같게 보이도록 _show() 가 91.6667 로 줄입니다 —"
+                   " 파이썬 본래 표기가 보고 싶으면 print(x) 로 바꾸세요.\n";
+        if (sawBigNum)
+            out << "#   " << ++noteN << ") 아주 큰 정수의 계산이 다릅니다. Venos 의 수는 실수 하나라"
+                   " 약 9천조(2^53)까지만 정확한데,\n"
+                   "#      파이썬의 정수에는 한계가 없어 그 위에서도 정확합니다 — 그래서 이 파일이"
+                   " 더 정확한 답을 낼 수 있습니다.\n"
+                   "#      (계산하다 그 선을 넘어도 마찬가지입니다. 큰 수가 필요하면 이쪽이 맞는 답입니다.)\n";
+        if (sawCase)
+            out << "#   " << ++noteN << ") upper()/lower() 가 바꾸는 범위가 다릅니다. Venos 는 영문자만"
+                   " 바꾸지만\n"
+                   "#      파이썬은 é→É 처럼 유니코드 글자도 바꿉니다 (독일어 ß 는 SS 가 되어 길이까지 늘어납니다).\n"
+                   "#      한글·숫자·이모지에는 둘 다 손대지 않습니다.\n";
+        if (deepRecursion)
+            out << "#   " << ++noteN << ") 재귀 깊이 한도가 다릅니다 — Venos 는 "
+                << RECURSION_DESKTOP << "번, 파이썬은 기본 1000번이라\n"
+                   "#      맨 위에서 sys.setrecursionlimit 으로 맞춰 두었습니다.\n";
         if (!helpers.empty())
             out << "#   " << ++noteN << ") 밑줄로 시작하는 _이름 함수들은 Venos 와 똑같이 보이게 하려고"
                    " 붙인 것뿐이니\n"
                    "#      파이썬을 배울 때는 신경 쓰지 않아도 됩니다.\n";
+        // _isnum 이 정규식을 쓴다 (num/input 을 쓴 프로그램에만 붙는다)
+        if (helpers.count("num") || helpers.count("input")) imports.insert("re");
         if (!imports.empty()) {
             out << "\n";
             for (auto& m : imports) out << "import " << m << "\n";
         }
+        // 윈도우 파이썬은 콘솔·파이프를 로케일 코드페이지로 읽고 쓴다. 그대로 두면
+        // 한글 출력이 UnicodeEncodeError 로 죽고, 한글 입력은 글자가 깨져 들어온다.
+        // stderr 도 같이 바꿔야 한다 — 도우미가 내는 예외 문구는 전부 한글이라,
+        // 잡히지 않은 에러의 역추적이 윈도우에서 깨져 나왔다. 출력만 고쳐 두면
+        // **정상 실행은 멀쩡한데 에러 화면만 읽을 수 없는** 상태가 된다.
+        bool koreanErr = sawNonAscii || !helpers.empty();
+        // 한글이 **리터럴로만** 들어오는 게 아니다 — input 으로 받거나 readfile 로 읽은
+        // 글자를 그대로 찍는 프로그램은 리터럴이 하나도 없어도 한글을 출력한다.
+        // sawNonAscii 만 보면 그런 프로그램이 윈도우에서 UnicodeEncodeError 로 죽는다.
+        bool koreanOut = sawNonAscii || sawInput || helpers.count("readfile") > 0;
+        if (koreanOut || sawInput || koreanErr) {
+            out << "\n";
+            if (koreanOut)
+                out << "sys.stdout.reconfigure(encoding=\"utf-8\")"
+                       "   # 윈도우 기본 인코딩에서 한글이 깨지지 않게\n";
+            if (koreanErr)
+                out << "sys.stderr.reconfigure(encoding=\"utf-8\")"
+                       "   # 에러 문구도 한글이라 같이 바꾼다\n";
+            if (sawInput)
+                out << "sys.stdin.reconfigure(encoding=\"utf-8\")\n";
+        }
+        if (deepRecursion)
+            out << "\nsys.setrecursionlimit(" << (RECURSION_DESKTOP + 1000) << ")"
+                   "   # Venos 는 " << RECURSION_DESKTOP << "번까지 허용, 파이썬 기본값은 1000\n";
         string help = helperSource();
         if (!help.empty()) out << "\n" << help;
         out << "\n";
@@ -3768,7 +5449,11 @@ struct PyGen {
             show += "    if hasattr(v, \"__dict__\"):\n"
                     "        d = v.__dict__\n"
                     "        return type(v).__name__ + \"{\" + \", \".join('\"%s\": %s' % (k, _q(d[k])) for k in sorted(d)) + \"}\"\n";
-        show += "    if isinstance(v, float):\n"
+        // Venos 의 toString 은 |x| < 9e18 이고 정수일 때만 자릿수를 다 쓰고, 그 위는 %g 다.
+        // float 에만 이 규칙을 걸면 파이썬 **정수**가 빠져나간다 — _num("1e20") 이 int 를
+        // 돌려주므로 str(num("1e20")) 이 여기서는 1e+20, 저기서는 자릿수 21개였다.
+        // 수는 int 든 float 든 같은 규칙으로 보여 준다 (bool 은 위에서 이미 걸렀다).
+        show += "    if isinstance(v, (int, float)):\n"
                 "        return str(int(v)) if abs(v) < 9e18 and v == int(v) else \"%g\" % v\n"
                 "    return str(v)\n";
         if (sawList || sawMap || !classes.empty())
@@ -3776,37 +5461,162 @@ struct PyGen {
                     "    return '\"' + v + '\"' if isinstance(v, str) else _show(v)\n";
 
         std::map<string, const char*> SRC = {
+            // 파이썬의 float() 은 Venos 가 안 받는 것을 받는다: 1_000 은 1000 이 되고
+            // inf/nan 도 통과한다. 그대로 두면 같은 프로그램이 다른 답을 낸다 —
+            // 세 백엔드가 같은 문법만 받도록 여기서도 한 번 거른다.
+            {"isnum",
+             "_NUM_RE = re.compile(r\"[ \\t\\n\\r\\v\\f]*[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?[ \\t\\n\\r\\v\\f]*\\Z\")\n"
+             "def _isnum(s):\n"
+             "    return bool(_NUM_RE.match(s))\n"},
             {"num",
              "def _num(s):\n"
              "    if isinstance(s, (int, float)): return s\n"
-             "    f = float(str(s).strip())\n"
+             "    t = str(s)\n"
+             "    if not _isnum(t):\n"
+             "        raise Exception(\"숫자로 바꿀 수 없는 문자열: \\\"\" + t + \"\\\"\")\n"
+             "    f = float(t)\n"
              "    return int(f) if f == int(f) else f\n"},
             {"input",
              "def _input(prompt=\"\"):\n"
-             "    s = input(prompt).strip()\n"
+             // 입력이 끊기면(파이프 끝, Ctrl+D) 파이썬은 EOFError 역추적을 쏟아낸다.
+             // Venos 는 한 줄로 말하고 끝내므로 같은 문구로 맞춘다 — 세 백엔드가 같아야 한다.
              "    try:\n"
-             "        f = float(s)\n"
-             "        return int(f) if f == int(f) else f\n"
-             "    except ValueError:\n"
-             "        return s\n"},
-            {"idx",
+             "        s = input(prompt).strip()\n"
+             "    except EOFError:\n"
+             "        raise Exception(\"입력을 읽을 수 없습니다\")\n"
+             "    if not _isnum(s):\n"
+             "        return s\n"
+             "    f = float(s)\n"
+             "    return int(f) if f == int(f) else f\n"},
+            // Venos 는 리스트 인덱스가 1부터다. int(k)-1 을 그대로 쓰면 0 이 파이썬의
+             // 음수 인덱스가 되어 "에러" 가 "마지막 원소" 로 조용히 바뀐다.
+            // Venos 의 딕셔너리 키는 **문자열만** 된다. 파이썬은 아무 해시값이나 받으므로
+            // 그냥 넘기면 딕[-1] = 9 가 여기서는 에러, 파이썬에서는 **숫자 키가 하나 늘어난다**.
+            // 그러고 나면 keys() 의 sorted() 가 int 와 str 을 비교하다 TypeError 로 죽는다 —
+            // 틀린 답보다 나쁘다, 엉뚱한 줄에서 죽으니까. (생성 퍼저가 찾았다)
+            {"dkey",  "def _dkey(k):\n"
+                      "    if not isinstance(k, str):\n"
+                      "        raise Exception(\"딕셔너리 키는 문자열이어야 합니다\")\n"
+                      "    return k\n"},
+             {"idx",
              "def _idx(c, k):\n"
-             "    return c[k] if isinstance(c, dict) else c[int(k) - 1]\n"},
+             "    if isinstance(c, dict): return c[_dkey(k)]\n"
+             // int("2") 는 파이썬에서 2 다. 그대로 두면 xs["2"] 가 여기서는 에러,
+             // 파이썬에서는 값을 돌려준다 (대입 쪽 _k 는 리스트를 조용히 고치기까지 했다).
+             "    if not isinstance(k, (int, float)):\n"
+             "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
+             // int(1.5) 는 1 이다. 그대로 두면 xs[1.5] 가 여기서는 에러, 파이썬에서는 값이다
+             // (생성 퍼저가 CI 에서 찾았다 — 같은 절단이 _k·_remove·_substr·_round 에도 있었다).
+             "    if k != int(k): raise Exception(\"리스트의 번호는 정수여야 합니다\")\n"
+             "    i = int(k)\n"
+             "    if i < 1 or i > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(i))\n"
+             "    return c[i - 1]\n"},
+            // 대입 좌변의 번호. _idx 와 같은 이유로 숫자만 받는다 — 여기를 빼먹으면
+            // xs["2"] = 9 가 파이썬에서만 리스트를 고친다 (에러가 아니라 **다른 프로그램**이다).
             {"k",
              "def _k(c, i):\n"
-             "    return i if isinstance(c, dict) else int(i) - 1\n"},
+             "    if isinstance(c, dict): return _dkey(i)\n"
+             "    if not isinstance(i, (int, float)):\n"
+             "        raise Exception(\"리스트의 번호는 숫자여야 합니다\")\n"
+             // 범위 검사가 _idx(읽기)에만 있고 여기(쓰기)에 없었다 — xs[-1] = 9 가
+             // 파이썬에서 xs[-2] = 9 로 나가 **뒤에서 두 번째를 조용히 고쳤다**.
+             "    if i != int(i): raise Exception(\"리스트의 번호는 정수여야 합니다\")\n"
+             "    n = int(i)\n"
+             "    if n < 1 or n > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(n))\n"
+             "    return n - 1\n"},
+            // 파이썬의 min/max 는 문자열도 리스트도 비교한다 — Venos 는 수만 받는다.
+            // 리터럴은 PyGen 이 미리 거절하고, 여기 오는 건 값이 실행 때 정해지는 자리다.
+            {"min",   "def _min(a, b):\n"
+                      "    if not all(isinstance(x, (int, float)) for x in (a, b)):\n"
+                      "        raise Exception(\"min() 에는 수만 넣을 수 있습니다\")\n"
+                      "    return min(a, b)\n"},
+            {"max",   "def _max(a, b):\n"
+                      "    if not all(isinstance(x, (int, float)) for x in (a, b)):\n"
+                      "        raise Exception(\"max() 에는 수만 넣을 수 있습니다\")\n"
+                      "    return max(a, b)\n"},
+            // has() 는 `int(k in c)` 로 내는 게 기본이다. 딕셔너리인데 키가 문자열이
+            // 아닐 수 있는 자리만 여기로 온다 — Venos 는 에러, 파이썬은 0 이었다.
+            {"has",   "def _has(c, k):\n"
+                      "    if isinstance(c, dict): return int(_dkey(k) in c)\n"
+                      "    if not isinstance(c, list):\n"
+                      "        raise Exception(\"has() 는 딕셔너리나 리스트에만 쓸 수 있습니다\")\n"
+                      "    return int(k in c)\n"},
             {"push",  "def _push(xs, v):\n    xs.append(v)\n    return xs\n"},
-            {"sort",  "def _sort(xs):\n    xs.sort()\n    return xs\n"},
-            {"join",  "def _join(xs, sep):\n    return sep.join(_show(x) for x in xs)\n"},
-            {"substr","def _substr(s, start, n):\n    i = int(start) - 1\n    return s[i:i + int(n)]\n"},
+            // Venos 의 sort() 는 숫자만 있거나 문자열만 있는 리스트만 받는다. 파이썬은
+            // 리스트끼리·딕셔너리끼리도 사전순으로 정렬해 버려서 **에러가 답으로 바뀐다**.
+            // (숫자와 문자열이 섞인 건 파이썬도 TypeError 라 그쪽은 이미 같다.)
+            {"sort",  "def _sort(xs):\n"
+                      "    if not (all(isinstance(x, (int, float)) for x in xs)\n"
+                      "            or all(isinstance(x, str) for x in xs)):\n"
+                      "        raise Exception(\"sort() 는 숫자만 있거나 문자열만 있는 리스트만"
+                      " 정렬할 수 있습니다\")\n"
+                      "    xs.sort()\n"
+                      "    return xs\n"},
+            // Venos 의 join() 은 리스트만 받는다. 파이썬에서 문자열을 넘기면 글자 단위로
+            // 돌아서 join("abc", "-") 이 "a-b-c" 가 된다 — 여기서는 에러인데 저기서는 답이다.
+            // (생성 퍼저가 15번째 프로그램에서 찾았다.)
+            {"join",  "def _join(xs, sep):\n"
+                      "    if not isinstance(xs, list):\n"
+                      "        raise Exception(\"join() 의 첫 인자는 리스트여야 합니다\")\n"
+                      "    return sep.join(_show(x) for x in xs)\n"},
+            // 파이썬은 리스트도 잘라내므로 substr([1,2,3], 2, 2) 가 [2, 3] 이 된다.
+            // 시작·개수도 "2" 같은 문자열을 int() 가 받아 준다 — Venos 는 둘 다 에러다.
+            {"substr","def _substr(s, start, n):\n"
+                       "    if not isinstance(s, str):\n"
+                       "        raise Exception(\"substr() 의 1번째 인자는 문자열이어야 합니다\")\n"
+                       "    if not all(isinstance(x, (int, float)) for x in (start, n)):\n"
+                       "        raise Exception(\"substr() 의 시작 위치와 개수는 숫자여야 합니다\")\n"
+                       "    if start != int(start) or n != int(n):\n"
+                       "        raise Exception(\"substr() 의 시작/개수는 정수여야 합니다\")\n"
+                       "    if n < 0: raise Exception(\"substr() 의 개수는 0 이상이어야 합니다\")\n"
+                       "    i = int(start) - 1\n"
+                       "    if i < 0: raise Exception(\"substr() 의 시작 위치는 1부터입니다\")\n"
+                       "    return s[i:i + int(n)]\n"},
             {"remove",
              "def _remove(c, k):\n"
              "    if isinstance(c, dict):\n"
-             "        return int(c.pop(k, None) is not None)\n"
-             "    return c.pop(int(k) - 1)\n"},
-            {"round", "def _round(x):\n    return math.floor(x + 0.5) if x >= 0 else math.ceil(x - 0.5)\n"},
-            {"random","def _random(a, b):\n    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
+             "        return int(c.pop(_dkey(k), None) is not None)\n"
+             "    if not isinstance(k, (int, float)):\n"
+             "        raise Exception(\"remove() 의 위치는 숫자여야 합니다\")\n"
+             "    if k != int(k): raise Exception(\"remove() 의 위치는 정수여야 합니다\")\n"
+             // 범위 검사가 _idx·_k 에만 있고 여기엔 없었다 — remove(xs, 0) 이
+             // 파이썬에서 c.pop(-1) 로 **마지막 원소를 지웠다** (생성 퍼저가 찾았다).
+             "    n = int(k)\n"
+             "    if n < 1 or n > len(c): raise Exception(\"리스트 범위를 벗어났습니다: \" + str(n))\n"
+             "    return c.pop(n - 1)\n"},
+            {"round", "def _round(x, n=0):\n"
+                      "    if not all(isinstance(v, (int, float)) for v in (x, n)):\n"
+                      "        raise Exception(\"round() 에는 수만 넣을 수 있습니다\")\n"
+                      "    if n != int(n) or n < 0 or n > 15:\n"
+                      "        raise Exception(\"round() 의 자릿수는 0부터 15까지의 정수여야 합니다\")\n"
+                      "    p = 10 ** int(n)\n"
+                      "    r = math.floor(x * p + 0.5) if x >= 0 else math.ceil(x * p - 0.5)\n"
+                      "    return r if n == 0 else r / p\n"},
+            {"reverse","def _reverse(x):\n    if isinstance(x, str): return x[::-1]\n"
+                       "    x.reverse()\n    return x\n"},
+            // 바꿀 문자열이 비면 파이썬은 글자 사이마다 끼워 넣는다. Venos 는 에러다.
+            {"replace","def _replace(s, old, new):\n"
+                       "    if old == \"\": raise Exception(\"replace() 의 바꿀 문자열은 비어 있을 수 없습니다\")\n"
+                       "    return s.replace(old, new)\n"},
+            // 빈 문자열을 찾으면 파이썬은 0 을 주지만 Venos 는 에러다
+             {"find",  "def _find(a, b):\n"
+                      "    if isinstance(a, str):\n"
+                      "        if b == \"\": raise Exception(\"find() 로 찾을 문자열은 비어 있을 수 없습니다\")\n"
+                      "        return a.find(b) + 1\n"
+                      // 딕셔너리는 Venos 에서 에러인데, 파이썬은 `b in a` 가 키를 보고
+                      // 없으면 0 을 돌려준다 — 에러가 답으로 바뀐다 (생성 퍼저가 찾았다).
+                      "    if not isinstance(a, list):\n"
+                      "        raise Exception(\"find() 의 1번째 인자는 리스트나 문자열이어야 합니다\")\n"
+                      "    return a.index(b) + 1 if b in a else 0\n"},
+            // int("5") 는 파이썬에서 5 다 — Venos 는 숫자만 받으므로 문자열은 에러여야 한다.
+            {"random","def _random(a, b):\n"
+                      "    if not all(isinstance(x, (int, float)) for x in (a, b)):\n"
+                      "        raise Exception(\"random() 에는 수만 넣을 수 있습니다\")\n"
+                      "    a, b = int(a), int(b)\n    if a > b: a, b = b, a\n    return random.randint(a, b)\n"},
             {"rng",
+             // step 을 안 쓴 for 는 **항상 올라간다** (a > b 면 한 번도 안 돈다) — 그래서
+             // 양끝이 정수라고 아는 자리에서는 아예 range(a, b+1) 로 낸다. 여기 남는 건
+             // 소수가 섞일 수 있는 범위뿐이고, range() 는 소수를 못 받아서 리스트로 편다.
              "def _rng(a, b, s=1):\n"
              "    if a == int(a) and b == int(b) and s == int(s):\n"
              "        a, b, s = int(a), int(b), int(s)\n"
@@ -3816,21 +5626,36 @@ struct PyGen {
              "        out.append(x)\n"
              "        x += s\n"
              "    return out\n"},
-            {"iter",  "def _iter(v):\n    return sorted(v) if isinstance(v, dict) else v\n"},
+            // 리스트는 사본을 준다 — Venos 는 루프 시작 시점의 리스트를 돌기 때문
+            {"iter",  "def _iter(v):\n"
+                      "    if isinstance(v, dict): return sorted(v)\n"
+                      "    return list(v) if isinstance(v, list) else v\n"},
             {"error", "def _error(m):\n    raise Exception(m)\n"},
             {"exit",  "def _exit():\n    sys.exit(0)\n"},
+            // newline="" 이 없으면 파이썬 텍스트 모드가 개행을 손댄다 — 읽을 때 \r\n 을
+            // \n 으로 접고, 윈도우에서 쓸 때 \n 을 \r\n 으로 늘린다. Venos 는 양쪽 다
+            // 바이너리로 열어 **그런 변환이 없다** (지뢰밭에 적힌 이유 그대로).
+            // 그냥 두면 메모장으로 만든 파일 하나에 두 백엔드가 다른 길이를 답한다.
             {"readfile",
-             "def _readfile(p):\n    with open(p, encoding=\"utf-8\") as f:\n        return f.read()\n"},
+             "def _readfile(p):\n"
+             "    with open(p, encoding=\"utf-8\", newline=\"\") as f:\n        return f.read()\n"},
             {"writefile",
              "def _writefile(p, s):\n"
-             "    with open(p, \"w\", encoding=\"utf-8\") as f:\n        f.write(_show(s))\n    return 1\n"},
+             "    with open(p, \"w\", encoding=\"utf-8\", newline=\"\") as f:\n"
+             "        f.write(_show(s))\n    return 1\n"},
             {"appendfile",
              "def _appendfile(p, s):\n"
-             "    with open(p, \"a\", encoding=\"utf-8\") as f:\n        f.write(_show(s))\n    return 1\n"},
+             "    with open(p, \"a\", encoding=\"utf-8\", newline=\"\") as f:\n"
+             "        f.write(_show(s))\n    return 1\n"},
         };
         // _q 는 _show 안에서만 쓰이고, join/writefile 등도 _show 에 기댄다
         std::set<string> want = helpers;
         if (want.count("join") || want.count("writefile") || want.count("appendfile")) want.insert("show");
+        // _num 과 _input 은 _isnum 으로 "숫자처럼 보이는가"를 판정한다
+        if (want.count("num") || want.count("input")) want.insert("isnum");
+        // 딕셔너리를 건드리는 셋은 _dkey 로 "키가 문자열인가"를 본다
+        if (want.count("idx") || want.count("k") || want.count("remove")
+            || want.count("has")) want.insert("dkey");
         string o;
         for (auto& h : want) {
             if (h == "show") { o += show; continue; }
@@ -3844,8 +5669,10 @@ struct PyGen {
 // build 명령: .my → .cpp 변환 후 g++ 로 컴파일
 static string currentFile;   // 현재 choose 된 파일 (셸 전역)
 
-void cmdBuild(const string& arg) {
-    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return; }
+// 성공이면 true. main 은 이걸 그대로 종료 코드로 바꾼다 — 실패를 0 으로 알리면
+// 채점 스크립트나 Makefile 이 죽은 프로그램을 성공으로 읽는다.
+bool cmdBuild(const string& arg) {
+    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return false; }
     string fname = currentFile;
 
     string base = fname.substr(0, fname.size() - FILE_EXT.size());
@@ -3855,7 +5682,9 @@ void cmdBuild(const string& arg) {
     string runCmd  = base + ".exe";
 #else
     string exeName = base;
-    string runCmd  = "./" + base;
+    // 폴더가 붙어 있지 않을 때만 ./ 가 필요하다. 절대 경로 앞에 붙이면
+    // ".//home/..." 이 되어 "not found" 로 죽는다 (venos build /경로/파일.my run).
+    string runCmd  = (base.find('/') == string::npos) ? "./" + base : base;
 #endif
 
     std::cout << "=== build: " << fname << " ===\n";
@@ -3868,38 +5697,87 @@ void cmdBuild(const string& arg) {
         cppCode = gen.generate(program);
     } catch (const LangError& e) {
         printError(e.what(), "!! codegen error: ");
-        return;
+        return false;
     }
     {
         std::ofstream out(toPath(cppName));
         out << cppCode;
     }
     std::cout << "C++ generated: " << cppName << "\n";
-    bool nonAscii = false;
-    for (unsigned char ch : fname) if (ch >= 0x80) nonAscii = true;
-    if (nonAscii)
-        std::cout << "(note: non-ASCII filenames can break the g++ call on Windows — ASCII names recommended)\n";
     std::cout << "compiling with g++...\n";
-    string compile = "g++ -std=c++17 -O2 -o \"" + exeName + "\" \"" + cppName + "\"";
-    std::cout << std::flush;
-    int rc = std::system(compile.c_str());
+    // 윈도우는 정적 링크한다. 그러지 않으면 만들어진 exe 가 libstdc++-6.dll 등을 PATH 에서
+    // 찾아야 해서 친구에게 건네면 안 열리고, PATH 에 다른 MinGW 의 libstdc++ 이 먼저
+    // 걸리면 표준 라이브러리가 조용히 오동작한다 (파일 열기가 늘 성공하는 걸 본 적 있다).
+    const string FLAGS = string("g++ -std=c++17 -O2")
+#ifdef _WIN32
+                       + " -static"
+#endif
+                       ;
+    int rc;
+#ifdef _WIN32
+    // 한글 경로면 g++ 를 그냥 부를 수 없다. venos 자신은 _wfopen 으로 열지만 **g++ 의 argv 는
+    // ANSI 코드페이지로 변환돼 들어가서** "No such file or directory" 로 죽는다 (윈도우 CI 가 잡음).
+    // 우리가 g++ 를 고칠 수는 없으니, 그 폴더로 잠깐 들어가 ASCII 이름으로만 부르고
+    // 결과를 제자리에 돌려놓는다. 학생이 받는 .cpp/.exe 이름은 그대로다.
+    if (hasNonAscii(cppName) || hasNonAscii(exeName)) {
+        const string TMP_CPP = "venos_build_tmp.cpp";
+        const string TMP_EXE = "venos_build_tmp.exe";
+        string dir = dirOf(cppName);
+        std::error_code ec;
+        fs::path prev = fs::current_path(ec);
+        if (!ec && !dir.empty()) fs::current_path(toPath(dir), ec);
+        if (ec) {
+            std::cout << "!! 폴더로 들어갈 수 없습니다: " << (dir.empty() ? "." : dir) << "\n";
+            return false;
+        }
+        // 이제 CWD 가 그 폴더이므로 파일 이름만 쓴다 (폴더 이름에도 한글이 있을 수 있다)
+        string exeHere = dir.empty() ? exeName : exeName.substr(dir.size() + 1);
+        { std::ofstream out(TMP_CPP, std::ios::binary); out << cppCode; }
+        rc = runShell(FLAGS + " -o " + TMP_EXE + " " + TMP_CPP);
+        if (rc == 0) {
+            fs::remove(toPath(exeHere), ec);
+            fs::rename(fs::path(TMP_EXE), toPath(exeHere), ec);
+            if (ec) { std::cout << "!! 만든 실행 파일을 제자리로 옮기지 못했습니다\n"; rc = -1; }
+        }
+        std::error_code ec2;
+        // 학생 파일이 하필 venos_build_tmp.my 라면 임시 이름이 결과물 이름과 같아진다 —
+        // 그때 지우면 방금 만든 것을 지우는 꼴이다.
+        string cppHere = dir.empty() ? cppName : cppName.substr(dir.size() + 1);
+        if (cppHere != TMP_CPP) fs::remove(fs::path(TMP_CPP), ec2);
+        if (exeHere != TMP_EXE) fs::remove(fs::path(TMP_EXE), ec2);
+        if (!prev.empty()) fs::current_path(prev, ec2);
+    } else
+#endif
+    {
+        rc = runShell(FLAGS + " -o \"" + exeName + "\" \"" + cppName + "\"");
+    }
     if (rc != 0) {
         std::cout << "!! g++ failed (is g++ installed?)\n";
         std::cout << "   the generated C++ is still there, you can compile it yourself: " << cppName << "\n";
-        return;
+        return false;
     }
     std::cout << "build OK: " << exeName << "  (run: " << runCmd << ")\n";
     if (arg == "run") {
         std::cout << "----- run -----\n" << std::flush;
-        int rrc = std::system(runCmd.c_str());
-        if (rrc != 0) std::cout << "(program exited with code " << rrc << ")\n";
+        // 경로에 공백이 있으면 셸이 두 낱말로 읽는다 ("내 과제/정렬.my")
+        int rrc = runShell("\"" + runCmd + "\"");
+        if (rrc != 0) {
+            // system() 이 주는 건 종료 코드가 아니라 wait 상태다 — 1 로 끝난 프로그램이
+            // 256 으로 찍히고 있었다. POSIX 에서는 위쪽 바이트를 벗겨야 한다.
+#ifndef _WIN32
+            if ((rrc & 0x7F) == 0) rrc = (rrc >> 8) & 0xFF;
+#endif
+            std::cout << "(program exited with code " << rrc << ")\n";
+            return false;
+        }
     }
+    return true;
 }
 
 // topython 명령: .my → 읽을 수 있는 .py
 // build 와 달리 컴파일하지 않는다 — 학생이 읽고 다음 언어로 넘어가라고 내주는 파일이다.
-void cmdTopython() {
-    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return; }
+bool cmdTopython() {
+    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return false; }
     string fname = currentFile;
     string pyName = fname.substr(0, fname.size() - FILE_EXT.size()) + ".py";
 
@@ -3912,13 +5790,14 @@ void cmdTopython() {
         pyCode = gen.generate(program);
     } catch (const LangError& e) {
         printError(e.what(), "!! python conversion failed: ");
-        return;
+        return false;
     }
     {
         std::ofstream out(toPath(pyName));
         out << pyCode;
     }
     std::cout << "Python generated: " << pyName << "  (run: python3 " << pyName << ")\n";
+    return true;
 }
 
 
@@ -3957,11 +5836,14 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_run(const char* code) {
         std::cout << std::flush;
         return;
     }
+    g_stopped = false;
+    g_pumpTick = 0;
+    g_pumpLast = emscripten_get_now();   // 시작 직후부터 양보하지 않도록 시계를 맞춰 둔다
     try {
         runSource(src);
-        std::cout << "=== done ===\n";
+        std::cout << (g_stopped ? "=== 중단했습니다 / stopped ===\n" : "=== done ===\n");
     } catch (const LangError& e) {
-        printError(e.what());
+        printError(e);
     } catch (const std::exception& e) {
         std::cout << "!! 내부 에러: " << e.what() << "\n";
     }
@@ -4006,7 +5888,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_flush() {
 }
 #else   // ---- 이하 네이티브 전용 (CLI 셸) ----
 
-// 중괄호 열림/닫힘 차이 (문자열/주석 무시) — REPL 여러 줄 입력 판단용
+// 괄호 열림/닫힘 차이 (문자열/주석 무시) — REPL 여러 줄 입력 판단용.
+// `{}` 만 세면 여러 줄 리스트 리터럴이 깨진다 — 스펙이 끝의 쉼표를 허용하며 권하는
+// 모양인데(`[1,` 줄바꿈 `2]`), REPL 에서만 "값이 와야 할 자리입니다" 로 죽었다.
+// `[]` 와 `()` 도 같이 센다.
 static int braceDelta(const string& s) {
     int d = 0;
     bool inStr = false;
@@ -4019,8 +5904,8 @@ static int braceDelta(const string& s) {
         }
         if (c == '"') { inStr = true; continue; }
         if (c == '#') break;
-        if (c == '{') d++;
-        if (c == '}') d--;
+        if (c == '{' || c == '[' || c == '(') d++;
+        if (c == '}' || c == ']' || c == ')') d--;
     }
     return d;
 }
@@ -4028,12 +5913,13 @@ static int braceDelta(const string& s) {
 // REPL — 한 줄씩 즉시 실행, 변수/함수/클래스는 세션 동안 유지
 void cmdRepl() {
     clearScreen();
-    std::cout << "=== Venos REPL ===  (:q 나가기)\n";
+    std::cout << "=== Venos REPL ===  (:q / quit / 나가기 로 종료)\n";
     std::cout << "한 줄씩 바로 실행됩니다. 값만 입력하면 결과를 출력해요 (예: 3 * 7)\n\n";
     Env env;
     g_funcs.clear();
     g_classes.clear();
     g_callDepth = 0;
+    g_frames.clear();   // 앞 실행이 스택 넘침 등으로 중간에 끊겼으면 프레임이 남아 있다
     g_lineMap.clear();
     g_srcLines.clear();
     g_global = &env;
@@ -4043,7 +5929,8 @@ void cmdRepl() {
         std::cout << ">> " << std::flush;
         if (!readLine(line)) break;
         string t = trim(line);
-        if (t == ":q" || t == "exit") break;
+        // 나가는 말은 여러 가지로 받아 준다 — 못 나가서 창을 닫는 학생이 없도록
+        if (t == ":q" || t == "q" || t == "exit" || t == "quit" || t == "나가기") break;
         if (t.empty()) continue;
 
         // 블록이 열려 있으면 닫힐 때까지 이어서 입력
@@ -4092,12 +5979,18 @@ void cmdRepl() {
                         return;
                     }
                 }
-                for (auto& s : prog) s->exec(env);
+                for (auto& s : prog) {
+                    Flow f = s->exec(env);
+                    if (f == Flow::NORMAL) continue;
+                    throw LangError(f == Flow::BREAK    ? KW_BREAK + " 는 반복문 안에서만 쓸 수 있습니다"
+                                  : f == Flow::CONTINUE ? KW_CONTINUE + " 는 반복문 안에서만 쓸 수 있습니다"
+                                                        : KW_RETURN + " 은 함수 안에서만 쓸 수 있습니다");
+                }
             });
         } catch (ExitSignal&) {
             break;
         } catch (LangError& e) {
-            printError(e.what());
+            printError(e);
         } catch (std::exception& e) {
             std::cout << "!! 내부 에러: " << e.what() << "\n";
         }
@@ -4116,6 +6009,26 @@ string withExt(string name) {
         || name.substr(name.size() - FILE_EXT.size()) != FILE_EXT)
         name += FILE_EXT;
     return name;
+}
+
+// "파일 없음" 으로 끝내면 학생은 자기가 방금 만든 파일을 찾으러 폴더를 뒤진다.
+// 실제로 걸리는 두 가지는 먼저 이름을 불러 줄 수 있다:
+//   venos examples/   — 탭 자동완성이 붙인 폴더 이름 ("파일 없음: examples/.my" 였다)
+//   venos 정렬.my     — 메모장이 저장할 때 .txt 를 붙여 실제 파일은 정렬.my.txt 다
+//                       (윈도우 메모장의 기본값이고, 학생 눈에는 확장자가 숨겨져 있다)
+static void sayMissing(const string& fname, const string& raw) {
+    if (fs::is_directory(toPath(raw))) {
+        std::cout << "폴더입니다: " << raw << "\n"
+                  << "   폴더 안의 파일을 지정하세요: venos "
+                  << raw << (raw.back() == '/' || raw.back() == '\\' ? "" : "/")
+                  << "정렬" << FILE_EXT << "\n";
+        return;
+    }
+    std::cout << "파일 없음: " << fname << "\n";
+    if (fs::is_regular_file(toPath(fname + ".txt")))
+        std::cout << "   " << fname << ".txt 는 있습니다"
+                     " — 메모장이 저장할 때 .txt 를 붙인 것입니다."
+                     " 다시 저장할 때 파일 형식을 '모든 파일' 로 고르세요\n";
 }
 
 static std::vector<string> myFiles() {
@@ -4145,7 +6058,7 @@ void cmdChoose(const string& name) {
     if (name.empty()) { std::cout << "사용법: choose <파일이름>\n"; return; }
     string fname = withExt(name);
     if (!fs::exists(toPath(fname))) {
-        std::cout << "파일 없음: " << fname << "\n";
+        sayMissing(fname, name);
         auto files = myFiles();
         if (!files.empty()) {
             std::cout << "현재 있는 파일:\n";
@@ -4210,7 +6123,7 @@ void cmdCode() {
                 runSourceBigStack(expandImports(currentFile));   // 저장본 기준 (import 지원)
                 std::cout << "=== done ===\n";
             } catch (const LangError& e) {
-                printError(e.what());
+                printError(e);
             } catch (const std::exception& e) {
                 std::cout << "!! 내부 에러: " << e.what() << "\n";
             }
@@ -4266,17 +6179,20 @@ void cmdCode() {
     std::cout << "저장됨: " << currentFile << " (" << lines.size() << "줄)\n";
 }
 
-void cmdRun() {
-    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return; }
+bool cmdRun() {
+    if (currentFile.empty()) { std::cout << "choose 로 파일을 먼저 선택하세요\n"; return false; }
     std::cout << "=== running: " << currentFile << " ===\n";
     try {
         runSourceBigStack(expandImports(currentFile));
         std::cout << "=== done ===\n";
     } catch (const LangError& e) {
-        printError(e.what());
+        printError(e);
+        return false;
     } catch (const std::exception& e) {
         std::cout << "!! 내부 에러: " << e.what() << "\n";
+        return false;
     }
+    return true;
 }
 
 void cmdList() {
@@ -4325,8 +6241,35 @@ void cmdHelp() {
         "  CLI: venos 파일.my (바로 실행) / venos build 파일.my run\n";
 }
 
+#ifdef _WIN32
+// 윈도우는 main 의 argv 를 시스템 ANSI 코드페이지로 준다. 한글 파일 이름이 물음표로
+// 뭉개져서 "파일 없음: ??_??.my" 가 되고, 한국어 사용자용 언어인데 정렬.my 를 못 연다.
+// 명령줄을 UTF-16 으로 다시 받아 UTF-8 로 바꿔 끼운다 (프로그램 내부는 전부 UTF-8).
+static std::vector<string> g_wideArgs;
+static std::vector<char*>  g_wideArgv;
+static void useUtf8Argv(int& argc, char**& argv) {
+    int n = 0;
+    LPWSTR* w = CommandLineToArgvW(GetCommandLineW(), &n);
+    if (!w || n <= 0) return;
+    g_wideArgs.clear();
+    for (int i = 0; i < n; i++) {
+        int need = WideCharToMultiByte(CP_UTF8, 0, w[i], -1, nullptr, 0, nullptr, nullptr);
+        string u8(need > 1 ? need - 1 : 0, '\0');
+        if (need > 1) WideCharToMultiByte(CP_UTF8, 0, w[i], -1, &u8[0], need, nullptr, nullptr);
+        g_wideArgs.push_back(std::move(u8));
+    }
+    LocalFree(w);
+    g_wideArgv.clear();
+    for (auto& a : g_wideArgs) g_wideArgv.push_back(a.empty() ? const_cast<char*>("") : &a[0]);
+    g_wideArgv.push_back(nullptr);
+    argc = n;
+    argv = g_wideArgv.data();
+}
+#endif
+
 int main(int argc, char** argv) {
 #ifdef _WIN32
+    useUtf8Argv(argc, argv);
     SetConsoleCP(CP_UTF8);
     SetConsoleOutputCP(CP_UTF8);
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -4341,25 +6284,66 @@ int main(int argc, char** argv) {
     //   venos build 파일.my run  빌드 후 실행
     if (argc >= 2) {
         string a1 = argv[1];
-        if (a1 == "topython" && argc >= 3) {
-            string f = withExt(argv[2]);
-            if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
-            currentFile = f;
-            cmdTopython();
+        // 다른 도구들이 다 받는 것들 — 이게 없으면 `venos --help` 가 "파일 없음: --help.my" 다
+        if (a1 == "--version" || a1 == "-v" || a1 == "version") {
+            std::cout << "Venos " << VENOS_VERSION << "\n";
             return 0;
+        }
+        if (a1 == "--help" || a1 == "-h" || a1 == "help") {
+            std::cout <<
+                "Venos " << VENOS_VERSION << " — 실행되는 의사코드, 파이썬으로 나가는 다리\n"
+                "\n"
+                "사용법:\n"
+                "  venos 파일.my              바로 실행 (인터프리터)\n"
+                "  venos run 파일.my          위와 같음\n"
+                "  venos build 파일.my        C++ 로 옮겨 g++ 로 컴파일 → 실행 파일\n"
+                "  venos build 파일.my run    빌드한 뒤 바로 실행\n"
+                "  venos topython 파일.my     같은 프로그램의 파이썬 버전을 만든다 (.my → .py)\n"
+                "  venos                      대화형 셸 (그 안에서 help 로 명령 목록)\n"
+                "  venos --version            버전\n"
+                "\n"
+                "확장자 .my 는 생략해도 된다 (venos 정렬 → 정렬.my).\n"
+                "설치 없이 써 보려면: https://vpdrla.github.io/Venos/\n"
+                "언어 명세: VENOS_SPEC.md\n";
+            return 0;
+        }
+        // 남는 인자를 조용히 버리면 "venos topython 정렬.my -o 결과.py" 가 아무 말 없이
+        // 엉뚱한 곳에 파일을 쓴다. 모르는 인자는 쓰는 법과 함께 거절한다.
+        auto extra = [&](int used, const char* usage) {
+            if (argc <= used) return false;
+            std::cout << "모르는 인자: " << argv[used] << "\n   쓰는 법: " << usage << "\n";
+            return true;
+        };
+        if (a1 == "topython" && argc >= 3) {
+            if (extra(3, "venos topython 파일.my")) return 1;
+            string f = withExt(argv[2]);
+            if (!fs::is_regular_file(toPath(f))) { sayMissing(f, argv[2]); return 1; }
+            currentFile = f;
+            return cmdTopython() ? 0 : 1;
         }
         if (a1 == "build" && argc >= 3) {
+            bool wantRun = (argc >= 4 && string(argv[3]) == "run");
+            if (extra(wantRun ? 4 : 3, "venos build 파일.my [run]")) return 1;
             string f = withExt(argv[2]);
-            if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
+            if (!fs::is_regular_file(toPath(f))) { sayMissing(f, argv[2]); return 1; }
             currentFile = f;
-            cmdBuild((argc >= 4 && string(argv[3]) == "run") ? "run" : "");
-            return 0;
+            return cmdBuild(wantRun ? "run" : "") ? 0 : 1;
         }
-        string f = withExt((a1 == "run" && argc >= 3) ? argv[2] : a1);
-        if (!fs::exists(toPath(f))) { std::cout << "파일 없음: " << f << "\n"; return 1; }
+        // 명령어만 치고 파일 이름을 빼먹은 경우. 여기서 안 잡으면 "build" 가 파일 이름으로
+        // 내려가 "파일 없음: build.my" 라는, 학생이 만든 적도 없는 파일 이름이 나온다.
+        if ((a1 == "build" || a1 == "topython" || a1 == "run")
+            && !fs::exists(toPath(withExt(a1)))) {
+            std::cout << a1 << " 뒤에 파일 이름이 필요합니다\n   쓰는 법: venos " << a1
+                      << " 파일.my" << (a1 == "build" ? " [run]" : "") << "\n";
+            return 1;
+        }
+        bool viaRun = (a1 == "run" && argc >= 3);
+        if (extra(viaRun ? 3 : 2, "venos 파일.my   (또는 venos run 파일.my)")) return 1;
+        string f = withExt(viaRun ? argv[2] : a1);
+        string raw = viaRun ? argv[2] : a1;
+        if (!fs::is_regular_file(toPath(f))) { sayMissing(f, raw); return 1; }
         currentFile = f;
-        cmdRun();
-        return 0;
+        return cmdRun() ? 0 : 1;
     }
     clearScreen();
     drawBanner();
@@ -4387,7 +6371,24 @@ int main(int argc, char** argv) {
         else if (cmd == "clear")   { clearScreen(); drawBanner(); }
         else if (cmd == "help")    cmdHelp();
         else if (cmd == "exit" || cmd == "quit") break;
-        else std::cout << "알 수 없는 명령어: " << cmd << "  (help 참고)\n";
+        else {
+            // 셸에 처음 온 사람이 가장 먼저 하는 일은 코드를 치는 것이다.
+            // "알 수 없는 명령어: let" 만 보여 주면 repl 이 있다는 걸 알 길이 없다.
+            static const std::vector<string> CMDS = {
+                "create", "choose", "code", "show", "run", "list",
+                "build", "topython", "repl", "clear", "help", "exit",
+            };
+            bool looksLikeCode =
+                cmd == KW_LET || cmd == KW_PRINT || cmd == KW_IF || cmd == KW_WHILE
+             || cmd == KW_FOR || cmd == KW_FUNC || cmd == KW_CLASS || cmd == KW_TRY
+             || cmd == KW_RETURN || cmd == "import"
+             || line.find('=') != string::npos || line.find('(') != string::npos;
+            std::cout << "알 수 없는 명령어: " << cmd
+                      << (looksLikeCode
+                            ? "  (코드를 한 줄씩 실행하려면 repl 을 먼저 치세요)"
+                            : suggestName(cmd, CMDS))
+                      << "\n   명령어 목록은 help\n";
+        }
     }
     std::cout << "종료합니다.\n";
     return 0;

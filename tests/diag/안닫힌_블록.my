@@ -1,0 +1,5 @@
+let x = 10
+if x > 5 {
+    print "크다"
+
+print "끝"

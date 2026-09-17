@@ -1,0 +1,45 @@
+# UTF-8 경계 — 4바이트 문자(이모지)까지 글자 단위로 다뤄야 한다.
+# 바이트 단위로 세면 len 이 3 이 아니라 7 이 되고, 뒤집기가 깨진 바이트를 만든다.
+# 세 백엔드가 같은 답을 내는지가 핵심이라 값만 비교한다.
+
+# 4바이트 문자(이모지)와 한글 자모
+let e = "가👍나"
+print len(e), e[1], e[2], e[3]
+print reverse(e)
+print substr(e, 2, 1), substr(e, 2, 2)
+print upper("가👍abc"), lower("가👍ABC")
+print find(e, "👍"), find(e, "나")
+print split("가,👍,나", ","), join(["👍","✨"], "-")
+print replace(e, "👍", "★")
+for ch in e { print "글자:", ch }
+print "보간: {e}", "반복: " + "👍" * 3
+let d = {}
+d["👍"] = 1
+print keys(d), has(d, "👍")
+print len("각"), len("ㄱㅏㄱ")
+
+# --- 딕셔너리 키 정렬 순서 ---
+# Venos 는 std::map 이 바이트 순으로, 파이썬은 sorted() 가 코드포인트 순으로 늘어놓는다.
+# UTF-8 은 바이트 순서와 코드포인트 순서가 같아서 둘이 일치해야 한다 —
+# 숫자·대문자·밑줄·소문자·한글·이모지를 한 딕셔너리에 넣어 그걸 확인한다.
+let 섞임 = {"b": 1, "A": 2, "가": 3, "z": 4, "10": 5, "2": 6, "👍": 7, "_": 8, "Z": 9, "힣": 10}
+print keys(섞임)
+for 키 in 섞임 { print 키 }
+
+print ""
+print "=== 글자 단위가 정말 글자 단위인가 ==="
+# 이모지(4바이트), 결합 문자, 전각, 악센트가 섞여도 len·reverse·인덱싱·substr·
+# find·replace·for-in·보간이 전부 **코드포인트 단위**로 같아야 한다.
+# upper/lower 는 일부러 뺐다 — 파이썬은 é→É, ß→SS 까지 가고, 그건 명세에 적힌 차이다.
+let 섞임 = ["가나다", "abc", "héllo", "🙂🎉", "한a1🙂", "ß", "ｆｕｌｌ"]
+for s in 섞임 { print "[{s}] len={len(s)} rev={reverse(s)}" }
+let 이것 = "한a1🙂"
+print 이것[1], 이것[2], 이것[3], 이것[4]
+print substr(이것, 2, 2), substr(이것, 4, 1)
+print find(이것, "🙂"), find(이것, "a"), find(이것, "없음")
+print replace(이것, "🙂", "X"), replace(이것, "한", "韓")
+print split("가,나,다", ","), join(["가", "나"], "🙂")
+for ch in "🙂가" { print "글자:", ch, len(ch) }
+# 살결 색 이모지와 ZWJ 가족은 여러 코드포인트다 — 두 방식이 같은 수를 세야 한다
+print len("👍🏽"), len("👨‍👩‍👧")
+print "보간 {이것} 끝", len("보간 {이것} 끝")

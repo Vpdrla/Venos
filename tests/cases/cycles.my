@@ -1,0 +1,54 @@
+# 자기 자신을 담은 구조, 그리고 아주 깊은 중첩.
+#
+# 리스트·딕셔너리·객체는 참조 방식이라 자기 자신을 담을 수 있다. 출력·비교·복사는
+# 전부 깊이를 세다가 1000 을 넘으면 멈춘다 — **순환인지 그냥 깊은 건지는 구분할 수
+# 없으므로** 문구가 둘 다 말한다. 예전엔 "자기 자신을 포함한 구조?" 라고만 해서,
+# 순환 하나 없이 1200단계로 쌓아 올린 자료에도 없는 순환을 탓했다.
+#
+# 두 백엔드가 같은 자리에서 같은 문구로 멈추는지가 이 케이스의 전부다.
+
+print "=== 자기 자신을 담은 리스트 ==="
+let a = [1, 2]
+push(a, a)
+try { print a } catch 오류 { print "출력:", 오류 }
+try { print copy(a) } catch 오류 { print "복사:", 오류 }
+print len(a)
+# 같은 것끼리의 == 는 내용을 파고들기 전에 같은 것임을 알아본다
+print a == a
+
+print ""
+print "=== 자기 자신을 담은 딕셔너리 ==="
+let d = {"k": 1}
+d["자기"] = d
+try { print d } catch 오류 { print "출력:", 오류 }
+try { print copy(d) } catch 오류 { print "복사:", 오류 }
+print len(d), d["k"]
+
+print ""
+print "=== 서로를 가리키는 객체 두 개 ==="
+class 마디 { func init() { self.다음 = 0 } }
+let n1 = 마디()
+let n2 = 마디()
+n1.다음 = n2
+n2.다음 = n1
+try { print n1 } catch 오류 { print "출력:", 오류 }
+try { print copy(n1) } catch 오류 { print "복사:", 오류 }
+try { print n1 == n2 } catch 오류 { print "비교:", 오류 }
+
+print ""
+print "=== 순환은 없고 그냥 깊기만 한 자료 ==="
+# 여기엔 순환이 한 군데도 없다. 그래도 1000단계를 넘으면 같은 자리에서 멈춘다.
+let 깊 = []
+let 현재 = 깊
+for i = 1 to 1200 { let 새 = []  push(현재, 새)  현재 = 새 }
+print len(깊)
+try { let c = copy(깊)  print "복사 성공" } catch 오류 { print "복사:", 오류 }
+
+print ""
+print "=== 999단계는 통과한다 ==="
+let 얕 = []
+let 여기 = 얕
+for i = 1 to 900 { let 새 = []  push(여기, 새)  여기 = 새 }
+let 복 = copy(얕)
+print len(얕), len(복), 얕 == 복
+print "끝"

@@ -90,12 +90,111 @@ Three obstacles removed, none of the substance removed:
 ## 6. What this means for what gets built
 
 **Build:** anything that makes textbook algorithms expressible, runnable, and translatable —
-the Python exit ramp, worked textbook algorithms, better beginner error messages, classroom
-plumbing (share links, lesson tracks).
+the Python exit ramp, worked textbook algorithms ([`examples/algorithms/`](examples/algorithms/)),
+better beginner error messages, classroom plumbing (share links, lesson tracks).
 
 **Refuse:** first-class functions, inheritance, a module system, a standard library, a package
 manager. Every one of these is a step down the road Pascal took. The test for a proposed feature is
 not "would this be nice" but **"can a textbook algorithm not be written without it?"**
+
+The test bites in both directions, which is the point. `"*" * n` passed (star patterns are the
+standard exercise in a loops chapter, and it was three lines of Venos before). Membership and
+position in a list passed as a consistency repair — `has` was dictionary-only and `find` was
+string-only, so "is it in the list" had no answer. Sorting records by a named field was refused:
+the sorting chapter has students write the sort, and everywhere else they can reuse the one they
+wrote. Arbitrary-precision integers were refused too — the cost is a different numeric tower, and
+the honest answer when the numbers get big is `topython`.
+
+The same judgement came up once inside `topython`. Python reads `xs[-1]` as the last
+element, so translating Venos's 1-based index to `xs[i-1]` means that **when the number
+drops to 0, an error silently becomes a wrong answer.** Routing every index through a
+checking helper closes it, but then insertion sort comes out as `_at(A, j)` instead of
+`A[j-1]` — and emitting Python a student can read is the entire point of the feature.
+So: **refuse the conversion when the number is written there (`xs[0]`), keep `xs[i-1]`
+when it is a variable, and say so in the generated file's header.** The other places
+Python answers differently — an empty needle in `replace` and `find`, strings in
+`min`/`max`, a 0 start in `substr` — can be closed without costing readability, so they
+all are: refused when literal, routed through a checking helper otherwise.
+`tests/nopython/` holds those refusals to their wording.
+
+`+` between a string and a number went the same way, and it is the widest of these. Venos
+concatenates — `"age: " + 15` is `"age: 15"` — and Python raises TypeError. PyGen wraps the
+non-string side in `_show` wherever it can *see* that one side is a string, which covers the
+shape textbook code actually writes. What it cannot see is a value whose type is only known at
+run time: a function's parameter, an element of a list, a dictionary's value. There
+`더하기("가", 1)` works in Venos and crashes in Python. Closing it means routing every `+`
+through a helper, and there are **285 of them in the sixteen worked examples** — `합 + 점수[i]`
+would become `_add(합, 점수[i])`, which is the readable Python this feature exists to produce.
+So the difference stays, it is named in the spec, and the generative fuzzer is told not to mix
+the two types across an unknown position so that a documented difference does not fail CI at
+random. It is the one accepted difference where the Venos program *works* rather than already
+dying, which is why it is written down in three places rather than one.
+
+Two operators went the same way. `list * 2` is `[1, 2, 1, 2]` in Python and `list < list`
+returns `0`, where Venos raises for both. Closing them means wrapping `*` and `<` in helpers,
+and those are the two most common operators in textbook code -- `i * 2` would emit as
+`_mul(i, 2)`, which hands back the readable Python this whole feature exists to produce. And
+reaching either one requires a program that already dies in Venos. So they stay open.
+
+`upper()` and `lower()` went the same way. Venos changes ASCII letters and leaves everything
+else alone; Python's `str.upper()` walks all of Unicode, so `café` becomes `CAFÉ`, Turkish
+dotless `ı` becomes `I`, and German `ß` becomes `SS` — **two characters where there was one**.
+Wrapping both in helpers would close it, at the cost of a student never meeting `s.upper()`,
+which is the notation they are here to learn. Korean, digits and emoji are untouched by either
+one, so the textbook programs that use these (a Caesar cipher, a base converter) agree exactly.
+So the difference stays, and the generated file's header names it — the same trade the index
+made, for the same reason.
+
+One rule went the other way, and it is worth saying why. `for i = a to b` used to pick its
+direction at run time — down if `a > b`, up otherwise — which reads like a convenience until
+you write the loop every textbook writes. `for i = 1 to len(A)` on an empty list did not run
+zero times; it ran twice, with `i = 1` and then `i = 0`, and 0 is not an index here. **Every
+sort and search in `examples/algorithms/` died on a list of zero or one element.** A textbook's
+`for i ← 1 to n`, Pascal's `for`, and Python's `range` all agree: when `n < 1`, the loop does
+not run. So the rule went, and counting down now needs the `step -1` the loops lesson was
+already teaching. Two things made the change cheap rather than a break: not one descending
+loop in the repository relied on the inference, and when both bounds are written as constants
+the parser now names the mistake (`for i = 10 to 1` → "거꾸로 세려면 step -1 을 붙이세요")
+instead of silently doing nothing. The bonus was bigger than the fix: with direction known at
+compile time, `topython` emits a real `range(1, len(A) + 1)` where it used to emit a helper
+call, at 32 of 42 sites.
+
+This is the shape of most of the work: the positioning does not only refuse features, it
+decides which behaviours are bugs. A convenience that makes the textbook loop wrong at its
+boundary is not a trade-off to document — it is a defect, and the example collection is what
+made it visible.
+
+Test infrastructure gets the same test, and it can answer differently. `examples/rpg.my` is the
+largest program written in this language — 222 lines, and the only place where classes,
+dictionary dispatch, string interpolation and file IO all run at once. It sat outside the
+differential suite because it calls `random()`, and a program whose output changes every run
+cannot be compared across backends. The fix was **not** to add `seed()` to the language:
+nothing in a textbook algorithm needs it, and every builtin added is one more thing to teach
+and one more thing that can never be removed. Instead `random()` reads an environment variable,
+`VENOS_SEED`, that only the test runner sets. The language surface is unchanged, the student
+never meets it, and the flagship program is now checked on every push — along with a 222-line
+copy of it that had been living in `tests/cases/` to dodge the randomness, free to drift from
+the original, which could finally be deleted.
+
+A third measurement went the same way, inside `topython` itself. When a program contains a
+dictionary anywhere, PyGen cannot tell a list index from a dictionary key, so every `A[j]`
+becomes `_idx(A, j)`. Selection sort over 1500 items costs **0.06s as generated Python, and
+0.60s once a single dictionary literal is added to the file** — ten times, and the cost is the
+function call, not the checks inside it. Removing it means proving `A` is a list, and in every
+textbook sort `A` is a parameter, so that proof has to follow call sites. A wrong proof emits
+`d[k - 1]` against a dictionary: a silent wrong read, bought with a performance argument. All
+sixteen worked examples run in 0.01–0.02s either way, so at the sizes this language is for, the
+difference does not exist. Measured, written down, declined.
+
+The same judgement came up on performance. Measured against CPython running the same
+program via `topython`, Venos is **about 3× slower on loops and lists, 6× on recursion,
+and slightly faster on dictionaries** — with one exception: `s = s + ch` in a loop is
+**quadratic**, where CPython extends the string in place when it holds the only
+reference. A special case in one assignment path would make it linear, and it was
+**deliberately not added**: 20,000 characters cost 0.07s, which is invisible at any size
+a textbook reaches, and the honest answer when the data gets big is `topython` — the
+same answer arbitrary-precision integers got. The measured numbers are in the spec
+instead. Measuring and then declining is not the same as never measuring.
 
 ## 7. How we would know it is working
 

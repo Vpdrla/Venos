@@ -1,0 +1,15 @@
+# 파일 입출력 중 **Venos 고유의 에러 문구**에 기대는 줄만 따로 뗐다.
+# 파이썬은 같은 상황에서 FileNotFoundError 를 내므로 문구가 다르다 — 러너의 PY_SKIP 에 들어간다.
+# 나머지(읽기·쓰기·덧붙이기·한글 경로)는 fileio.my 에 남아 파이썬까지 3중 비교된다.
+try { readfile("tests/.없는파일.txt") } catch 오류 { print "없는 파일:", 오류 }
+try { print exists("tests/.없는파일.txt") } catch 오류 { print "exists 에러" }
+# 리눅스의 fopen 은 **폴더도 열어 준다** — 그래서 readfile(".") 이 에러 없이
+# 빈 문자열을 돌려주고 있었다. 윈도우에서는 에러, 파이썬에서는 IsADirectoryError 라
+# 세 곳이 갈렸다. 지금은 exists() 와 같은 검사(is_regular_file)를 먼저 한다.
+try { print "[" + readfile("tests") + "]" } catch 오류 { print "폴더 읽기:", 오류 }
+print exists("tests")
+try { print readfile("") } catch 오류 { print "빈 경로 읽기:", 오류 }
+try { writefile("", "가") } catch 오류 { print "빈 경로 쓰기:", 오류 }
+print exists("")
+try { writefile("tests/없는폴더/x.txt", "가") } catch 오류 { print "없는 폴더 쓰기:", 오류 }
+print exists("tests/없는폴더/x.txt")

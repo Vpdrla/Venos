@@ -1,0 +1,37 @@
+# 순차 탐색 (linear search)
+#
+# 교과서 의사코드:
+#   for i ← 1 to n
+#       if A[i] = key then return i
+#   return 0        (못 찾음)
+
+func 순차탐색(A, 찾을값) {
+    for i = 1 to len(A) {
+        if A[i] == 찾을값 { return i }
+    }
+    return 0
+}
+
+let 자료 = [17, 4, 23, 8, 15, 42]
+print "자료:", 자료
+print "23 의 위치:", 순차탐색(자료, 23)
+print "17 의 위치:", 순차탐색(자료, 17)
+print "99 의 위치:", 순차탐색(자료, 99), "(0 = 없음)"
+
+# 비교 횟수 — 최선 1회, 최악 n회, 평균 (n+1)/2
+func 비교횟수(A, 찾을값) {
+    let 횟수 = 0
+    for i = 1 to len(A) {
+        횟수 += 1
+        if A[i] == 찾을값 { return 횟수 }
+    }
+    return 횟수
+}
+print ""
+print "맨 앞(17) 을 찾을 때:", 비교횟수(자료, 17), "회"
+print "맨 뒤(42) 를 찾을 때:", 비교횟수(자료, 42), "회"
+print "없는 값(99) 을 찾을 때:", 비교횟수(자료, 99), "회"
+
+# 리스트에 있는지만 알고 싶으면 내장 has() 로도 된다
+print ""
+print "has(자료, 23) =", has(자료, 23), " find(자료, 23) =", find(자료, 23)

@@ -22,6 +22,7 @@ Variable and function names may be written in Korean (or any language), while ke
 10. [Classes](#10-classes)
 11. [Handling errors](#11-handling-errors)
 12. [Mini project: number guessing](#12-mini-project-number-guessing)
+13. [Crossing to Python](#13-crossing-to-python)
 
 ---
 
@@ -69,11 +70,11 @@ print "next year:", 나이
 
 ## 3. Input and string interpolation
 
-`input` asks the user for a value — in the playground a small dialog appears.
+`input` asks the user for a value — in the playground an input line appears below the output.
 
 Inside a string, `{ }` inserts the value in it. That is **string interpolation**, and it reads better than joining with `+`.
 
-Run it and type any name into the dialog.
+Run it and type any name into the input line, then press Enter.
 
 ```
 let name = input "What is your name? "
@@ -117,7 +118,9 @@ print "The score is {score}"
 
 `for i = 1 to 5` repeats from 1 to 5, **including both ends**.
 
-Use `step` to skip, and a negative step to count down.
+Use `step` to skip. **Counting down needs a negative `step`** — without one the loop always counts up, and it runs zero times when the start is past the end. That is why `for i = 1 to len(list)` simply does nothing on an empty list.
+
+`"*" * i` is a string of i stars, so a loop can draw with it.
 
 Change the numbers to print a different multiplication table.
 
@@ -133,6 +136,10 @@ for i = 5 to 1 step -1 {
     print i
 }
 print "Liftoff!"
+
+print ""
+# a staircase of stars
+for i = 1 to 5 { print "*" * i }
 ```
 
 ▶ **[Open in the playground](https://vpdrla.github.io/Venos/#lesson=for)**
@@ -327,6 +334,38 @@ while true {
 ```
 
 ▶ **[Open in the playground](https://vpdrla.github.io/Venos/#lesson=project)**
+
+---
+
+## 13. Crossing to Python
+
+Venos is **a bridge, not a place to stay**. What you learned here carries over.
+
+Run it, then press **🐍 Python** above. The *same program* comes out in Python, with your own names — `평균` and `점수들` — intact, because Python takes them too.
+
+Only three things change: the braces `{ }` become indentation, `"{ }"` interpolation becomes an f-string, and **lists that counted from 1 now count from 0**. So `점수들[1]` becomes `점수들[0]`.
+
+Copy the Python into any Python editor and it runs. From there on, it is Python.
+
+```
+func 평균(점수들) {
+    let 합 = 0
+    for 점수 in 점수들 {
+        합 += 점수
+    }
+    return 합 / len(점수들)
+}
+
+let 우리반 = [88, 94, 71, 100]
+print "first score: {우리반[1]}"
+print "average: {평균(우리반)}"
+
+for i = 1 to len(우리반) {
+    if 우리반[i] >= 90 then { print "student {i}: nice work" }
+}
+```
+
+▶ **[Open in the playground](https://vpdrla.github.io/Venos/#lesson=python)**
 
 ---
 

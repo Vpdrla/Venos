@@ -21,6 +21,8 @@ print 2 + 3 * 4, (2 + 3) * 4
 print 10 - 3 - 2, 10 - (3 - 2)
 print 100 / 5 / 2, 100 / (5 / 2)
 print 7 % 3, -(2 + 3), - 4 + 1
+# 나머지는 나누는 수의 부호를 따른다 (수학·파이썬 관례). 시저 암호가 여기에 걸린다
+print -7 % 3, 7 % -3, -7 % -3, -1 % 26, 5.5 % 2, -5.5 % 2
 print 1 < 2 and 3 > 2, not 0, 1 or 0, not (1 and 0)
 
 # --- 문자열 보간: 식·중첩 괄호·이스케이프 ---
@@ -54,8 +56,12 @@ remove(점수, "국어")
 print 점수
 
 # --- for: 방향·step·식으로 준 범위 ---
+# step 이 없으면 **항상 올라간다** — 시작이 끝보다 크면 한 번도 안 돈다.
+# 양끝이 상수인데 거꾸로면 파서가 거절하므로, 여기서는 식으로 준다.
 for a = 1 to 3 { print "a", a }
-for b = 3 to 1 { print "b", b }
+let 빈끝 = 0
+for b = 1 to 빈끝 { print "b", b }
+print "b 는 안 돈다"
 for c = 1 to 10 step 3 { print "c", c }
 for d = 10 to 1 step -4 { print "d", d }
 let 끝 = 3
@@ -136,3 +142,75 @@ for k = 1 to 2 { k = k / 2  print k }
 # --- 반올림 계열 (음수 포함) ---
 print round(2.5), round(-2.5), floor(2.7), ceil(2.1), abs(-3), min(2, 5), max(2, 5)
 print sqrt(16), num("42"), str(7)
+
+# --- 보간 안의 값도 print 와 똑같이 보여야 한다 ---
+# (f-string 에 그냥 넣으면 파이썬이 True / {'a': 1} / ['x'] 로 새어 나온다)
+let 참 = (3 > 2)
+let 거짓 = (1 > 2)
+print "비교: {3 > 2}, {1 > 2}", "변수: {참}/{거짓}"
+print "부정: {not 0}, 그리고: {1 and 0}, 또는: {0 or 2}"
+let 사전 = {"가": 1}
+let 목록 = ["x", "y"]
+print "사전 {사전} 목록 {목록}"
+let 겹 = [[1, "a"], {"b": 2}]
+print "겹친 것: {겹}"
+class 점 { func init(x) { self.x = x } }
+let 한점 = 점(4)
+print "객체: {한점}"
+print "빈 리스트 {[]} 길이 {len(목록)}"
+
+# --- step 없는 for 는 시작이 끝보다 크면 한 번도 안 돈다 ---
+# 양끝이 상수면 파서가 거절하므로 여기서는 변수로 준다. 세 방식이 다 0번 돌아야 한다 —
+# 예전에는 거꾸로 돌았고, 그래서 `for i = 1 to len(A)` 가 빈 리스트에서 두 번 돌았다.
+print "-- 안 도는 반복"
+let 끝 = 1
+for 내림 = 3 to 끝 { print "내림", 내림 }
+let 시작 = 3
+for 내림2 = 시작 to 1 { print "내림2", 내림2 }
+let 영 = 0
+for 한칸 = 1 to 영 { print "한칸", 한칸 }
+print "-- 여기까지 한 줄도 없어야 한다"
+let 같음 = 2
+for 제자리 = 2 to 같음 { print "제자리", 제자리 }   # 양끝이 같으면 한 번
+# 시작이 소수인데 step 이 정수인 경우 (range 로 내면 파이썬이 TypeError)
+let 반쪽 = 1.5
+for 소수시작 = 반쪽 to 4 step 1 { print "소수시작", 소수시작 }
+# 시작이 확실한 정수면 range 로 나가도 된다
+let 목록 = [1, 2, 3]
+for 길이부터 = len(목록) to 6 step 2 { print "길이부터", 길이부터 }
+
+# --- 숫자 뒤의 점 ---
+# 파이썬에서 `5.뭐()` 는 소수점으로 읽혀 **문법 오류**다. 괄호를 안 씌우면
+# 아예 파싱도 안 되는 .py 가 나갔다 — 틀린 답보다 나쁜 건 안 돌아가는 파일이다.
+# (Venos·파이썬 둘 다 숫자에 메서드·필드는 에러라, 잡아서 같은 문구로 바꾼다.)
+class 점찍기 { func 세기() { return 1 } }
+try { print (5).세기() } catch 오류 { print "숫자에 메서드" }
+try { print (7).필드 } catch 오류 { print "숫자에 필드" }
+try { print (2.5).x } catch 오류 { print "소수에 필드" }
+try { print "abc".세기() } catch 오류 { print "문자열에 메서드" }
+# 내장 함수도 점을 찍는다 — upper(0) 이 0.upper() 로 나가면 역시 문법 오류다.
+# (메서드·필드에서 한 번 고쳤는데 이 경로가 남아 있었다. 생성 퍼저가 찾았다.)
+try { print upper(0) } catch 오류 { print "upper 숫자" }
+try { print split(5, ",") } catch 오류 { print "split 숫자" }
+try { print lower(1.5) } catch 오류 { print "lower 소수" }
+try { print keys(7) } catch 오류 { print "keys 숫자" }
+# 문장으로 쓴 push/sort/reverse 도 점을 찍는다 — 네 번째 경로였다.
+try { push(5, 1) } catch 오류 { print "push 숫자" }
+try { sort(7) } catch 오류 { print "sort 숫자" }
+try { reverse(2) } catch 오류 { print "reverse 숫자" }
+
+# --- 마지막 원소는 파이썬 관용구로 ---
+# xs[len(xs)] 는 Venos 에서 마지막 원소고, 파이썬 사람은 그걸 xs[-1] 이라고 쓴다.
+# 뜻이 정확히 같아서(빈 리스트에서 둘 다 에러인 것까지) 여기만 관용구로 낸다.
+# 이름이 다르거나(ys[len(xs)]) 대상이 호출이면 손대지 않는다 — 두 번 평가하게 되므로.
+let 끝xs = [10, 20, 30]
+print 끝xs[len(끝xs)], 끝xs[len(끝xs) - 1]
+let 끝s = "가나다"
+print 끝s[len(끝s)]
+class 끝통 { func init() { self.것 = [1, 2, 3] } }
+let 끝t = 끝통()
+print 끝t.것[len(끝t.것)]
+let 끝빈 = []
+try { print 끝빈[len(끝빈)] } catch 오류 { print "빈 리스트: 에러" }
+func 끝목록() { return [7, 8, 9] }
+print 끝목록()[len(끝목록())]

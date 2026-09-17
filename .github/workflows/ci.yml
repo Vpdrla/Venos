@@ -17,5 +17,159 @@ jobs:
       - name: Syntax check (C++20)
         run: g++ -std=c++20 -O2 -fsyntax-only venos.cpp
 
-      - name: Differential tests (interpreter vs transpiled binary vs emitted Python)
+      # 러너가 3중 differential + 에러 메시지 회귀 + 레슨 트랙까지 한 번에 돌린다
+      - name: Differential tests, error messages, lesson track
         run: tests/run_tests.sh
+
+  # Windows 는 릴리스로 exe 를 내보내면서도 한 번도 실행해 본 적이 없었다.
+  # ReadConsoleW·windows.h 의 IN/OUT 매크로 회피·_beginthreadex 가 전부 런타임 미검증이었다.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # tests/diag 의 .expected 는 LF 로 커밋돼 있다 — 체크아웃이 CRLF 로 바꾸면 전부 어긋난다
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      # -static: 릴리스가 내보내는 것과 같은 모양으로 만든다. 정적 링크가 아니면
+      # libstdc++-6.dll 등이 PATH 에 없어 Git Bash 에서 실행 자체가 안 된다.
+      - name: Build (MinGW g++, static)
+        run: g++ -std=c++17 -O2 -Wall -Werror -static -o venos.exe venos.cpp
+
+      - name: Smoke test
+        run: |
+          ./venos.exe --version
+          ./venos.exe --help
+          ./venos.exe examples/algorithms/selection-sort.my
+          ./venos.exe examples/algorithms/caesar-cipher.my
+
+      # 파일 관련 내장함수는 윈도우에서 인터프리터와 빌드본이 갈라진 적이 있다.
+      # 스위트가 어긋났을 때 무엇이 다른지 바로 보이도록 좁은 프로그램 하나를 따로 돌린다.
+      - name: File builtins, interpreter vs compiled
+        run: |
+          rm -f tests/.tmp_probe*
+          cat > tests/.tmp_probe.my <<'EOF'
+          print "없을 때:", exists("tests/.tmp_probe_data.txt")
+          writefile("tests/.tmp_probe_data.txt", "가나")
+          print "만든 뒤:", exists("tests/.tmp_probe_data.txt"), readfile("tests/.tmp_probe_data.txt")
+          print "한글 이름:", exists("tests/.tmp_probe_없는.txt")
+          try { readfile("tests/.tmp_probe_없는.txt")  print "안 잡힘!" } catch e { print "잡음:", e }
+          print "끝"
+          EOF
+          echo "--- 인터프리터"
+          ./venos.exe tests/.tmp_probe.my || echo "(종료 코드 $?)"
+          ./venos.exe build tests/.tmp_probe.my
+          rm -f tests/.tmp_probe_data.txt
+          echo "--- 빌드본"
+          ./tests/.tmp_probe.exe || echo "(종료 코드 $?)"
+          rm -f tests/.tmp_probe*
+
+      # 한글 파일 이름은 이 언어가 내건 약속이고, 윈도우가 실제로 깨뜨린 자리다
+      # (argv 가 ANSI 라 "정렬.my" 가 "??.my" 로 왔다). 세 경로 모두 지나가 본다.
+      - name: Korean filenames, end to end
+        run: |
+          mkdir -p "tests/.tmp_한글 폴더"
+          cat > "tests/.tmp_한글 폴더/정렬.my" <<'EOF'
+          import "도우미.my"
+          let 점수 = [88, 92, 79]
+          print "평균:", 평균(점수)
+          print "이름에 한글 👍"
+          EOF
+          cat > "tests/.tmp_한글 폴더/도우미.my" <<'EOF'
+          func 평균(xs) {
+              let s = 0
+              for x in xs { s += x }
+              return s / len(xs)
+          }
+          EOF
+          echo "--- 인터프리터 (폴더 밖에서, import 는 파일 옆 기준)"
+          ./venos.exe "tests/.tmp_한글 폴더/정렬.my"
+          echo "--- topython"
+          ./venos.exe topython "tests/.tmp_한글 폴더/정렬.my"
+          python "tests/.tmp_한글 폴더/정렬.py"
+          echo "--- build + run"
+          # 여기가 오래 조용히 깨져 있었다: g++ 의 argv 는 ANSI 로 변환돼 한글 경로를 못 열었는데,
+          # cmdBuild 가 실패해도 0 을 돌려주는 바람에 이 단계가 통과로 보였다.
+          # 이제 종료 코드도 보고, 실제로 계산한 값이 나왔는지도 본다.
+          ./venos.exe build "tests/.tmp_한글 폴더/정렬.my" run | tee "$RUNNER_TEMP/built.txt"
+          grep -q "평균: 86.3333" "$RUNNER_TEMP/built.txt" \
+            || { echo "::error::한글 경로로 빌드한 실행 파일이 값을 못 냈습니다"; exit 1; }
+          echo "--- 없는 한글 파일은 에러여야 한다"
+          ./venos.exe "tests/.tmp_없는한글.my" && { echo "::error::없는 파일인데 성공했습니다"; exit 1; } || echo "OK"
+          rm -rf "tests/.tmp_한글 폴더" tests/.tmp_없는한글.my
+
+      - name: Differential tests, error messages, lesson track
+        run: tests/run_tests.sh
+
+  # 보통 테스트는 "출력이 맞는가"를 본다. 여기서는 "메모리를 잘못 건드리는가"와
+  # "망가진 입력에 깔끔하게 죽는가"를 본다 — 출력이 맞아도 틀릴 수 있는 종류다.
+  # 퍼저가 실제로 잡은 것: 파서에 깊이 제한이 없어 "((((((..." 가 세그폴트였다.
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ASan + UBSan, 두 백엔드 + 퍼징
+        run: tools/sanitize.sh --fuzz 1
+
+      # 올바른 프로그램을 만들어 세 백엔드의 출력을 비교한다 (위 퍼저는 크래시를 찾고,
+      # 이쪽은 틀린 답을 찾는다). 씨앗을 실행마다 바꿔 매번 새 프로그램을 탐색하되,
+      # 씨앗을 출력하고 어긋난 입력을 아티팩트로 올려 재현할 수 있게 한다.
+      - name: 생성한 프로그램으로 3중 비교
+        run: |
+          g++ -std=c++17 -O2 -o venos venos.cpp
+          python3 tools/genfuzz.py --rounds 30 --seed "${GITHUB_RUN_ID:-0}" --keep
+
+      # 퍼저가 무언가 찾았으면 그 입력을 받아 볼 수 있어야 재현이 된다
+      - name: Upload crashing / diverging inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: |
+            fuzz-crashes/
+            genfuzz-diffs/
+          if-no-files-found: ignore
+
+  playground-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # docs/venos.wasm 은 저장소에 커밋된 수동 빌드본이다. 소스만 고치고 다시 빌드하지
+      # 않으면 플레이그라운드가 조용히 낡은 채로 배포된다 — 그 상태를 여기서 잡는다.
+      - name: Committed WASM matches venos.cpp
+        run: |
+          want=$(sha256sum venos.cpp | cut -d' ' -f1)
+          have=$(cat docs/venos.wasm.source-sha256 2>/dev/null || echo "(없음)")
+          if [ "$want" != "$have" ]; then
+            echo "::error::venos.cpp 가 바뀌었는데 플레이그라운드 WASM 을 다시 빌드하지 않았습니다."
+            echo "  venos.cpp          $want"
+            echo "  docs/ 가 기억하는 것 $have"
+            echo "  고치는 법: emsdk 를 source 한 뒤 tools/build-wasm.sh 를 돌리고 docs/ 를 함께 커밋하세요."
+            exit 1
+          fi
+          echo "일치: $want"
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.9
+
+      - name: WASM builds
+        run: tools/build-wasm.sh --check
+
+      # 해시 검사는 커밋된 wasm 이 소스와 같은지만 본다. 그게 브라우저에서 실제로 도는지는
+      # 페이지를 열어 봐야 안다 — input 비동기, 재귀 한도, 공유 링크 왕복 같은 것들.
+      # npx 로 설치하면 브라우저만 받고 playwright 패키지는 require 할 수 없다 —
+      # 워크스페이스에 설치한 뒤 그 CLI 로 브라우저를 받는다.
+      - name: Playwright
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+
+      - name: Playground works in a real browser
+        run: node tools/playground-check.js

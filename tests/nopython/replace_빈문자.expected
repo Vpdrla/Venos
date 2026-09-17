@@ -1,0 +1,2 @@
+!! python conversion failed: [줄 1] replace() 의 바꿀 문자열은 비어 있을 수 없습니다 (파이썬은 글자 사이마다 끼워 넣어 다른 답을 냅니다)
+    줄 1 | print replace("abc", "", "-")

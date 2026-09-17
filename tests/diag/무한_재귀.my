@@ -1,0 +1,4 @@
+func 끝없이(n) {
+    return 끝없이(n + 1)
+}
+print 끝없이(1)

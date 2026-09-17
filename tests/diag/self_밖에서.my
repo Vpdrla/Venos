@@ -1,0 +1,2 @@
+# self 는 메서드 안에서만 쓸 수 있다
+print self

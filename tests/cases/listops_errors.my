@@ -1,0 +1,13 @@
+# 리스트 비교가 에러가 되는 자리들.
+# Venos 고유의 에러 문구를 출력으로 만들기 때문에 파이썬 변환 비교에서는 빠진다
+# (러너의 PY_SKIP). 나머지 리스트 연산은 listops.my 에서 파이썬까지 검증한다.
+# < > 는 여전히 에러
+try { print [1] < [2] } catch e { print "잡음:", e }
+
+# 순환 구조끼리 비교는 에러 (같은 참조는 OK)
+let s = [1]
+push(s, s)
+print s == s
+let t = [1]
+push(t, t)
+try { print s == t } catch e { print "순환:", e }

@@ -1,0 +1,3 @@
+=== running: tests/diag/파이썬_is.my ===
+!! 에러: [줄 3] 같은지 보려면 is 가 아니라 == 입니다 (다른지는 !=)
+    줄 3 | if x is 5 { print "다섯" }

@@ -1,0 +1,2 @@
+=== running: tests/diag/import_없는파일.my ===
+!! 에러: import 실패: 파일을 열 수 없습니다: 없는파일.my  (tests/diag/import_없는파일.my 줄 1 에서)

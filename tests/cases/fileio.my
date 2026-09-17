@@ -6,4 +6,54 @@ print exists(경로)
 print readfile(경로)
 appendfile(경로, "\n셋째 줄")
 print readfile(경로)
-try { readfile("tests/.없는파일.txt") } catch e { print "없는 파일:", e }
+# 한글 이름의 파일 — 윈도우는 좁은 경로를 ANSI 코드페이지로 읽어서 여기서 갈라진다
+let 한글경로 = "tests/.tmp_자료 모음.txt"
+writefile(한글경로, "가나다")
+print exists(한글경로), readfile(한글경로)
+appendfile(한글경로, "라마")
+print readfile(한글경로), len(readfile(한글경로))
+
+print "=== 빈 내용과 줄바꿈 ==="
+let 빈경로 = "tests/.tmp_빈.txt"
+writefile(빈경로, "")
+print exists(빈경로), len(readfile(빈경로)), "[" + readfile(빈경로) + "]"
+let 줄경로 = "tests/.tmp_줄.txt"
+writefile(줄경로, "a\nb\n")
+print len(readfile(줄경로)), len(split(readfile(줄경로), "\n"))
+appendfile(줄경로, "c")
+print readfile(줄경로) == "a\nb\nc"
+
+print "=== 덮어쓰기, 없는 파일에 이어쓰기 ==="
+let 덮 = "tests/.tmp_덮.txt"
+writefile(덮, "하나")
+writefile(덮, "둘")
+print readfile(덮)
+let 새 = "tests/.tmp_새.txt"
+appendfile(새, "처음")
+print readfile(새), exists(새)
+
+print "=== 이름에 공백·점·긴 이름 ==="
+for 이름 in ["tests/.tmp_빈 칸.txt", "tests/.tmp_점.여러.개.txt"] {
+    writefile(이름, "값:" + 이름)
+    print exists(이름), readfile(이름) == "값:" + 이름
+}
+
+print "=== 아주 긴 내용 ==="
+let 긴경로 = "tests/.tmp_긴.txt"
+writefile(긴경로, "가" * 20000)
+print len(readfile(긴경로))
+
+print "=== 다른 프로그램이 만든 CRLF 파일 ==="
+# 파이썬의 텍스트 모드는 읽을 때 \r\n 을 \n 으로 접고 쓸 때 늘린다. Venos 는 바이너리로
+# 열어 그런 변환이 없으므로, 생성 파이썬의 도우미도 newline="" 이어야 한다. 그냥 두면
+# **메모장으로 만든 파일 하나에 두 백엔드가 다른 길이를 답한다.**
+# Venos 에는 \r 이스케이프가 없어 리터럴로는 못 만들므로 고정 파일을 읽는다.
+let 씨 = "tests/cases/lib/crlf.txt"
+print exists(씨), len(readfile(씨))
+print len(split(readfile(씨), "\n"))
+# 읽은 내용을 그대로 다시 써도 길이가 같아야 한다 (쓸 때도 안 늘어난다)
+let 사본 = "tests/.tmp_crlf.txt"
+writefile(사본, readfile(씨))
+print len(readfile(사본)) == len(readfile(씨))
+appendfile(사본, readfile(씨))
+print len(readfile(사본))

@@ -1,0 +1,3 @@
+=== running: tests/diag/습관_True.my ===
+!! 에러: [줄 1] 정의되지 않은 변수: True  (참은 소문자 true 입니다)
+    줄 1 | print True

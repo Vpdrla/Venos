@@ -1,0 +1,5 @@
+# step 없는 for 는 항상 올라간다 — 양끝이 상수인데 거꾸로면 거절한다
+print "시작"
+for i = 10 to 1 {
+    print i
+}

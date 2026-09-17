@@ -1,0 +1,3 @@
+# 파이썬처럼 라이브러리를 부른 것 — Venos 의 import 는 .my 파일만 불러온다
+import math
+print 1

@@ -60,8 +60,8 @@ print "next year:", 나이`
     id: 'input',
     title: { ko: '입력받기와 문자열 보간', en: 'Input and string interpolation' },
     desc: {
-      ko: '`input` 은 사용자에게 값을 물어봅니다. 플레이그라운드에서는 작은 창이 뜹니다.\n\n문자열 안에 `{ }` 를 쓰면 그 안의 값이 그대로 끼워집니다 — 이걸 **문자열 보간**이라고 해요. `+` 로 이어붙이는 것보다 읽기 쉽습니다.\n\n▶ 실행하면 이름을 물어봅니다. 아무 이름이나 넣어 보세요.',
-      en: '`input` asks the user for a value — in the playground a small dialog appears.\n\nInside a string, `{ }` inserts the value in it. That is **string interpolation**, and it reads better than joining with `+`.\n\nRun it and type any name into the dialog.'
+      ko: '`input` 은 사용자에게 값을 물어봅니다. 플레이그라운드에서는 출력창 아래에 입력줄이 나타납니다.\n\n문자열 안에 `{ }` 를 쓰면 그 안의 값이 그대로 끼워집니다 — 이걸 **문자열 보간**이라고 해요. `+` 로 이어붙이는 것보다 읽기 쉽습니다.\n\n▶ 실행하면 이름을 물어봅니다. 아무 이름이나 넣어 보세요.',
+      en: '`input` asks the user for a value — in the playground an input line appears below the output.\n\nInside a string, `{ }` inserts the value in it. That is **string interpolation**, and it reads better than joining with `+`.\n\nRun it and type any name into the input line, then press Enter.'
     },
     code: {
       ko: `let 이름 = input "이름이 뭐예요? "
@@ -112,8 +112,8 @@ print "The score is {score}"`
     id: 'for',
     title: { ko: '반복 — for', en: 'Repeating with for' },
     desc: {
-      ko: '`for i = 1 to 5` 는 1부터 5까지 **양 끝을 포함해서** 반복합니다.\n\n`step` 으로 건너뛸 수도 있어요. 거꾸로 세려면 `step -1` 처럼 음수를 씁니다.\n\n▶ 숫자를 바꿔 구구단을 다른 단으로 바꿔 보세요.',
-      en: '`for i = 1 to 5` repeats from 1 to 5, **including both ends**.\n\nUse `step` to skip, and a negative step to count down.\n\nChange the numbers to print a different multiplication table.'
+      ko: '`for i = 1 to 5` 는 1부터 5까지 **양 끝을 포함해서** 반복합니다.\n\n`step` 으로 건너뛸 수도 있어요. **거꾸로 세려면 `step -1` 처럼 음수를 꼭 써야 합니다** — `step` 이 없으면 언제나 올라가고, 시작이 끝보다 크면 한 번도 돌지 않아요. 그래서 `for i = 1 to len(목록)` 이 빈 목록에서 그냥 넘어갑니다.\n\n`"*" * i` 는 별을 i 개 이어붙인 문자열이라 반복문으로 그림을 그릴 수 있어요.\n\n▶ 숫자를 바꿔 구구단을 다른 단으로 바꿔 보세요.',
+      en: '`for i = 1 to 5` repeats from 1 to 5, **including both ends**.\n\nUse `step` to skip. **Counting down needs a negative `step`** — without one the loop always counts up, and it runs zero times when the start is past the end. That is why `for i = 1 to len(list)` simply does nothing on an empty list.\n\n`"*" * i` is a string of i stars, so a loop can draw with it.\n\nChange the numbers to print a different multiplication table.'
     },
     code: {
       ko: `# 3단 구구단
@@ -126,7 +126,11 @@ print ""
 for i = 5 to 1 step -1 {
     print i
 }
-print "발사!"`,
+print "발사!"
+
+print ""
+# 별 쌓기
+for i = 1 to 5 { print "*" * i }`,
       en: `# 3 times table
 for i = 1 to 9 {
     print "3 x {i} = {3 * i}"
@@ -137,7 +141,11 @@ print ""
 for i = 5 to 1 step -1 {
     print i
 }
-print "Liftoff!"`
+print "Liftoff!"
+
+print ""
+# a staircase of stars
+for i = 1 to 5 { print "*" * i }`
     }
   },
   {
@@ -379,6 +387,46 @@ while true {
         break
     } else if guess < answer { print "Higher" }
     else { print "Lower" }
+}`
+    }
+  },
+  {
+    id: 'python',
+    title: { ko: '파이썬으로 건너가기', en: 'Crossing to Python' },
+    desc: {
+      ko: 'Venos 는 **머무는 곳이 아니라 다리**입니다. 여기서 배운 것은 다음 언어로 그대로 넘어가요.\n\n▶ 실행해서 결과를 본 다음, 위의 **🐍 Python** 버튼을 눌러 보세요. **같은 프로그램**이 파이썬으로 나오고, `평균` 과 `점수들` 같은 이름도 그대로 남습니다 (파이썬도 한글 이름을 받아요).\n\n달라지는 것은 딱 세 가지입니다 — 중괄호 `{ }` 가 들여쓰기가 되고, `"{ }"` 보간이 f-string 이 되고, **1번부터 세던 리스트가 0번부터**로 바뀝니다. 그래서 `점수들[1]` 이 `점수들[0]` 이 돼요.\n\n나온 파이썬을 복사해 어떤 파이썬 편집기에든 붙여 넣으면 그대로 돌아갑니다. 거기서부터는 파이썬입니다.',
+      en: 'Venos is **a bridge, not a place to stay**. What you learned here carries over.\n\nRun it, then press **🐍 Python** above. The *same program* comes out in Python, with your own names — `평균` and `점수들` — intact, because Python takes them too.\n\nOnly three things change: the braces `{ }` become indentation, `"{ }"` interpolation becomes an f-string, and **lists that counted from 1 now count from 0**. So `점수들[1]` becomes `점수들[0]`.\n\nCopy the Python into any Python editor and it runs. From there on, it is Python.'
+    },
+    code: {
+      ko: `func 평균(점수들) {
+    let 합 = 0
+    for 점수 in 점수들 {
+        합 += 점수
+    }
+    return 합 / len(점수들)
+}
+
+let 우리반 = [88, 94, 71, 100]
+print "첫 번째 점수: {우리반[1]}"
+print "평균: {평균(우리반)}"
+
+for i = 1 to len(우리반) {
+    if 우리반[i] >= 90 then { print "{i}번 학생: 잘했어요" }
+}`,
+      en: `func 평균(점수들) {
+    let 합 = 0
+    for 점수 in 점수들 {
+        합 += 점수
+    }
+    return 합 / len(점수들)
+}
+
+let 우리반 = [88, 94, 71, 100]
+print "first score: {우리반[1]}"
+print "average: {평균(우리반)}"
+
+for i = 1 to len(우리반) {
+    if 우리반[i] >= 90 then { print "student {i}: nice work" }
 }`
     }
   }

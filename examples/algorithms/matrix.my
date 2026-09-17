@@ -1,0 +1,104 @@
+# 행렬 — 덧셈, 곱셈, 전치
+#
+# 곱셈 의사코드:
+#   for i ← 1 to n
+#       for j ← 1 to m
+#           C[i][j] ← 0
+#           for k ← 1 to p
+#               C[i][j] ← C[i][j] + A[i][k] × B[k][j]
+
+# 0 으로 채운 n×m 행렬 만들기
+func 빈행렬(n, m) {
+    let M = []
+    for i = 1 to n {
+        let 행 = []
+        for j = 1 to m { push(행, 0) }
+        push(M, 행)
+    }
+    return M
+}
+
+func 보이기(이름, M) {
+    print 이름
+    for 행 in M { print " ", 행 }
+}
+
+func 더하기(A, B) {
+    let n = len(A)
+    let m = len(A[1])
+    let C = 빈행렬(n, m)
+    for i = 1 to n {
+        for j = 1 to m { C[i][j] = A[i][j] + B[i][j] }
+    }
+    return C
+}
+
+func 곱하기(A, B) {
+    let n = len(A)
+    let p = len(B)
+    # A 의 열 수와 B 의 행 수가 같아야 곱할 수 있다 — 교과서가 제일 먼저 적는 조건이다.
+    # 안 보면 에러도 없이 **모양만 그럴듯한 틀린 행렬**이 나온다 (2×3 곱하기 2×3 이 그랬다).
+    if n == 0 or p == 0 { error("빈 행렬은 곱할 수 없습니다") }
+    if len(A[1]) != p { error("A 의 열 수({len(A[1])})와 B 의 행 수({p})가 달라 곱할 수 없습니다") }
+    let m = len(B[1])
+    let C = 빈행렬(n, m)
+    for i = 1 to n {
+        for j = 1 to m {
+            let 합 = 0
+            for k = 1 to p { 합 += A[i][k] * B[k][j] }
+            C[i][j] = 합
+        }
+    }
+    return C
+}
+
+func 전치(A) {
+    let n = len(A)
+    if n == 0 { return [] }           # 빈 행렬의 전치는 빈 행렬 (A[1] 을 보면 죽는다)
+    let m = len(A[1])
+    let T = 빈행렬(m, n)
+    for i = 1 to n {
+        for j = 1 to m { T[j][i] = A[i][j] }
+    }
+    return T
+}
+
+let A = [[1, 2], [3, 4]]
+let B = [[5, 6], [7, 8]]
+보이기("A =", A)
+보이기("B =", B)
+보이기("A + B =", 더하기(A, B))
+보이기("A × B =", 곱하기(A, B))
+보이기("A 의 전치 =", 전치(A))
+
+# 행렬 곱셈은 순서를 바꾸면 답이 달라진다
+print ""
+print "A×B 와 B×A 가 같은가:", 곱하기(A, B) == 곱하기(B, A)
+
+# 모양이 다른 행렬도 — 2×3 곱하기 3×2 = 2×2
+let C = [[1, 2, 3], [4, 5, 6]]
+let D = [[7, 8], [9, 10], [11, 12]]
+print ""
+보이기("C (2×3) =", C)
+보이기("D (3×2) =", D)
+보이기("C × D (2×2) =", 곱하기(C, D))
+
+# 단위행렬을 곱하면 그대로
+func 단위행렬(n) {
+    let I = 빈행렬(n, n)
+    for i = 1 to n { I[i][i] = 1 }
+    return I
+}
+print ""
+보이기("단위행렬 I =", 단위행렬(2))
+print "A × I == A 인가:", 곱하기(A, 단위행렬(2)) == A
+
+# --- 경계값 ---
+# 곱셈은 A 의 열 수와 B 의 행 수가 같아야 한다. 이 검사가 없으면 에러도 없이
+# **모양만 그럴듯한 틀린 행렬**이 나온다 — 조용히 틀리는 쪽이 죽는 쪽보다 나쁘다.
+print ""
+print "=== 경계값 ==="
+print "빈 행렬의 전치:", 전치([])
+try { print 곱하기(빈행렬(2, 3), 빈행렬(2, 3)) } catch 오류 { print "2×3 × 2×3:", 오류 }
+try { print 곱하기([], []) } catch 오류 { print "빈 행렬 곱:", 오류 }
+print "2×3 × 3×2 는 된다:", 곱하기(빈행렬(2, 3), 빈행렬(3, 2))

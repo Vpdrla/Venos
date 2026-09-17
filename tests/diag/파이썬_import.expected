@@ -1,0 +1,2 @@
+=== running: tests/diag/파이썬_import.my ===
+!! 에러: [tests/diag/파이썬_import.my 줄 2] import 는 파일 이름을 따옴표로 적습니다: import "파일.my"  (Venos 에는 불러올 라이브러리가 없습니다 — 필요한 건 내장 함수로 들어 있습니다)

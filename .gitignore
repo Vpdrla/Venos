@@ -10,16 +10,33 @@ examples/*.cpp
 examples/*.py
 examples/rpg
 examples/rpg.en
+!examples/rpg.input
+examples/algorithms/*
+!examples/algorithms/*.my
+!examples/algorithms/*.md
 
 # 테스트 산출물 (러너가 지우지만 중단 대비)
 tests/cases/*
 !tests/cases/*.my
 !tests/cases/*.input
+!tests/cases/lib/
+tests/cases/lib/*
+!tests/cases/lib/*.my
+!tests/cases/lib/crlf.txt
+tests/nopython/*.py
 tests/.tmp_*
 
 # 게임 세이브 / 로그
 save.txt
 *.log
+
+# 퍼저가 죽인 입력 / 3중 비교가 어긋난 입력을 남기는 곳
+fuzz-crashes/
+genfuzz-diffs/
+
+# CI 가 playground-check 를 돌리려고 설치하는 것
+node_modules/
+package-lock.json
 
 # IDE
 *.cbp

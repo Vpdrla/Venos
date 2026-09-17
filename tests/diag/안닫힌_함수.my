@@ -1,0 +1,4 @@
+func 두배(n) {
+    return n * 2
+
+print 두배(3)

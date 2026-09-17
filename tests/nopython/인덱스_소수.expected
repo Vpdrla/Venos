@@ -1,0 +1,2 @@
+!! python conversion failed: [줄 4] 리스트와 문자열의 인덱스는 정수여야 합니다 (지금 1.5)
+    줄 4 | print xs[1.5]

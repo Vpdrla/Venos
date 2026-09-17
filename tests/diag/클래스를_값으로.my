@@ -1,0 +1,2 @@
+class 상자 { func init() { self.값 = 1 } }
+print 상자

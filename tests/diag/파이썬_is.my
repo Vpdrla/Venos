@@ -1,0 +1,3 @@
+# 파이썬의 is — Venos 는 == 만 쓴다
+let x = 5
+if x is 5 { print "다섯" }

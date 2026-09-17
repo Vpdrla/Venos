@@ -1,0 +1,10 @@
+func 안쪽(xs) {
+    return xs[10]
+}
+func 가운데(xs) {
+    return 안쪽(xs)
+}
+func 바깥(xs) {
+    return 가운데(xs)
+}
+print 바깥([1, 2, 3])
