@@ -384,7 +384,9 @@ echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pyte
 [ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
 echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
-echo "추적표: $traced개 케이스에서 run 과 같은 답 (추적 줄은 stderr)"
+# ${} 로 감쌀 것 — macOS 의 bash 3.2 는 "$traced개" 를 변수 이름 `traced개` 로 읽고
+# set -u 아래에서 "unbound variable" 로 죽는다 (리눅스 bash 5 에서는 멀쩡해서 안 보였다)
+echo "추적표: ${traced}개 케이스에서 run 과 같은 답 (추적 줄은 stderr)"
 echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
 echo "REPL: $repl_ok"
 echo "이름 대조: $builtins"
