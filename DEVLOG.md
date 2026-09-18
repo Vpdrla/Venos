@@ -433,9 +433,86 @@ All sixteen files now end with a boundary section. The call that was broken is i
 three-way suite holds it there. The collection is not decoration; it is the **specification** of
 "a textbook algorithm works here", and a specification only specifies what it actually runs.
 
+## 12. The source does not come from a keyboard
+
+Everything up to here treated the program as something the student typed. Then I wrote a file the
+way a student actually gets one — pasted out of a blog, saved from Notepad, handed over as a link —
+and none of it ran.
+
+    let x = 1        →  정의되지 않은 변수:  1
+    let x = 1        →  = 기호가 필요합니다
+    print “한글”     →  정의되지 않은 변수: “한글”
+    let a = 5 – 2    →  = 기호가 필요합니다
+
+Four lines that are correct on screen. The first has U+00A0 where the space should be, because a web
+page put it there. The second starts with a BOM, because that is what Notepad writes. The third has
+the quotes Word substitutes, the fourth the dash Word substitutes. The lexer treated every byte
+above 0x7F as part of an identifier, so all four vanished into a name and the error pointed at a
+line with nothing wrong in it. There is no move the student can make here: you cannot delete a
+character you cannot see.
+
+The lexer carries a table of thirteen of them now, and names each one with what to type instead. A
+BOM at the very start of a file is skipped rather than reported — it is not a mistake, it is what
+the editor wrote. Inside a string literal none of them are touched, because there they are data.
+
+The same day produced two more of the same kind, neither of them about the language:
+
+    venos examples/   →  "파일 없음: examples/.my"
+    venos 정렬.my     →  "파일 없음: 정렬.my"
+
+The first is the slash tab-completion adds, quoting a filename the student never typed. The second
+is Notepad again: saving as `정렬.my` writes `정렬.my.txt` unless you change the file-type box, and
+Windows hides the extension, so the file is sitting right there in the folder. Both say what
+happened now.
+
+And the playground: a teacher hands out a program as a link, a messenger cuts the URL at some
+length, and the page fell back to the student's own autosaved work **without a word**. There is a
+perfectly good program on screen; they have no reason to doubt it is the one they were sent. It
+says so now — and checking that exposed a hole in the checker itself, which had been reading an
+editor it had filled in moments earlier, because navigating to a URL that differs only in the hash
+is not a reload.
+
+## 13. A feature that arrived with its own invariant
+
+Korean textbooks teach algorithms with a 추적표 — a table the student fills in by hand, line by
+line, with what each variable holds. The algorithms they use it on are the sixteen in
+`examples/algorithms/`. Portugol Studio, the language this project took its position from, ships a
+debugger with a variable pane for the same reason. Venos had nothing: the program runs, and the
+values are invisible.
+
+    5| -> 팩토리얼(4)
+    3|   -> 팩토리얼(3)
+    3|   <- 팩토리얼 = 6
+    5| <- 팩토리얼 = 24
+    5| 답 = 24
+
+What makes this chapter belong in an essay about instruments is not the feature. It is that the
+feature is only safe if something holds it to a rule, and the rule was obvious enough to write down
+first: **the answer with the trace must equal the answer without it**, character for character, on
+every case in the suite. Trace lines go to stderr so the comparison is trivial to make.
+
+That rule failed on its first run. Printing a value that contains itself throws — Venos refuses
+cyclic structures — so the trace threw while trying to show one, and killed the program it was
+supposed to be watching. A feature whose entire job is to observe without disturbing, disturbing.
+One minute old, caught by its own invariant, and I would not have thought to try it.
+
+The rest of the round was the chapter 11 question asked again, family by family: hand the builtins
+inputs they have never been given. Ninety-five shapes across file, math, string, list, dictionary,
+object, control flow and interpolation. Ninety-three already agreed across the three backends,
+which is the result worth having and not one to assume. The two that did not:
+
+- `exists(".")` was 0 in both Venos backends and 1 in the generated Python, because
+  `os.path.exists` counts directories. Not an error becoming a value — a *different answer*, in a
+  program that checks for its save file before branching.
+- `num("1e300") * num("1e300")` **killed the generated program**: `OverflowError: int too large to
+  convert to float`, on a line that looks fine, from a helper the student never wrote.
+
+Ninety-three agreements are now cases in the suite. That is the part that looks like nothing and is
+not: an agreement that is only remembered is an agreement that will break quietly.
+
 ## What the list adds up to
 
-Nine instruments, and each one found the class of bug only it could find:
+Eleven instruments, and each one found the class of bug only it could find:
 
 | instrument | what it found |
 |---|---|
@@ -449,6 +526,8 @@ Nine instruments, and each one found the class of bug only it could find:
 | a touch viewport | 34px buttons in a classroom of tablets |
 | a coverage audit | `import` had never been tested at all |
 | a generator of valid programs | two answers that differed with no error in sight |
+| a file written the way students get one | four correct-looking lines that could not run |
+| an invariant shipped with the feature | the trace killing the program it was watching |
 
 The pattern is not "test more." It is that each instrument sees one kind of thing and is
 blind to the rest, and you cannot reason your way to the blind spots — you can only build
