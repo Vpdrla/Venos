@@ -13,3 +13,46 @@ print num("15") + 1, str(3) + "번"
 
 # 문자열 비교
 print "abc" == "abc", "a" < "b", "가" != "나"
+
+# 문자열 내장함수의 경계 — 빈 구분자·빈 문자열·끝을 넘긴 자리·겹치는 replace·한글.
+# 세 방식이 전부 같은 답을 내는 것을 확인하고 그물로 남긴다 (파이썬의 str.split 은
+# 빈 구분자에서 ValueError, 슬라이스는 범위를 넘겨도 빈 문자열이라 여기와 뜻이 같다).
+let 빈 = ""
+try { print "split 빈 구분자:", split("abc", 빈) } catch e { print "split 빈 구분자: 에러" }
+try { print "split 빈 문자열:", split(빈, ",") } catch e { print "split 빈 문자열: 에러" }
+try { print "split 없는 구분자:", split("abc", "|") } catch e { print "split 없는 구분자: 에러" }
+try { print "split 연속:", split("a,,b", ",") } catch e { print "split 연속: 에러" }
+try { print "split 양끝:", split(",a,", ",") } catch e { print "split 양끝: 에러" }
+try { print "split 여러글자:", split("a::b", "::") } catch e { print "split 여러글자: 에러" }
+try { print "join 빈 리스트:", "[" + join([], "-") + "]" } catch e { print "join 빈 리스트: 에러" }
+try { print "join 한 개:", join([7], "-") } catch e { print "join 한 개: 에러" }
+try { print "substr 끝 넘김:", substr("abc", 2, 100) } catch e { print "substr 끝 넘김: 에러" }
+try { print "substr 0 개:", "[" + substr("abc", 2, 0) + "]" } catch e { print "substr 0개: 에러" }
+try { print "substr 시작이 끝:", "[" + substr("abc", 4, 1) + "]" } catch e { print "substr 시작이 끝: 에러" }
+try { print "replace 겹침:", replace("aaa", "aa", "b") } catch e { print "replace 겹침: 에러" }
+try { print "replace 새것이 옛것 포함:", replace("ab", "a", "aa") } catch e { print "replace 포함: 에러" }
+try { print "find 끝:", find("abc", "c"), find("abc", "abc"), find("abc", "abcd") } catch e { print "find: 에러" }
+try { print "한글 substr:", substr("가나다라", 2, 2), len("가나다라") } catch e { print "한글 substr: 에러" }
+try { print "reverse 한글:", reverse("가나다") } catch e { print "reverse: 에러" }
+try { print "빈 문자열 뒤집기:", "[" + reverse(빈) + "]", len(빈) } catch e { print "빈 뒤집기: 에러" }
+
+# 문자열 보간의 모양들 — {{ }} 그대로 쓰기, 공백 있는 식, 리스트·딕셔너리·객체,
+# 보간 안의 문자열 리터럴, 비교식, 필드·인덱스·키, 연달아 쓰기, 한글 글자 인덱스.
+# (빈 {} 는 문법 오류, {없는변수} 는 인터프리터만 잡을 수 있는 에러라 여기 없다)
+let x = 5
+let 목 = [1, 2]
+let 딕 = {"k": 1}
+class P { func init() { self.v = 7 } }
+let o = P()
+print "중괄호 그대로: {{x}} 와 }}"
+print "빈칸 있는 식: { x + 1 }"
+print "리스트: {목}  딕셔너리: {딕}  객체: {o}"
+print "중첩 호출: {len(목) + len(딕)}"
+print "문자열 안 문자열: {join(목, \", \")}"
+print "비교식: {x > 3}  논리: {x > 3 and x < 9}"
+print "필드: {o.v}  인덱스: {목[1]}  키: {딕[\"k\"]}"
+print "연달아: {x}{x}{x}"
+print "빈 문자열 보간: [{\"\"}]"
+print "숫자 그대로: {3.5} {0 - 2}"
+let 긴 = "가나다"
+print "한글 인덱스: {긴[2]} {len(긴)}"

@@ -133,11 +133,24 @@ No dependencies. Requires C++17 (C++20 compatible), and builds clean with GCC, C
 ./venos build program.my     # compile to a native executable (needs g++ installed)
 ./venos build program.my run # compile and run immediately
 ./venos topython program.my  # write the same program as Python (program.py)
+./venos trace program.my     # run it and print every value as it changes (a trace table)
 ```
 
 The interpreter is self-contained; only `build` shells out to `g++`.
 
 Inside the shell, `repl` starts a line-by-line REPL (type an expression to see its value).
+
+`trace` prints the trace table a textbook asks students to fill in by hand — one line per value
+that changes, with `->` on a call and `<-` on a return, indented by depth. The playground has the
+same thing behind 🔍 Trace. Trace lines go to stderr, so the program's own output stays separable.
+
+```
+    5| -> 팩토리얼(4)
+    3|   -> 팩토리얼(3)
+    3|   <- 팩토리얼 = 6
+    5| <- 팩토리얼 = 24
+    5| 답 = 24
+```
 
 The full language reference: **[VENOS_SPEC.en.md](VENOS_SPEC.en.md)** (English) / **[VENOS_SPEC.md](VENOS_SPEC.md)** (한국어).
 The spec is written so you can hand it to an AI assistant and have it write valid Venos code (designed with AI-assisted "vibe coding" in mind).
@@ -149,7 +162,7 @@ copy the folder into `~/.vscode/extensions/` (see its README).
 
 ## Examples
 
-**[`examples/algorithms/`](examples/algorithms/)** — sixteen textbook algorithms (selection
+**[`examples/algorithms/`](examples/algorithms/)** — eighteen textbook algorithms (selection
 sort, binary search, Euclid's algorithm, the sieve, Hanoi, a Caesar cipher…), each written
 line-for-line against the pseudocode a textbook prints, with that pseudocode in a comment
 at the top. Every one of them is run three ways by the test suite — interpreter, compiled

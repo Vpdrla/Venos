@@ -52,7 +52,7 @@ normalize() {
     tr -d '\r' < "$1" | grep -v '^=== ' | grep -v '^    부른 순서: ' | sed 's/\[[^]]*줄 [0-9]\{1,\}\] //g' 
 }
 
-pass=0; fail=0; pytested=0; pyskipped=0
+pass=0; fail=0; pytested=0; pyskipped=0; traced=0
 failed_names=""
 note_fail() { failed_names="$failed_names $1"; fail=$((fail+1)); }
 # tests/cases/*.my 는 언어 기능을, examples/algorithms/*.my 는 교과서 알고리즘을 본다.
@@ -72,6 +72,19 @@ for case_file in tests/cases/*.my examples/algorithms/*.my examples/rpg.my; do
 
     rm -f tests/.tmp_*
     "$VENOS" "$case_file" < "$input" > "$TMP/interp.txt" 2>&1
+
+    # ---- ①-b 추적 모드 ----
+    # venos trace 는 같은 프로그램을 같은 답으로 돌려야 한다. 추적 줄은 stderr 로 가므로
+    # stdout 만 받으면 run 과 글자까지 같아야 한다 — 값이 바뀌는 자리마다 손을 댄 기능이라
+    # (대입·경로 대입·복합 대입·두 반복문·호출/반환) 조용히 동작을 바꾸기 쉽다.
+    rm -f tests/.tmp_*
+    "$VENOS" trace "$case_file" < "$input" > "$TMP/trace.txt" 2>"$TMP/tracelines.txt"
+    if ! diff <(normalize "$TMP/interp.txt") <(normalize "$TMP/trace.txt") > "$TMP/diff.txt" 2>&1; then
+        echo "FAIL  $label  (추적 모드가 출력을 바꿈)"
+        cat "$TMP/diff.txt"
+        note_fail "$label"; continue
+    fi
+    [ -s "$TMP/tracelines.txt" ] && traced=$((traced+1))
 
     # ---- ② C++ 빌드본 ----
     if ! "$VENOS" build "$case_file" > "$TMP/build.txt" 2>&1; then
@@ -221,6 +234,18 @@ elif [ ! -f "$TMP/shell/셸테스트.py" ]; then
     dfail=$((dfail+1))
 fi
 
+# create 가 **만들어지지도 않은 파일을 "생성됨" 이라고** 말하면 안 된다.
+# (없는 폴더 안에 만들려 하면 조용히 실패했고, 학생은 파일이 있다고 믿고 코드를 쳤다)
+(
+    cd "$TMP/shell" 2>/dev/null || exit 0
+    printf 'create 없는폴더/x.my\nexit\n' | "$VENOS_ABS" > create.txt 2>&1
+) || true
+if [ -f "$TMP/shell/없는폴더/x.my" ] || ! grep -q '만들지 못했습니다' "$TMP/shell/create.txt" 2>/dev/null; then
+    shell_ok="실패 (create 가 못 만든 파일을 만들었다고 합니다)"
+    tail -3 "$TMP/shell/create.txt" 2>/dev/null
+    dfail=$((dfail+1))
+fi
+
 # ---- topython 이 거절해야 하는 것들 (tests/nopython) ----
 # 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다.
 # 파이썬이 Venos 와 다르게 답하는 자리에서 줄 번호를 대고 거절하는지 본다.
@@ -308,6 +333,9 @@ printf 'print "메모장"\n' > "$TMP/메모장.my.txt"
 check_says "폴더를 지정했을 때" "폴더입니다" "$VENOS" "$TMP/폴더"
 check_says "메모장이 붙인 .txt" ".txt 는 있습니다" "$VENOS" "$TMP/메모장.my"
 check_says "topython 도 같은 안내" ".txt 는 있습니다" "$VENOS" topython "$TMP/메모장.my"
+# import 를 쓰면 줄 번호가 병합된 글 기준이라 학생의 파일과 안 맞는다 — 에러처럼
+# 추적도 원본 좌표(파일 이름 + 그 파일의 줄)로 말해야 한다
+check_says "추적이 원본 파일 좌표로" "lib/도우미.my 줄" "$VENOS" trace tests/cases/imports.my
 
 # ---- 내장 함수·키워드가 모든 곳에 있는가 (tools/check-builtins.js) ----
 # 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —
@@ -356,6 +384,9 @@ echo "결과: 통과 $pass / 실패 $fail   (파이썬 변환까지 검증 $pyte
 [ -z "$failed_names" ] || echo "실패한 케이스:$failed_names"
 echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
+# ${} 로 감쌀 것 — macOS 의 bash 3.2 는 "$traced개" 를 변수 이름 `traced개` 로 읽고
+# set -u 아래에서 "unbound variable" 로 죽는다 (리눅스 bash 5 에서는 멀쩡해서 안 보였다)
+echo "추적표: ${traced}개 케이스에서 run 과 같은 답 (추적 줄은 stderr)"
 echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
 echo "REPL: $repl_ok"
 echo "이름 대조: $builtins"

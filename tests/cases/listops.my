@@ -28,3 +28,30 @@ print 점(1, 2) == 점(1, 2), 점(1, 2) == 점(9, 9)
 
 # 타입이 다르면 false (에러 아님)
 print [1] == 1, {"a":1} == [1], 점(1,2) == {"x":1,"y":2}
+
+# 빈 리스트·빈 딕셔너리의 경계 — 한 번도 안 넣어 본 입력들.
+# (문장으로 쓴 sort(중첩리스트) 만 여기 없다: 파이썬은 리스트끼리도 정렬해 버리는데
+#  그건 STRATEGY §6 에 적어 둔 절충이라 3중 비교로 지킬 수 있는 자리가 아니다)
+let 빈목록 = []
+let 빈딕 = {}
+try { print "pop 빈:", pop(빈목록) } catch e { print "pop 빈: 에러" }
+try { print "sort 빈:", sort(빈목록), len(빈목록) } catch e { print "sort 빈: 에러" }
+try { reverse(빈목록)  print "reverse 빈:", len(빈목록) } catch e { print "reverse 빈: 에러" }
+try { print "find 빈:", find(빈목록, 1) } catch e { print "find 빈: 에러" }
+try { print "has 빈:", has(빈목록, 1), has(빈딕, "k") } catch e { print "has 빈: 에러" }
+try { print "keys 빈:", keys(빈딕), len(keys(빈딕)) } catch e { print "keys 빈: 에러" }
+try { print "remove 빈:", remove(빈목록, 1) } catch e { print "remove 빈: 에러" }
+try { remove(빈딕, "없는키")  print "딕 remove 없는키: 성공" } catch e { print "딕 remove 없는키: 에러" }
+let 하나 = [5]
+try { print "remove 하나:", remove(하나, 1), len(하나) } catch e { print "remove 하나: 에러" }
+let 섞임 = [3, 1, 2]
+try { sort(섞임)  print "sort:", 섞임 } catch e { print "sort: 에러" }
+try { print "sort 문자열 리스트:", sort(["b", "a"]) } catch e { print "sort 문자열: 에러" }
+try { print "같은 값 여러 개:", find([7, 7], 7) } catch e { print "find 중복: 에러" }
+let 딕 = {"b": 1, "a": 2}
+print "키 순서:", keys(딕)
+for k in 딕 { print " -", k, 딕[k] }
+try { print "딕 안의 리스트:", {"x": [1, 2]}["x"] } catch e { print "딕 리스트: 에러" }
+# (리스트를 자기 안에 push 하는 줄은 cycles.my 로 옮겼다 — 순환을 만들면
+#  tools/sanitize.sh 가 이 케이스의 누수 검출을 통째로 꺼야 하고,
+#  그러면 여기서 생길 **진짜 누수**까지 같이 가려진다)

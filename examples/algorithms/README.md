@@ -2,7 +2,7 @@
 
 *English | [한국어](README.ko.md)*
 
-Sixteen algorithms from the standard informatics curriculum, each written to sit
+Eighteen algorithms from the standard informatics curriculum, each written to sit
 line-for-line against the pseudocode a textbook prints. Every file starts with that
 pseudocode in a comment, so you can read the two side by side.
 
@@ -29,6 +29,8 @@ install — and press **🐍 Python** to see the Python version.
 | `selection-sort.my` | Selection sort | Comparisons are `n(n-1)/2` whatever the data |
 | `insertion-sort.my` | Insertion sort | Moves depend on the data — nearly-sorted input is nearly free |
 | `bubble-sort.my` | Bubble sort | Stopping early when a pass swaps nothing |
+| `merge-sort.my` | Merge sort | Splitting, then **merging** two sorted halves; n log n whatever the data |
+| `quick-sort.my` | Quicksort (Lomuto) | One partition, step by step; why a last-element pivot makes sorted input the worst case |
 | `linear-search.my` | Linear search | Best 1, worst n, average (n+1)/2 comparisons |
 | `binary-search.my` | Binary search | The range halving, step by step; 1,000,000 items in 20 comparisons |
 | `gcd.my` | Euclid's algorithm | Iterative and recursive, plus LCM; contrasted with trying every divisor |

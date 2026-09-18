@@ -52,3 +52,9 @@ for i = 1 to 900 { let 새 = []  push(여기, 새)  여기 = 새 }
 let 복 = copy(얕)
 print len(얕), len(복), 얕 == 복
 print "끝"
+
+# 빈 리스트를 자기 안에 push — 세 백엔드 다 성공하고 길이가 1 이 된다.
+# (listops.my 에 있었는데, 순환 하나 때문에 그 파일의 누수 검출이 통째로 꺼진다)
+let 스스로 = []
+push(스스로, 스스로)
+print "자기 자신 push:", len(스스로)

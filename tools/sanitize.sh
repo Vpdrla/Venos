@@ -105,5 +105,5 @@ else
 fi
 
 echo
-if [ "$bad" -gt 0 ]; then echo "실패 $bad건"; exit 1; fi
+if [ "$bad" -gt 0 ]; then echo "실패 ${bad}건"; exit 1; fi
 echo "전부 통과"

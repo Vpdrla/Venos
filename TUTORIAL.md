@@ -231,6 +231,8 @@ Give a piece of behavior a name with `func` and reuse it as often as you like; `
 
 A function can even **call itself** (recursion) — `factorial` below does exactly that.
 
+Press **🔍 Trace** above to watch the recursion: each call and each returned value appears as its own line, the way a textbook trace table is drawn.
+
 Try adding one more `greet("...")` line.
 
 ```

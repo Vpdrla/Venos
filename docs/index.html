@@ -80,6 +80,8 @@
   #inputLine .hint { font-size: 11px; opacity: .55; }
   #stopBtn { padding: 3px 10px; font-size: 12px; color: var(--err); border-color: var(--border); }
   #output .err { color: var(--err); }
+  /* 추적 줄은 프로그램 출력보다 흐리게 — 섞여 나오지만 학생이 읽는 것은 자기 출력이다 */
+  #output .trace { color: var(--dim); }
   #output .ok { color: var(--accent2); }
   #clearBtn { font-size: 11px; padding: 2px 10px; }
   #shareBtn { padding: 7px 14px; }
@@ -139,6 +141,7 @@
   <!-- 실행 중에만 뜬다. 입력줄 안에 두면 계산만 도는 루프에서는 보이지 않는다 —
        정작 멈추고 싶은 자리가 거기다. -->
   <button id="stopBtn" hidden title="Stop the running program (Esc)">⏹ Stop</button>
+  <button id="traceBtn" disabled title="Run and show every value as it changes (trace table)">🔍 Trace</button>
   <button id="pyBtn" disabled title="See the same program written in Python">🐍 Python</button>
   <select id="lessons">
     <option value="">📚 Lessons / 레슨 …</option>
@@ -153,7 +156,7 @@
   </select>
   <button id="shareBtn" title="Copy a link that contains this program">🔗 Share</button>
   <span id="shareMsg"></span>
-  <span class="hint">🐍 Python shows the same program in Python · input asks below the output (⏹ Stop or Esc to quit a running program) · import is not available on the web · writefile is in-memory only (resets on reload)</span>
+  <span class="hint">🔍 Trace shows every value as it changes (a trace table) · 🐍 Python shows the same program in Python · input asks below the output (⏹ Stop or Esc to quit a running program) · import is not available on the web · writefile is in-memory only (resets on reload)</span>
 </div>
 
 <div id="lessonBar">
@@ -806,13 +809,15 @@ createVenos({
                 // Venos 의 에러는 늘 "!! " (느낌표 둘 + 공백) 로 시작한다. 공백까지 보지 않으면
                 // RPG 의 "!!! 고블린이 나타났다!" 같은 학생 출력이 빨간 에러로 칠해진다.
                 append(t, t.startsWith('!! ') ? 'err' : (t.startsWith('===') ? 'ok' : '')); },
-  printErr: t => append(t, 'err'),
+  // stderr 로 오는 것은 추적 줄이다 (에러는 stdout 으로 나오고 "!! " 로 시작한다)
+  printErr: t => append(t, t.startsWith('!! ') ? 'err' : 'trace'),
 }).then(mod => {
   M = mod;
   output.textContent = '';
   append('Venos ready. Press \u25b6 Run!', 'ok');
   if (bootNotice) append(bootNotice, 'err');   // 비우기 전에 한 말을 되살린다
   runBtn.disabled = false;
+  traceBtn.disabled = false;
   pyBtn.disabled = false;
 }).catch(err => {
   // \uc608\uc804\uc5d4 \uc5ec\uae30\uc11c \uc2e4\ud328\ud558\uba74 "loading\u2026" \uc0c1\ud0dc\ub85c \uc601\uc6d0\ud788 \uba48\ucdb0 \uc788\uc5c8\ub2e4
@@ -829,9 +834,12 @@ function drainStale() {
   try { M.ccall('venos_flush', null, [], []); } catch (e) {}
 }
 
-async function run() {
+// trace = true 면 값이 바뀔 때마다 한 줄씩 더 보여 준다 (교과서의 추적표).
+// 실행 경로는 하나다 — 켜고 끄는 것만 다르다.
+async function run(trace) {
   if (!M || runBtn.disabled) return;
   runBtn.disabled = true;
+  traceBtn.disabled = true;
   pyBtn.disabled = true;
   stopBtn.hidden = false;         // 도는 동안만 보인다 — 계산 루프에서도 누를 수 있어야 한다
   M.venosStopRequested = false;   // 앞 실행에서 누른 ⏹ 가 새 실행을 죽이지 않게
@@ -840,7 +848,8 @@ async function run() {
   await new Promise(r => setTimeout(r, 0));   // 지운 화면을 먼저 그리게 한 프레임 양보
   try {
     // async: true — venos_run 은 input 에서 멈췄다 이어질 수 있다 (ASYNCIFY)
-    await M.ccall('venos_run', null, ['string'], [editor.value], { async: true });
+    await M.ccall(trace ? 'venos_trace' : 'venos_run', null, ['string'],
+                  [editor.value], { async: true });
   } catch (e) {
     // Venos 자신의 에러는 print 로 나오므로 여기까지 오는 건 wasm 이 도중에 끊긴 것이다.
     // 그 상태의 모듈은 Asyncify 가 반쯤 풀린 채라 다음 실행이 조용히 이상해진다 —
@@ -852,14 +861,17 @@ async function run() {
   endInput();
   stopBtn.hidden = true;
   runBtn.disabled = false;
+  traceBtn.disabled = false;
   pyBtn.disabled = false;
 }
-runBtn.onclick = run;
+runBtn.onclick = () => run(false);
+traceBtn.onclick = () => run(true);
 
 // 같은 프로그램을 파이썬으로 보여 준다 — Venos 는 다음 언어로 가는 다리다
 function toPython() {
   if (!M || pyBtn.disabled) return;
   pyBtn.disabled = true;
+  traceBtn.disabled = true;
   drainStale();
   output.textContent = '';
   append('=== Python ===', 'ok');
@@ -872,6 +884,7 @@ function toPython() {
   const text = capture.join('\n');
   capture = null;
   pyBtn.disabled = false;
+  traceBtn.disabled = false;
   if (text && !text.startsWith('!! ') && navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => {
       shareMsg.textContent = 'Python copied — paste it into any Python editor';

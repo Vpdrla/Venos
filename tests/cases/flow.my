@@ -152,3 +152,25 @@ func 겉() {
     return 속(3)
 }
 print 겉()
+
+# try/catch 를 가로지르는 흐름 — Flow{BREAK,CONTINUE,RETURN} 가 catch 를 그대로
+# 통과해야 하는 자리들. 새 Stmt 를 만들 때 제일 먼저 깨지는 곳이라 한꺼번에 지킨다.
+# (마지막 줄은 catch 변수가 블록 밖에도 남는 지금 동작을 그대로 못박아 둔 것이다)
+func 리턴_트라이() { try { return "try 안의 return" } catch e { return "catch" } }
+func 리턴_캐치() { try { error("일부러") } catch e { return "catch 안의 return" }  return "끝" }
+func 리턴_뒤정리() { for i = 1 to 3 { try { if i == 2 { return "루프+try 안의 return: " + i } } catch e { print "안 옴" } }  return "안 옴" }
+print 리턴_트라이()
+print 리턴_캐치()
+print 리턴_뒤정리()
+for i = 1 to 3 { try { if i == 2 { continue }  print "i:", i } catch e { print "안 옴" } }
+for i = 1 to 3 { try { if i == 2 { break }  print "b:", i } catch e { print "안 옴" } }
+let n = 0
+while n < 3 { n += 1  try { if n == 2 { continue } } catch e { print "안 옴" }  print "w:", n }
+try { try { error("안쪽") } catch e { print "안쪽 잡음:", e  error("바깥으로") } } catch e2 { print "바깥 잡음:", e2 }
+try { error(123) } catch e { print "수로 만든 에러:", e }
+try { error("") } catch e { print "빈 에러: [" + e + "]" }
+let 목록 = [1, 2, 3]
+for x in 목록 { try { if x == 2 { continue } } catch e { }  print "각:", x }
+func 두겹_리턴() { try { try { return "두 겹 안쪽 return" } catch a { return "a" } } catch b { return "b" } }
+print 두겹_리턴()
+try { print "catch 변수는 밖에서 안 보인다:", e } catch z { print "e 없음 확인" }

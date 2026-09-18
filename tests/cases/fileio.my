@@ -57,3 +57,8 @@ writefile(사본, readfile(씨))
 print len(readfile(사본)) == len(readfile(씨))
 appendfile(사본, readfile(씨))
 print len(readfile(사본))
+
+# exists() 는 **파일만** 참이다 — 폴더는 거짓. 파이썬의 os.path.exists 는 폴더에도 참이라
+# 여기서 갈렸다 (생성 파이썬만 1 을 냈다). 셋 다 is_regular_file / isfile 이어야 한다.
+print "폴더:", exists("."), exists("tests"), exists("tests/")
+print "없는 것:", exists("tests/없는파일.txt"), exists("")
