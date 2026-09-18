@@ -202,7 +202,7 @@ git tag v0.6.0 && git push origin v0.6.0
 ## 현재 상태 & 남은 작업
 현재 v0.6.0 (변수/함수/클래스/리스트/딕셔너리/try-catch/import/copy/파일IO/REPL/CLI/에러 줄표시/문자열 보간/리스트 ==·+/`topython` 파이썬 변환). 저장소: github.com/Vpdrla/Venos
 
-태그 이후 더해진 것 (다음 릴리스에 들어갈 것들): 문자열 반복 `"*" * n`, 리스트의 `has`/`find`, `reverse`, `round(x, 자릿수)`, 리터럴 끝의 쉼표, `--version`/`--help`, 오타 제안과 호출 경로가 붙은 에러, 나머지 연산의 부호 통일, 재귀 8배 속도 개선, `examples/algorithms/` 18개, 윈도우 버그 4종 수정.
+태그 이후 더해진 것 (다음 릴리스에 들어갈 것들): 문자열 반복 `"*" * n`, 리스트의 `has`/`find`, `reverse`, `round(x, 자릿수)`, 리터럴 끝의 쉼표, `--version`/`--help`, 오타 제안과 호출 경로가 붙은 에러, 나머지 연산의 부호 통일, 재귀 8배 속도 개선, `examples/algorithms/` 19개, 윈도우 버그 4종 수정.
 
 **의미가 바뀐 것 — 릴리스 노트에 꼭 적을 것**: `step` 없는 `for` 가 **항상 올라간다** (예전에는 시작이 끝보다 크면 거꾸로 돌았다). 거꾸로 세려면 `step -1` 이 필요하고, 양끝이 상수인데 거꾸로면 파서가 거절한다. 예제집의 정렬·탐색이 원소 0·1개에서 전부 죽던 원인이었다.
 
@@ -226,6 +226,6 @@ git tag v0.6.0 && git push origin v0.6.0
 - [x] Windows 네이티브 CI 잡 (`ci.yml` 의 `windows`) — MinGW 정적 빌드 + 전체 스위트를 Git Bash 에서. **첫 실행에 실제 버그 3개를 잡았다** (아래 지뢰밭 참고). 체크아웃 전에 `core.autocrlf false`, 러너는 `.exe` 이름과 CRLF 를 흡수한다
 - [x] 문자열 보간 `"이름: {x}"`, 리스트 `==`(깊은 비교)/`+`(연결) — v0.6.0
 - [x] **포지셔닝 확정 + `topython`** — 조사(Portugol/HAGGIS/Pascal/2022 개정 교육과정) → `STRATEGY.md`, `PyGen`, 플레이그라운드 🐍 Python 버튼, 3중 differential
-- [x] 교과서 알고리즘 예제집 (`examples/algorithms/`) — 18개, 교과서 의사코드를 주석에 넣고 1:1. **테스트 스위트에 편입**되어 세 방식으로 돌려 비교한다 (러너가 `tests/cases` 와 `examples/algorithms` 를 함께 순회)
+- [x] 교과서 알고리즘 예제집 (`examples/algorithms/`) — 19개, 교과서 의사코드를 주석에 넣고 1:1. **테스트 스위트에 편입**되어 세 방식으로 돌려 비교한다 (러너가 `tests/cases` 와 `examples/algorithms` 를 함께 순회)
 - [ ] ~~다음 언어 기능 후보: 일급 함수, 상속~~ — **포지셔닝상 거부**. 음수 인덱스/슬라이스만 재검토 여지 있음
 - [x] 리네임: MyLang → **Venos** (문서/배너/바이너리/확장 일괄 치환 완료. 저장소 rename(Settings→Rename→Venos)은 사용자가 직접 — 하기 전까지 README 링크·Pages URL은 새 주소 기준이라 404)
