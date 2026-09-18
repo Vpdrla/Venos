@@ -438,9 +438,9 @@ static size_t editDistance(const std::vector<string>& a, const std::vector<strin
 }
 // 후보 중 가장 가까운 이름을 "  (혹시 'X'?)" 로. 마땅한 게 없으면 빈 문자열.
 static string foreignHint(const string& name);
-static string suggestName(const string& typo, std::vector<string> cands) {
-    string foreign = foreignHint(typo);
-    if (!foreign.empty()) return foreign;            // 오타가 아니라 다른 언어의 이름이다
+// 후보만 보는 쪽. **딕셔너리 키**는 이걸 쓴다 — 키는 이름이 아니라 자료라서
+// foreignNames() 를 태우면 d["size"] 가 "길이는 len(x) 입니다" 라는 헛소리를 듣는다.
+static string suggestFrom(const string& typo, std::vector<string> cands) {
     auto t = utf8Chars(typo);
     if (t.size() < 2) return "";                       // 한 글자짜리는 아무거나 다 가까워진다
     size_t maxD = t.size() <= 4 ? 1 : 2;
@@ -456,6 +456,11 @@ static string suggestName(const string& typo, std::vector<string> cands) {
         if (d < bestD) { bestD = d; best = c; }
     }
     return best.empty() ? "" : "  (혹시 '" + best + "'?)";
+}
+static string suggestName(const string& typo, std::vector<string> cands) {
+    string foreign = foreignHint(typo);
+    if (!foreign.empty()) return foreign;            // 오타가 아니라 다른 언어의 이름이다
+    return suggestFrom(typo, std::move(cands));
 }
 
 // "abc".upper() 처럼 원시값에 메서드를 부른 경우의 안내. 인터프리터와 생성 코드가
@@ -1217,6 +1222,21 @@ static string notAValue(const string& name, bool isFunc, bool isClass) {
 }
 static Env* g_global = nullptr;
 
+// 없는 키를 읽었을 때 뒤에 붙일 말. **키를 글자로 적었을 때만** 오타를 짚는다
+// (d["수학"] 은 학생이 친 이름이지만 d[낱말] 의 낱말은 자료다 — 없는 게 당연할 수 있고,
+//  거기에 "혹시?" 를 붙이면 멀쩡한 프로그램의 정상적인 분기를 오타로 몰아간다).
+// CPython 은 KeyError 에 제안을 아예 안 붙인다(키는 자료라서). 리터럴만 짚으면
+// 그 이유가 사라지므로 여기서는 붙인다 — 대신 foreignNames() 는 태우지 않는다.
+static string keyHint(const std::map<string, Value>& m, const string& key, bool literal) {
+    if (literal) {
+        std::vector<string> names;
+        for (auto& kv : m) names.push_back(kv.first);
+        string s = suggestFrom(key, names);
+        if (!s.empty()) return s;
+    }
+    return "  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)";
+}
+
 // ---- 표현식 ----
 struct NumExpr : Expr {
     double v;
@@ -1302,8 +1322,8 @@ struct IndexExpr : Expr {
                 throw LangError(lineTag(line) + "딕셔너리 키는 문자열이어야 합니다 (지금: " + k.kindName() + ")");
             auto it = t.map->find(k.str);
             if (it == t.map->end())
-                throw LangError(lineTag(line) + "키가 없습니다: \"" + k.str
-                                + "\"  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)");
+                throw LangError(lineTag(line) + "키가 없습니다: \"" + k.str + "\""
+                                + keyHint(*t.map, k.str, dynamic_cast<StrExpr*>(index.get()) != nullptr));
             return it->second;
         }
         if (t.kind != Value::LIST)
@@ -3052,6 +3072,54 @@ static string josa(const string& word, const char* withJong, const char* without
     }
     return " " + string(withJong) + "(" + without + ")";   // 기호·영어는 띄어서 둘 다
 }
+// ---- 오타 제안 (본체의 editDistance/suggestName 과 **같은 규칙**) ----
+// 필드 이름은 실행할 때에야 알 수 있어서 (객체가 들고 있는 map 이 후보다) 컴파일 시점의
+// CodeGen 검사로는 못 잡는다 — 그래서 여기 런타임에 있어야 한다. 없던 동안 같은 오타에
+// 인터프리터는 "(혹시 '나이'?)" 를, 빌드본은 아무 말도 안 했다.
+// 표(rt_foreignHint)는 CodeGen 이 foreignNames() 에서 **생성해 붙인다** — 손으로 옮겨 두면
+// 한쪽에만 항목이 늘어도 조용하다.
+static string rt_foreignHint(const string& name);
+static size_t rt_editDistance(const std::vector<string>& a, const std::vector<string>& b) {
+    std::vector<size_t> prev(b.size() + 1), cur(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); j++) prev[j] = j;
+    for (size_t i = 1; i <= a.size(); i++) {
+        cur[0] = i;
+        for (size_t j = 1; j <= b.size(); j++)
+            cur[j] = std::min({ prev[j] + 1, cur[j - 1] + 1,
+                                prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1) });
+        prev = cur;
+    }
+    return prev[b.size()];
+}
+// 후보만 보는 쪽 — 딕셔너리 키는 이걸 쓴다 (키는 이름이 아니라 자료다)
+static string rt_suggestFrom(const string& typo, std::vector<string> cands) {
+    auto t = u8chars(typo);
+    if (t.size() < 2) return "";
+    size_t maxD = t.size() <= 4 ? 1 : 2;
+    std::sort(cands.begin(), cands.end());
+    cands.erase(std::unique(cands.begin(), cands.end()), cands.end());
+    string best;
+    size_t bestD = maxD + 1;
+    for (const string& c : cands) {
+        if (c == typo) continue;
+        auto cc = u8chars(c);
+        if (cc.size() + maxD < t.size() || t.size() + maxD < cc.size()) continue;
+        size_t d = rt_editDistance(t, cc);
+        if (d < bestD) { bestD = d; best = c; }
+    }
+    return best.empty() ? "" : "  (혹시 '" + best + "'?)";
+}
+static string rt_suggest(const string& typo, std::vector<string> cands) {
+    string foreign = rt_foreignHint(typo);
+    if (!foreign.empty()) return foreign;
+    return rt_suggestFrom(typo, std::move(cands));
+}
+// 객체가 실제로 들고 있는 필드 이름들 — 오타 제안의 후보
+static std::vector<string> fld_names(const Value& t) {
+    std::vector<string> out;
+    for (auto& kv : *t.map) out.push_back(kv.first);
+    return out;
+}
 static List iter_items(const Value& v) {
     if (v.kind == Value::LIST) return *v.list;
     if (v.kind == Value::STR) { List o; for (auto& c : u8chars(v.str)) o.push_back(Value(c)); return o; }
@@ -3192,7 +3260,18 @@ static const string& mapKey(const Value& i) {
     if (i.kind != Value::STR) throw RunErr("딕셔너리 키는 문자열이어야 합니다 (지금: " + i.kindName() + ")");
     return i.str;
 }
-static Value idx_get(const Value& t, const Value& i) {
+// 인터프리터의 keyHint 와 **같은 규칙** — 키를 글자로 적었을 때만 오타를 짚는다.
+// literal 은 CodeGen 이 정해 준다 (그쪽은 식을 보고 알 수 있다).
+static string rt_keyHint(const Value& t, const string& key, bool literal) {
+    if (literal) {
+        std::vector<string> names;
+        for (auto& kv : *t.map) names.push_back(kv.first);
+        string s = rt_suggestFrom(key, names);
+        if (!s.empty()) return s;
+    }
+    return "  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)";
+}
+static Value idx_get2(const Value& t, const Value& i, bool lit) {
     if (t.kind == Value::STR) {
         auto chars = u8chars(t.str);
         return Value(chars[chkIdx(i, chars.size())]);
@@ -3200,13 +3279,14 @@ static Value idx_get(const Value& t, const Value& i) {
     if (t.kind == Value::MAP) {
         auto it = t.map->find(mapKey(i));
         if (it == t.map->end())
-            throw RunErr("키가 없습니다: \"" + i.str + "\"  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)");
+            throw RunErr("키가 없습니다: \"" + i.str + "\"" + rt_keyHint(t, i.str, lit));
         return it->second;
     }
     if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
                                            + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
+static Value idx_get(const Value& t, const Value& i) { return idx_get2(t, i, false); }
 // 인덱스 체인 중간 (반드시 존재해야 함) — 복합 대입의 마지막에도 사용
 static Value& idx_mid(Value& t, const Value& i) {
     if (t.kind == Value::MAP) {
@@ -3223,14 +3303,14 @@ static Value fld_get(const Value& t, const string& f) {
     if (t.kind != Value::OBJ)
         throw RunErr(t.kindName() + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
     auto it = t.map->find(f);
-    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f);
+    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f + rt_suggest(f, fld_names(t)));
     return it->second;
 }
 static Value& fld_mid(Value& t, const string& f) {
     if (t.kind != Value::OBJ)
         throw RunErr(t.kindName() + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
     auto it = t.map->find(f);
-    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f);
+    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f + rt_suggest(f, fld_names(t)));
     return it->second;
 }
 static Value& fld_put(Value& t, const string& f) {
@@ -3751,8 +3831,13 @@ struct CodeGen {
             }
             return o + "})";
         }
-        if (auto* ix = dynamic_cast<IndexExpr*>(e))
-            return "idx_get(" + genExpr(ix->target.get()) + ", " + genExpr(ix->index.get()) + ")";
+        if (auto* ix = dynamic_cast<IndexExpr*>(e)) {
+            // 키를 글자로 적었는지는 여기서만 알 수 있다 — 런타임에 넘겨 준다
+            // (없는 키의 오타 제안을 리터럴에만 붙이기 위해. 인터프리터의 keyHint 와 같은 규칙)
+            bool lit = dynamic_cast<StrExpr*>(ix->index.get()) != nullptr;
+            return "idx_get2(" + genExpr(ix->target.get()) + ", " + genExpr(ix->index.get())
+                 + (lit ? ", true)" : ", false)");
+        }
         if (auto* f = dynamic_cast<FieldExpr*>(e))
             return "fld_get(" + genExpr(f->target.get()) + ", " + cppStr(f->field) + ")";
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
@@ -4139,6 +4224,16 @@ struct CodeGen {
         // ---- 최종 조립 ----
         std::ostringstream out;
         out << RUNTIME << "\n";
+        // 런타임의 오타 제안이 쓰는 표 — 본체의 foreignNames() 에서 그대로 찍어 낸다.
+        // (손으로 옮겨 적으면 한쪽에만 항목이 늘어도 아무도 모른다)
+        out << "static string rt_foreignHint(const string& name) {\n"
+               "    static const std::map<string, string> M = {\n";
+        for (auto& [k, v] : foreignNames())
+            out << "        {" << cppStr(k) << ", " << cppStr(v) << "},\n";
+        out << "    };\n"
+               "    auto it = M.find(name);\n"
+               "    return it == M.end() ? \"\" : \"  (\" + it->second + \")\";\n"
+               "}\n\n";
         for (auto& [name, fn] : funcs) out << sig(funcName(name), fn, false);
         for (auto& [cname, cls] : classes)
             for (auto& m : cls->methodList)

@@ -57,3 +57,21 @@ try { print not 리 } catch e { 보("not 리스트", e) }
 try { print -글 } catch e { 보("음수 문자열", e) }
 try { print copy(수) } catch e { 보("copy", e) }
 try { error(리) } catch e { 보("error 리스트", e) }
+
+# 없는 키 — **글자로 적었을 때만** 오타를 짚는다. 변수로 넘긴 키는 자료라서
+# 없는 게 정상일 수 있고, 거기에 "혹시?" 를 붙이면 멀쩡한 분기를 오타로 몬다.
+# (인터프리터는 식을 보고, 빌드본은 CodeGen 이 넘겨 준 값을 보고 같은 판단을 한다)
+let 성적 = {"수학점수": 90, "국어점수": 80}
+let 딴이름 = "수학점"
+try { print 성적["수학점"] } catch e { 보("키 오타(글자)", e) }
+try { print 성적[딴이름] } catch e { 보("키 오타(변수)", e) }
+try { print 성적["size"] } catch e { 보("키가 다른 언어 이름", e) }
+try { print 성적["가"] } catch e { 보("키 한 글자", e) }
+
+# 필드 오타 — 필드 이름은 **실행할 때에야** 알 수 있어서(객체가 든 map 이 후보다)
+# CodeGen 의 정적 검사로는 못 잡는다. 오래 인터프리터만 "혹시 '나이'?" 를 말했다.
+class 사람 { func init() { self.이름 = "가람"  self.나이 = 15 } }
+let 그이 = 사람()
+try { print 그이.나의 } catch e { 보("필드 오타", e) }
+try { print 그이.length } catch e { 보("필드가 다른 언어 이름", e) }
+try { print 그이.없는것도아닌것 } catch e { 보("필드 멀리", e) }
