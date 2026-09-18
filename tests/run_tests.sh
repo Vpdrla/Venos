@@ -234,6 +234,18 @@ elif [ ! -f "$TMP/shell/셸테스트.py" ]; then
     dfail=$((dfail+1))
 fi
 
+# create 가 **만들어지지도 않은 파일을 "생성됨" 이라고** 말하면 안 된다.
+# (없는 폴더 안에 만들려 하면 조용히 실패했고, 학생은 파일이 있다고 믿고 코드를 쳤다)
+(
+    cd "$TMP/shell" 2>/dev/null || exit 0
+    printf 'create 없는폴더/x.my\nexit\n' | "$VENOS_ABS" > create.txt 2>&1
+) || true
+if [ -f "$TMP/shell/없는폴더/x.my" ] || ! grep -q '만들지 못했습니다' "$TMP/shell/create.txt" 2>/dev/null; then
+    shell_ok="실패 (create 가 못 만든 파일을 만들었다고 합니다)"
+    tail -3 "$TMP/shell/create.txt" 2>/dev/null
+    dfail=$((dfail+1))
+fi
+
 # ---- topython 이 거절해야 하는 것들 (tests/nopython) ----
 # 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다.
 # 파이썬이 Venos 와 다르게 답하는 자리에서 줄 번호를 대고 거절하는지 본다.

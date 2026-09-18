@@ -701,9 +701,14 @@ static void loadWithImports(const string& rawPath, const string& rawLabel,
     loaded.insert(path);
 
     std::ifstream in(importToPath(path));
-    if (!in)
+    if (!in) {
+        // 맨 처음 파일(= import 로 불린 게 아닌 것)까지 "import 실패" 라고 하면,
+        // import 를 쓴 적도 없는 학생이 무슨 말인지 알 수 없다.
+        if (fromWhere.empty())
+            throw LangError("파일을 열 수 없습니다: " + label);
         throw LangError("import 실패: 파일을 열 수 없습니다: " + label
-                        + (fromWhere.empty() ? "" : "  (" + fromWhere + " 에서)"));
+                        + "  (" + fromWhere + " 에서)");
+    }
     string line;
     int no = 0;
     while (std::getline(in, line)) {
@@ -6169,7 +6174,16 @@ void cmdCreate(const string& name) {
     if (name.empty()) { std::cout << "사용법: create <파일이름>\n"; return; }
     string fname = withExt(name);
     if (fs::exists(toPath(fname))) { std::cout << "이미 존재하는 파일: " << fname << "\n"; return; }
-    std::ofstream(toPath(fname)).close();
+    // 만들어졌는지 **확인하고** 말할 것. `create 프로젝트/main.my` 는 폴더가 없으면
+    // 조용히 실패하는데, "생성됨" 이라고 해 두면 학생은 파일이 있다고 믿고 코드를 친다.
+    { std::ofstream out(toPath(fname)); }
+    if (!fs::is_regular_file(toPath(fname))) {
+        string dir = dirOf(fname);
+        std::cout << "만들지 못했습니다: " << fname << "\n";
+        if (!dir.empty() && !fs::is_directory(toPath(dir)))
+            std::cout << "   " << dir << " 폴더가 없습니다 — 폴더를 먼저 만든 뒤 다시 하세요\n";
+        return;
+    }
     currentFile = fname;
     std::cout << "생성됨: " << fname << " (자동으로 choose 됨)\n";
 }
