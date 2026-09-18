@@ -123,7 +123,8 @@ non-string side in `_show` wherever it can *see* that one side is a string, whic
 shape textbook code actually writes. What it cannot see is a value whose type is only known at
 run time: a function's parameter, an element of a list, a dictionary's value. There
 `더하기("가", 1)` works in Venos and crashes in Python. Closing it means routing every `+`
-through a helper, and there are **285 of them in the sixteen worked examples** — `합 + 점수[i]`
+through a helper, and there are **258 of them across the worked examples** (212 `+` and 46 `+=`,
+recounted with the collection at eighteen programs) — `합 + 점수[i]`
 would become `_add(합, 점수[i])`, which is the readable Python this feature exists to produce.
 So the difference stays, it is named in the spec, and the generative fuzzer is told not to mix
 the two types across an unknown position so that a documented difference does not fail CI at
@@ -196,7 +197,7 @@ becomes `_idx(A, j)`. Selection sort over 1500 items costs **0.06s as generated 
 function call, not the checks inside it. Removing it means proving `A` is a list, and in every
 textbook sort `A` is a parameter, so that proof has to follow call sites. A wrong proof emits
 `d[k - 1]` against a dictionary: a silent wrong read, bought with a performance argument. All
-sixteen worked examples run in 0.01–0.02s either way, so at the sizes this language is for, the
+eighteen worked examples run in 0.01–0.02s either way, so at the sizes this language is for, the
 difference does not exist. Measured, written down, declined.
 
 The same judgement came up on performance. Measured against CPython running the same

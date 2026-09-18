@@ -162,7 +162,7 @@ copy the folder into `~/.vscode/extensions/` (see its README).
 
 ## Examples
 
-**[`examples/algorithms/`](examples/algorithms/)** — sixteen textbook algorithms (selection
+**[`examples/algorithms/`](examples/algorithms/)** — eighteen textbook algorithms (selection
 sort, binary search, Euclid's algorithm, the sieve, Hanoi, a Caesar cipher…), each written
 line-for-line against the pseudocode a textbook prints, with that pseudocode in a comment
 at the top. Every one of them is run three ways by the test suite — interpreter, compiled
