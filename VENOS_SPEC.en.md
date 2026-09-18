@@ -197,6 +197,15 @@ An uncaught error stops the program and prints **how execution got there** (inte
     부른 순서: 바깥 (줄 10에서) → 가운데 (줄 8에서) → 안쪽 (줄 5에서)
 ```
 
+A syntax error also points at **the spot inside the line** with `^`. All three
+execution paths mark the same spot — they share one parser:
+```
+!! 에러: [줄 6] if 조건에서 값을 견줄 때는 == 를 씁니다 (= 는 값을 넣을 때)
+    줄 6 | if 학생수 = abc { print "같다" }
+                     ^
+```
+Errors raised while running (missing key, index out of range) name the line only.
+
 ## Copying (mind the reference semantics)
 ```
 let b = a           # for lists/dicts/objects this aliases the same value (mutating b mutates a)

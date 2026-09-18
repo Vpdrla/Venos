@@ -748,11 +748,37 @@ editor.addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); }
 });
 
+// \uc5d0\ub7ec\uc758 `^` \ub294 venos \uac00 **\ud130\ubbf8\ub110 \uae30\uc900**(\ud55c\uae00 \ud55c \uae00\uc790 = \ub450 \uce78)\uc73c\ub85c \uacc4\uc0b0\ud574\uc11c \ubcf4\ub0b8\ub2e4.
+// \ube0c\ub77c\uc6b0\uc800\uc5d0\uc11c\ub294 \uadf8 \uac00\uc815\uc774 \uae68\uc9c4\ub2e4 \u2014 Cascadia Code \uc5d0\ub294 \ud55c\uae00\uc774 \uc5c6\uc5b4 \ud55c\uae00\ub9cc \ub300\uccb4 \uae00\uaf34\ub85c
+// \uadf8\ub824\uc9c0\uace0, \uadf8 \uae00\uaf34\uc758 \ud55c\uae00 \ud3ed\uc774 \ub77c\ud2f4 \ubb38\uc790\uc758 \uc815\ud655\ud788 \ub450 \ubc30\ub77c\ub294 \ubcf4\uc7a5\uc774 \uc5c6\ub2e4
+// (\uc2e4\uce21\ud588\ub354\ub2c8 11px \uc5b4\uaca4\ub2e4 \u2014 \ud55c \uae00\uc790 \ubc18\ucbe4). \uadf8\ub798\uc11c \ud398\uc774\uc9c0\uac00 **\uadf8\ub824\uc9c4 \uc790\ub9ac\ub97c \uc7ac\uc11c** \ub2e4\uc2dc \ub193\ub294\ub2e4:
+// \uce78 \uc218\ub97c \uac19\uc740 \uaddc\uce59\uc73c\ub85c \uac70\uafd0\ub85c \ud480\uc5b4 \uba87 \ubc88\uc9f8 \uae00\uc790\uc778\uc9c0 \ucc3e\uace0, \uadf8 \uae00\uc790\uc758 \uc2e4\uc81c x \uc88c\ud45c\ub85c \ub9de\ucd98\ub2e4.
+const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFF00-\uFF60\uFFE0-\uFFE6]/;
+function realignCaret(span) {
+  const prev = span.previousElementSibling;
+  if (!prev) return;
+  const line = prev.textContent.replace(/\n$/, '');
+  if (!/^ {4}.*\uc904 \d+ \| /.test(line)) return;
+  const want = span.textContent.indexOf('^');        // venos \uac00 \uc138\uc900 \uce78 \uc218
+  let w = 0, k = 0;
+  const chars = [...line];
+  while (k < chars.length && w < want) { w += WIDE.test(chars[k]) ? 2 : 1; k++; }
+  if (w !== want || k >= chars.length) return;       // \uce78 \uacbd\uacc4\uc5d0 \uc548 \ub5a8\uc5b4\uc9c0\uba74 \uadf8\ub300\ub85c \ub454\ub2e4
+  const at = chars.slice(0, k).join('').length;
+  const r = document.createRange();
+  r.setStart(prev.firstChild, at); r.setEnd(prev.firstChild, at + 1);
+  const x = r.getBoundingClientRect().left - prev.getBoundingClientRect().left;
+  if (!isFinite(x) || x < 0) return;
+  span.textContent = '^\n';
+  span.style.paddingLeft = x + 'px';
+}
+
 function append(text, cls) {
   const span = document.createElement('span');
   if (cls) span.className = cls;
   span.textContent = text + '\n';
   output.appendChild(span);
+  if (/^ +\^$/.test(text)) realignCaret(span);
   output.scrollTop = output.scrollHeight;
 }
 

@@ -563,6 +563,10 @@ struct Token {
     string text;
     double num = 0;
     int line = 0;
+    // 줄머리부터 이 토큰까지의 **글자 수** + 1 (바이트가 아니다 — 한글 한 글자가 3바이트다).
+    // 0 이면 모름: 문자열 보간 `{...}` 안은 하위 Parser 가 따로 렉싱해서 바깥 줄의 좌표를
+    // 만들 수 없다. 에러의 `^` 표시는 0 이면 그냥 생략한다.
+    int col = 0;
 };
 
 // ---- 호출 경로 ----
@@ -578,7 +582,9 @@ static string callPath();
 // 가장 긴 것이 100자 남짓이라, 한 군데서 넉넉히 잘라 두면 모든 자리가 같이 안전하다.
 struct LangError : std::runtime_error {
     string path;                       // "바깥(줄 10) → 가운데(줄 8)" — 없으면 빈 문자열
-    LangError(const string& msg) : std::runtime_error(ellipsize(msg, 300)), path(callPath()) {}
+    int col = 0;                       // 줄 안에서 몇 번째 글자인가 (0 = 모름)
+    LangError(const string& msg, int col = 0)
+        : std::runtime_error(ellipsize(msg, 300)), path(callPath()), col(col) {}
 };
 
 // import 로 파일이 병합되면, 병합된 줄번호 → "원본파일 줄 N" 매핑을 채운다.
@@ -614,10 +620,36 @@ static string callPath() {
 // 마지막으로 실행/빌드한 소스 (에러 시 해당 줄을 보여주기 위해 보관)
 static std::vector<string> g_srcLines;
 
-// 에러 메시지 출력 + 문제의 코드 줄 표시
+// 화면에서 차지하는 칸 수. 한글·한자·전각 기호는 한 글자가 **두 칸**이라,
+// 글자 수로 세면 `^` 가 왼쪽으로 밀린다. 터미널과 플레이그라운드(고정폭)가 같은 규칙이다.
+static size_t dispWidth(const string& s) {
+    size_t w = 0;
+    for (const string& ch : utf8Chars(s)) {
+        if (ch.size() < 3) { w += 1; continue; }        // ASCII·라틴·키릴 등
+        unsigned cp = 0;
+        if (ch.size() == 3)
+            cp = ((unsigned char)ch[0] & 0x0Fu) << 12 | ((unsigned char)ch[1] & 0x3Fu) << 6
+               | ((unsigned char)ch[2] & 0x3Fu);
+        else if (ch.size() == 4)
+            cp = ((unsigned char)ch[0] & 0x07u) << 18 | ((unsigned char)ch[1] & 0x3Fu) << 12
+               | ((unsigned char)ch[2] & 0x3Fu) << 6  | ((unsigned char)ch[3] & 0x3Fu);
+        bool wide = (cp >= 0x1100 && cp <= 0x115F)      // 한글 자모
+                 || (cp >= 0x2E80 && cp <= 0xA4CF)      // 한중일 부수·기호·한자
+                 || (cp >= 0xAC00 && cp <= 0xD7A3)      // 한글 음절
+                 || (cp >= 0xF900 && cp <= 0xFAFF)      // 한자 호환
+                 || (cp >= 0xFF00 && cp <= 0xFF60)      // 전각 영숫자·기호
+                 || (cp >= 0xFFE0 && cp <= 0xFFE6)
+                 || (cp >= 0x1F300 && cp <= 0x1FAFF);   // 이모지
+        w += wide ? 2 : 1;
+    }
+    return w;
+}
+
+// 에러 메시지 출력 + 문제의 코드 줄 표시 (+ 아는 경우 그 줄 안의 자리)
 //   !! 에러: [줄 12] 키가 없습니다: "점수"
 //       줄 12 | print d["점수"]
-static void printError(const string& msg, const string& prefix = "!! 에러: ") {
+//                      ^
+static void printError(const string& msg, const string& prefix = "!! 에러: ", int col = 0) {
     std::cout << prefix << msg << "\n";
     size_t a = msg.find('[');
     size_t b = msg.find(']');
@@ -632,16 +664,38 @@ static void printError(const string& msg, const string& prefix = "!! 에러: ") 
         merged = atoi(tag.c_str() + string("줄 ").size());
     }
     if (merged >= 1 && merged <= (int)g_srcLines.size()) {
-        string src = trim(g_srcLines[merged - 1]);
+        const string& raw = g_srcLines[merged - 1];
+        string src = trim(raw);
         const size_t LIMIT = 120;
         string shown = ellipsize(src, LIMIT);
-        if (shown != src) shown += " (" + std::to_string(utf8Length(src)) + "글자)";
+        bool cut = shown != src;
+        if (cut) shown += " (" + std::to_string(utf8Length(src)) + "글자)";
         std::cout << "    " << tag << " | " << shown << "\n";
+        // 줄 안의 자리까지 아는 경우에만 `^`. 줄이 잘렸으면 가리킬 수 없으니 생략한다.
+        // trim 이 앞을 떼어냈으므로 그만큼 당긴다.
+        if (col > 0 && !cut) {
+            auto rawChars = utf8Chars(raw);
+            size_t lead = 0;
+            // trim() 이 떼어내는 글자와 **같은 집합**이어야 한다 (" \t\r") —
+            // 다르면 캐럿이 그만큼 어긋난다
+            while (lead < rawChars.size() && rawChars[lead].size() == 1
+                   && strchr(" \t\r", rawChars[lead][0]) != nullptr) lead++;
+            size_t at = (size_t)col - 1;
+            if (at >= lead && at < rawChars.size()) {
+                string before;
+                for (size_t k = lead; k < at; k++) before += rawChars[k];
+                // 줄 중간의 탭은 터미널마다 몇 칸인지 다르다 — 가리킬 자리를 모르면
+                // 엉뚱한 곳을 가리키느니 아무 데도 가리키지 않는다
+                if (before.find('\t') == string::npos)
+                    std::cout << string(dispWidth("    " + tag + " | ") + dispWidth(before), ' ')
+                              << "^\n";
+            }
+        }
     }
 }
 // 에러 + 그 에러가 난 자리까지 오게 된 호출 경로
-static void printError(const LangError& e) {
-    printError(e.what());
+static void printError(const LangError& e, const string& prefix = "!! 에러: ") {
+    printError(e.what(), prefix, e.col);
     if (!e.path.empty()) std::cout << "    부른 순서: " << e.path << "\n";
 }
 
@@ -835,22 +889,33 @@ std::vector<Token> lex(const string& src) {
     std::vector<Token> toks;
     int line = 1;
     size_t i = 0;
+    // 토큰이 줄 안에서 몇 번째 글자에서 시작했는가 — 에러의 `^` 가 이걸로 정렬된다.
+    // lineStart 는 이 줄의 첫 바이트, tokStart 는 지금 읽는 토큰의 첫 바이트다.
+    size_t lineStart = 0, tokStart = 0;
+    auto colAt = [&](size_t at) {
+        return (int)utf8Length(src.substr(lineStart, at - lineStart)) + 1;
+    };
     auto push = [&](Tok t, const string& s = "", double n = 0) {
-        toks.push_back({t, s, n, line});
+        toks.push_back({t, s, n, line, colAt(tokStart)});
     };
     auto err = [&](const string& m) {
-        return LangError(lineTag(line) + "" + m);
+        return LangError(lineTag(line) + "" + m, colAt(tokStart));
+    };
+    // 문제의 글자가 토큰 첫 글자가 아닐 때 (숫자 뒤에 붙은 글자 등)
+    auto errAt = [&](const string& m, size_t at) {
+        return LangError(lineTag(line) + "" + m, colAt(at));
     };
 
     // 메모장이 UTF-8 로 저장하면 파일 앞에 BOM 이 붙는다. 삼키면 `let x = 1` 이
     // "= 기호가 필요합니다" 로 죽는데, 학생 화면에는 고칠 데가 없다.
-    if (src.compare(0, 3, "\xef\xbb\xbf") == 0) i = 3;
+    if (src.compare(0, 3, "\xef\xbb\xbf") == 0) { i = 3; lineStart = 3; }
 
     while (i < src.size()) {
         char c = src[i];
-        if (c == '\n') { line++; i++; continue; }
+        if (c == '\n') { line++; i++; lineStart = i; continue; }
         if (isspace((unsigned char)c)) { i++; continue; }
         if (c == '#') { while (i < src.size() && src[i] != '\n') i++; continue; }
+        tokStart = i;
         if (const char* bad = lookalike(src, i)) throw err(bad);
 
         // 숫자 — 소수점은 최대 1개, 숫자 바로 뒤에 글자 금지
@@ -867,7 +932,7 @@ std::vector<Token> lex(const string& src) {
             if (numStr.back() == '.')
                 throw err("잘못된 숫자: " + numStr + " (소수점 뒤에 숫자가 필요)");
             if (i < src.size() && lookalike(src, i))
-                throw err(lookalike(src, i));
+                throw errAt(lookalike(src, i), i);       // 숫자가 아니라 뒤에 붙은 글자를 가리킨다
             if (i < src.size() && isIdentStart(src[i])) {
                 // 다른 언어의 숫자 표기는 이름을 불러 준다 (foreignNames 와 같은 뜻).
                 // 특히 지수는 num("1e10") 으로는 되는데 리터럴로만 안 되므로,
@@ -893,8 +958,8 @@ std::vector<Token> lex(const string& src) {
                     hint = "  (16진수 표기는 없습니다 — 10진수로 적으세요)";
                 else if (nx == '_')
                     hint = "  (숫자에 밑줄을 넣을 수 없습니다 — 1000 처럼 붙여 쓰세요)";
-                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: "
-                          + numStr + utf8At(src, i) + hint);
+                throw errAt("숫자 바로 뒤에 글자가 올 수 없습니다: "
+                            + numStr + utf8At(src, i) + hint, i);
             }
             push(Tok::NUMBER, "", std::stod(numStr));
             continue;
@@ -915,7 +980,9 @@ std::vector<Token> lex(const string& src) {
                     i += 2;
                     continue;
                 }
-                if (src[i] == '\n') line++;
+                // 여러 줄에 걸친 문자열 — 줄이 바뀌면 줄머리도 옮긴다.
+                // (안 옮기면 그 줄의 다음 토큰들이 전부 오른쪽으로 밀려 `^` 가 엉뚱한 곳을 가리킨다)
+                if (src[i] == '\n') { line++; lineStart = i + 1; }
                 s += src[i++];
             }
             if (i >= src.size())
@@ -2324,10 +2391,18 @@ struct Parser {
     Token advance() { return toks[pos++]; }
     bool check(Tok t) { return peek().type == t; }
     bool match(Tok t) { if (check(t)) { pos++; return true; } return false; }
+    // 파서의 에러는 **지금 보고 있는 토큰**이 문제다 — 줄뿐 아니라 그 안의 자리까지
+    // 안다는 뜻이라, 에러 밑에 `^` 를 찍을 수 있다. 세 백엔드가 이 파서를 공유하므로
+    // 한 곳만 고치면 인터프리터·build·topython 이 같이 좋아진다.
+    LangError perr(const string& msg) {
+        return LangError(lineTag(peek().line) + msg, peek().col);
+    }
+    LangError perrAt(const Token& t, const string& msg) {
+        return LangError(lineTag(t.line) + msg, t.col);
+    }
     Token expect(Tok t, const string& what) {
         if (!check(t))
-            throw LangError(lineTag(peek().line) + "문법 오류: " + what
-                            + josa(what, "이", "가") + " 필요합니다");
+            throw perr("문법 오류: " + what + josa(what, "이", "가") + " 필요합니다");
         return advance();
     }
     // 다음 토큰이 표현식의 시작이 될 수 있는가? (값 없는 return 판별용)
@@ -2350,12 +2425,13 @@ struct Parser {
 
     StmtP parseStatement() {
         int line = peek().line;
+        int col0 = peek().col;          // 이 문장이 시작한 자리 (에러의 `^` 용)
         if (match(Tok::LET)) {
             Token name = expect(Tok::IDENT, "변수 이름");
             if (!fnAssigned.empty() && fnAssigned.back().count(name.text)
                 && !fnLet.back().count(name.text))
-                throw LangError(lineTag(name.line)
-                                + "이 함수에서 이미 대입한 이름을 뒤에서 다시 선언합니다: "
+                throw perrAt(name,
+                                  "이 함수에서 이미 대입한 이름을 뒤에서 다시 선언합니다: "
                                 + name.text + "  (앞의 대입은 바깥 변수를, 뒤의 " + KW_LET
                                 + " 은 새 지역 변수를 가리켜 헷갈립니다 — 이름을 다르게 하거나 "
                                 + KW_LET + " 을 먼저 쓰세요)");
@@ -2437,14 +2513,14 @@ struct Parser {
             Token nameTok = expect(Tok::IDENT, "클래스 이름");
             node->name = nameTok.text;
             if (isBuiltinName(node->name))
-                throw LangError(lineTag(nameTok.line) + "클래스 이름 '" + node->name
+                throw perrAt(nameTok, "클래스 이름 '" + node->name
                                 + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요)");
             expect(Tok::LBRACE, "{");
             bool wasInClass = inClassBody;
             inClassBody = true;                 // 메서드 이름은 내장과 겹쳐도 된다 (obj.len() 로 부른다)
             while (!check(Tok::RBRACE) && !check(Tok::END)) {
                 if (!check(Tok::FUNC))
-                    throw LangError(lineTag(peek().line) + "클래스 안에는 " + KW_FUNC + " (메서드)만 쓸 수 있습니다");
+                    throw perr("클래스 안에는 " + KW_FUNC + " (메서드)만 쓸 수 있습니다");
                 StmtP m = parseStatement();
                 auto* fp = static_cast<FuncStmt*>(m.release());
                 node->methods[fp->name] = fp;
@@ -2459,7 +2535,7 @@ struct Parser {
             Token nameTok = expect(Tok::IDENT, "함수 이름");
             node->name = nameTok.text;
             if (!inClassBody && isBuiltinName(node->name))
-                throw LangError(lineTag(nameTok.line) + "함수 이름 '" + node->name
+                throw perrAt(nameTok, "함수 이름 '" + node->name
                                 + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요 — 내장 함수는 가릴 수 없습니다)");
             expect(Tok::LPAREN, "(");
             if (!check(Tok::RPAREN)) {
@@ -2530,7 +2606,7 @@ struct Parser {
             };
             if (isAssignTok()) {
                 if (!assignable)
-                    throw LangError(lineTag(line) + "여기에는 대입할 수 없습니다");
+                    throw LangError(lineTag(line) + "여기에는 대입할 수 없습니다", col0);
                 string rootName = root->name;
                 if (!fnAssigned.empty()) fnAssigned.back().insert(rootName);
                 if (path.empty()) {                       // 단순 변수 대입/복합대입
@@ -2570,40 +2646,41 @@ struct Parser {
             }
             // 대입이 아니면: 호출 문장만 허용 (경로가 있으면 원래 표현식으로 복원 불가하므로 검사 먼저)
             if (!path.empty())
-                throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다");
+                throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다", col0);
             if (dynamic_cast<CallExpr*>(e.get()) || dynamic_cast<MethodCallExpr*>(e.get()))
                 return std::make_unique<ExprStmt>(std::move(e));
             // "elif x == 2 {" 나 "def f():" 는 여기로 떨어진다 — 그냥 "= 기호가 필요합니다"
             // 라고 하면 학생은 자기가 어느 언어의 버릇을 썼는지 모른다.
             throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다"
-                            + (root ? foreignHint(root->name) : string()));
+                            + (root ? foreignHint(root->name) : string()), col0);
         }
         if (check(Tok::INKW))
-            throw LangError(lineTag(peek().line) + KW_IN + " 은 for 반복에서만 씁니다"
+            throw perr(KW_IN + " 은 for 반복에서만 씁니다"
                             " (리스트에 있는지 보려면 has(리스트, 값))");
-        throw LangError(lineTag(line) + "문법 오류: 문장이 될 수 없는 토큰입니다");
+        throw LangError(lineTag(line) + "문법 오류: 문장이 될 수 없는 토큰입니다", col0);
     }
 
     StmtP parseBlock() {
         int openLine = peek().line;
+        int openCol = peek().col;       // 닫히지 않은 { 는 **연 자리**를 가리켜야 찾을 수 있다
         NestGuard g(openLine);          // if 안에 if 안에 if ... 로 깊어지는 쪽
         if (check(Tok::COLON))
             throw LangError(lineTag(openLine) + "Venos 는 들여쓰기가 아니라 { } 로 묶습니다"
-                            " (: 를 지우고 { 로 열어서 } 로 닫으세요)");
+                            " (: 를 지우고 { 로 열어서 } 로 닫으세요)", openCol);
         expect(Tok::LBRACE, "{");
         auto block = std::make_unique<BlockStmt>();
         while (!check(Tok::RBRACE) && !check(Tok::END))
             block->stmts.push_back(parseStatement());
         // 파일 끝까지 } 가 안 나왔다 — 끝 줄이 아니라 열린 자리를 가리켜야 찾을 수 있다
         if (!check(Tok::RBRACE))
-            throw LangError(lineTag(openLine) + "여기서 연 { 를 닫는 } 가 없습니다");
+            throw LangError(lineTag(openLine) + "여기서 연 { 를 닫는 } 가 없습니다", openCol);
         advance();
         return block;
     }
     // if/while 조건 뒤에 = 가 오면 == 를 잘못 쓴 것이다 (초보자 최빈 실수)
     void checkCompareTypo(const string& kw) {
         if (check(Tok::ASSIGN))
-            throw LangError(lineTag(peek().line) + kw + " 조건에서 값을 견줄 때는 == 를 씁니다"
+            throw perr(kw + " 조건에서 값을 견줄 때는 == 를 씁니다"
                                                        " (= 는 값을 넣을 때)");
     }
 
@@ -2634,12 +2711,11 @@ struct Parser {
         // 파이썬의 `in`·`is` 가 여기로 온다. 여기서 안 잡으면 조건이 그냥 끝난 걸로 보여
         // "{ 이(가) 필요합니다" 라는, 진짜 문제와 상관없는 말이 나온다.
         if (check(Tok::INKW) || (check(Tok::NOT) && peek(1).type == Tok::INKW))
-            throw LangError(lineTag(peek().line) + KW_IN + " 은 " + KW_FOR
+            throw perr(KW_IN + " 은 " + KW_FOR
                             + " 반복에서만 씁니다 (안에 있는지 보려면 has(리스트, 값),"
                               " 없는지는 not has(리스트, 값))");
         if (check(Tok::IDENT) && (peek().text == "is" || peek().text == "isnt"))
-            throw LangError(lineTag(peek().line)
-                            + "같은지 보려면 is 가 아니라 == 입니다 (다른지는 !=)");
+            throw perr("같은지 보려면 is 가 아니라 == 입니다 (다른지는 !=)");
         if (check(Tok::EQ) || check(Tok::NEQ) || check(Tok::LT)
          || check(Tok::GT) || check(Tok::LE)  || check(Tok::GE)) {
             Token op = advance();
@@ -2647,8 +2723,7 @@ struct Parser {
             // a < b < c 는 (a<b)<c 로 조용히 오작동하므로 명시적으로 막는다
             if (check(Tok::EQ) || check(Tok::NEQ) || check(Tok::LT)
              || check(Tok::GT) || check(Tok::LE)  || check(Tok::GE))
-                throw LangError(lineTag(peek().line)
-                    + "비교 연산은 연결해서 쓸 수 없습니다 (a < b < c 대신 a < b and b < c)");
+                throw perr("비교 연산은 연결해서 쓸 수 없습니다 (a < b < c 대신 a < b and b < c)");
         }
         return left;
     }
@@ -2687,7 +2762,7 @@ struct Parser {
                 advance();
                 ExprP idx = parseExpr();
                 if (check(Tok::COLON))
-                    throw LangError(lineTag(peek().line) + "Venos 에는 xs[1:3] 같은 슬라이스가 없습니다"
+                    throw perr("Venos 에는 xs[1:3] 같은 슬라이스가 없습니다"
                                     " (문자열은 substr(s, 시작, 개수), 리스트는 반복문으로)");
                 expect(Tok::RBRACKET, "]");
                 e = std::make_unique<IndexExpr>(std::move(e), std::move(idx), line);
@@ -2847,7 +2922,7 @@ struct Parser {
             expect(Tok::RPAREN, ")");
             return e;
         }
-        throw LangError(lineTag(t.line) + "문법 오류: 값이 와야 할 자리입니다");
+        throw perrAt(t, "문법 오류: 값이 와야 할 자리입니다");
     }
 };
 
@@ -5921,7 +5996,7 @@ bool cmdBuild(const string& arg) {
         CodeGen gen;
         cppCode = gen.generate(program);
     } catch (const LangError& e) {
-        printError(e.what(), "!! codegen error: ");
+        printError(e, "!! codegen error: ");
         return false;
     }
     {
@@ -6014,7 +6089,7 @@ bool cmdTopython() {
         PyGen gen;
         pyCode = gen.generate(program);
     } catch (const LangError& e) {
-        printError(e.what(), "!! python conversion failed: ");
+        printError(e, "!! python conversion failed: ");
         return false;
     }
     {
@@ -6113,7 +6188,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_topython(const char* code) {
         PyGen gen;
         std::cout << gen.generate(program);
     } catch (const LangError& e) {
-        printError(e.what(), "!! python conversion failed: ");
+        printError(e, "!! python conversion failed: ");
     } catch (const std::exception& e) {
         std::cout << "!! 내부 에러: " << e.what() << "\n";
     }

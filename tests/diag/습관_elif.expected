@@ -1,3 +1,4 @@
 === running: tests/diag/습관_elif.my ===
 !! 에러: [줄 2] 문법 오류: = 기호가 필요합니다  (elif 는 없습니다 — else if 로 쓰세요)
     줄 2 | if x == 1 { print "하나" } elif x == 2 { print "둘" }
+                                      ^
