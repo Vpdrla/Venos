@@ -321,6 +321,9 @@ printf 'print "메모장"\n' > "$TMP/메모장.my.txt"
 check_says "폴더를 지정했을 때" "폴더입니다" "$VENOS" "$TMP/폴더"
 check_says "메모장이 붙인 .txt" ".txt 는 있습니다" "$VENOS" "$TMP/메모장.my"
 check_says "topython 도 같은 안내" ".txt 는 있습니다" "$VENOS" topython "$TMP/메모장.my"
+# import 를 쓰면 줄 번호가 병합된 글 기준이라 학생의 파일과 안 맞는다 — 에러처럼
+# 추적도 원본 좌표(파일 이름 + 그 파일의 줄)로 말해야 한다
+check_says "추적이 원본 파일 좌표로" "lib/도우미.my 줄" "$VENOS" trace tests/cases/imports.my
 
 # ---- 내장 함수·키워드가 모든 곳에 있는가 (tools/check-builtins.js) ----
 # 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —

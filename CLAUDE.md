@@ -102,6 +102,7 @@ git tag v0.6.0 && git push origin v0.6.0
 - 잡히지 않은 에러는 **호출 경로**("부른 순서: 바깥 (줄 10에서) → ...")까지 보여 준다 — `LangError` 가 생성 시점에 `g_frames` 를 찍어 두고(`callPath()`), `printError(const LangError&)` 가 출력. `DepthGuard` 가 프레임을 쌓으므로 새 호출 경로를 만들면 거기도 `DepthGuard(line, name)` 를 쓸 것. 인터프리터 전용이라(빌드본은 줄번호 자체가 없다) 테스트 러너가 `부른 순서:` 줄을 정규화로 걷어낸다.
 - **추적표(`venos trace`, 플레이그라운드의 🔍 Trace)는 인터프리터 전용이다** — 호출 경로와 같은 갈래. 값이 바뀌는 자리 여섯 곳에 `if (g_trace) traceSet(...)` 이 걸려 있다 (LetStmt·AssignStmt·PathAssignStmt·PathCompoundStmt·ForStmt·ForEachStmt. 복합 대입 `x += 1` 은 파서가 AssignStmt 로 풀어 주므로 따로 없다) + 호출/반환 두 곳(`CallExpr` 의 사용자 함수 분기, `runMethod`). **새 대입 자리를 만들면 여기도 걸 것.**
   - **추적은 프로그램을 절대 바꾸지 않아야 한다** — 러너 ①-b 가 모든 케이스를 `trace` 로 한 번 더 돌려 stdout 이 글자까지 같은지 본다 (추적 줄은 **stderr** 로 나간다). 그 검사가 첫 실행에 자기 버그를 잡았다: `toString` 이 순환 구조에서 예외를 던져 **추적이 프로그램을 죽였다** (`traceValue` 가 try/catch + 원소 30개 넘으면 크기만 찍는 것으로 막는다).
+  - **줄 번호는 `g_lineMap` 을 거친다** — import 를 쓰면 병합된 글 기준 번호라 학생의 파일과 안 맞는다. 에러가 이미 원본 좌표로 바꿔 주므로 추적도 같은 좌표로 말한다 (`lib/도우미.my 줄 9| 합: s = 0`). 회귀는 러너의 `안내/추적이 원본 파일 좌표로`.
   - 값 출력은 `traceValue`, 들여쓰기는 `g_callDepth`(그래서 선언이 추적 헬퍼 앞으로 올라갔다), 500번 넘으면 세기만 한다.
   - 비용 실측: fib(27) 1.01배, 300만 루프 1.03배 (훅을 컴파일에서 아예 빼도 1.03배가 나왔다 — 나머지는 코드 배치 노이즈다). 루프 안에서는 `const bool tr = g_trace;` 로 전역을 한 번만 읽는다.
 - 에러 문구의 한국어 조사는 `josa(단어, "과", "와")` 로 고른다 (본체와 RUNTIME 양쪽에 같은 함수가 있다). 직접 "와(과)" 를 쓰지 말 것.

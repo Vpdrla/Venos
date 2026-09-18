@@ -1132,12 +1132,16 @@ static bool traceRoom(int line, string& head, int lift = 0) {
         return false;
     }
     std::cout.flush();     // 화면에서 프로그램 출력과 순서가 어긋나지 않게
+    // import 를 쓰면 줄 번호는 **병합된 글** 기준이라 학생의 파일과 안 맞는다.
+    // 에러가 이미 원본 좌표로 바꿔 보여 주므로(g_lineMap) 추적도 같은 좌표를 쓴다.
+    string tag = (line >= 1 && line < (int)g_lineMap.size() && !g_lineMap[line].empty())
+               ? g_lineMap[line] : "";
     char buf[16];
     snprintf(buf, sizeof buf, "%5d", line);
     int depth = g_callDepth - lift;                    // 부름 줄은 그 몸통보다 한 칸 앞
     if (depth > 12) depth = 12;                       // 너무 깊으면 글자가 밀려난다
     if (depth < 0)  depth = 0;
-    head = string(buf) + "| " + string(depth * 2, ' ');
+    head = (tag.empty() ? string(buf) : tag) + "| " + string(depth * 2, ' ');
     return true;
 }
 // 추적은 프로그램을 **절대 바꾸지 않아야 한다**. toString 은 자기 자신을 품은 구조에서
