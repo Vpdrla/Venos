@@ -85,7 +85,8 @@ while x > 0 do { x -= 1 }            # do 생략 가능
 
 for i = 1 to 10 { print i }          # 양끝 포함
 for i = 10 to 1 step -2 { }          # 거꾸로 세려면 step 에 음수를
-for i = 1 to 0 { }                   # step 없으면 항상 올라간다 → 한 번도 안 돎
+for i = 1 to len(빈목록) { }        # step 없으면 항상 올라간다 → 빈 리스트면 한 번도 안 돎
+                                     # (양끝이 **상수**인데 거꾸로면 에러: for i = 1 to 0)
 for x in [1, 2, 3] { }               # 리스트 순회
 for ch in "안녕" { }                  # 문자열 글자 순회 (한글 = 1글자)
 for k in 딕셔너리 { }                 # 키 순회 (정렬 순서)

@@ -2289,6 +2289,12 @@ struct Parser {
     std::vector<Token> toks;
     size_t pos = 0;
     bool inClassBody = false;   // 메서드 이름만은 내장 함수와 겹쳐도 된다 (obj.len() 로 부르니까)
+    // 한 함수 안에서 **대입을 먼저 하고 나중에 let 으로 선언**하면 백엔드가 갈린다:
+    // 인터프리터는 실행 순서대로 묶어 앞의 대입이 바깥 변수를 바꾸고, C++ 와 파이썬은
+    // 그 이름을 함수 전체의 지역으로 보아 바깥이 그대로다 (`99 2` vs `99 1`).
+    // 같은 프로그램이 답을 달리 내는 자리라 파서에서 셋 다 거절한다 — 아무도 일부러
+    // 쓰지 않는 모양이고, 쓰더라도 읽는 사람이 헷갈리는 쪽이다.
+    std::vector<std::set<string>> fnAssigned, fnLet;   // 함수 몸통마다 한 겹
     Parser(std::vector<Token> t) : toks(std::move(t)) {}
 
     const Token& peek(size_t ahead = 0) {
@@ -2326,6 +2332,14 @@ struct Parser {
         int line = peek().line;
         if (match(Tok::LET)) {
             Token name = expect(Tok::IDENT, "변수 이름");
+            if (!fnAssigned.empty() && fnAssigned.back().count(name.text)
+                && !fnLet.back().count(name.text))
+                throw LangError(lineTag(name.line)
+                                + "이 함수에서 이미 대입한 이름을 뒤에서 다시 선언합니다: "
+                                + name.text + "  (앞의 대입은 바깥 변수를, 뒤의 " + KW_LET
+                                + " 은 새 지역 변수를 가리켜 헷갈립니다 — 이름을 다르게 하거나 "
+                                + KW_LET + " 을 먼저 쓰세요)");
+            if (!fnLet.empty()) fnLet.back().insert(name.text);
             if (match(Tok::ASSIGN))
                 return std::make_unique<LetStmt>(name.text, parseExpr(), line);
             return std::make_unique<LetStmt>(name.text, std::make_unique<NumExpr>(0), line);
@@ -2435,7 +2449,12 @@ struct Parser {
                 } while (match(Tok::COMMA));
             }
             expect(Tok::RPAREN, ")");
+            fnAssigned.push_back({});
+            fnLet.push_back({});
+            for (auto& p : node->params) fnLet.back().insert(p);   // 인자는 이미 지역이다
             node->body = parseBlock();
+            fnAssigned.pop_back();
+            fnLet.pop_back();
             return node;
         }
         if (match(Tok::RETURN)) {
@@ -2493,6 +2512,7 @@ struct Parser {
                 if (!assignable)
                     throw LangError(lineTag(line) + "여기에는 대입할 수 없습니다");
                 string rootName = root->name;
+                if (!fnAssigned.empty()) fnAssigned.back().insert(rootName);
                 if (path.empty()) {                       // 단순 변수 대입/복합대입
                     auto compound = [&](Tok binOp) -> StmtP {
                         ExprP rhs2 = parseExpr();

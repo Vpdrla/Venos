@@ -1,0 +1,168 @@
+# VENOS_SPEC 이 적어 둔 주장을 그대로 프로그램으로 옮긴 것.
+#
+# 다른 케이스들은 **구현을 보고** 썼다. 이 파일만 **명세를 보고** 썼다 — 그래서 명세와
+# 구현이 갈라지면 여기서 드러난다 (명세는 "AI 에게 주면 유효한 Venos 를 쓴다"는 약속을
+# 지고 있으므로, 명세에 적힌 거짓말은 기능 결함과 같다).
+# 각 줄 끝의 주석이 명세의 어느 절에서 온 주장인지 가리킨다.
+
+print "=== 타입 ==="
+print "true/false 는 1/0:", true, false                      # 타입
+print "정수는 2^53 까지 정확:", 9007199254740992 + 0
+let 빈문자 = ""
+let 빈목록 = []
+let 빈딕 = {}
+if not 0 and not 빈문자 and not 빈목록 and not 빈딕 { print "0·빈 문자열·빈 리스트·빈 딕셔너리는 거짓" }
+class 아무개 { }
+if 아무개() { print "객체는 항상 참" }
+
+# 참조 방식 — 변수 복사·인자 전달이 같은 것을 가리킨다
+let 원본 = [1, 2]
+let 별명 = 원본
+push(별명, 3)
+func 함수안에서_바꾸기(xs) { push(xs, 4) }
+함수안에서_바꾸기(원본)
+print "참조 방식:", 원본, 별명, 원본 == 별명
+let 복사본 = copy(원본)
+push(복사본, 5)
+print "copy 는 독립:", len(원본), len(복사본)
+
+# 문자열은 불변
+let 글 = "abc"
+try { 글[1] = "x"  print "문자열 수정됨(명세 위반)" } catch e { print "문자열은 불변" }
+
+print ""
+print "=== 변수와 대입 ==="
+let 값없음                                                    # 초기값 생략하면 0
+print "let 만 쓰면 0:", 값없음
+let x = 10
+x = 20
+x += 1
+x -= 2
+x *= 3
+x /= 2
+print "복합 대입:", x                                         # ((20+1-2)*3)/2 = 28.5
+let 원소들 = [1, 2]
+원소들[1] += 10
+class 칸 { func init() { self.값 = 1 } }
+let 칸하나 = 칸()
+칸하나.값 += 41
+print "원소·필드 복합 대입:", 원소들, 칸하나.값
+
+print ""
+print "=== 출력과 보간 ==="
+print "쉼표로 여러 값", 1, "끝"
+print "이스케이프: 1줄\n2줄\t탭 \"따옴표\" 역슬래시 \\"
+let 이름 = "미르"
+let 나이 = 15
+print "이름: {이름}, 내년: {나이 + 1}살"
+print "진짜 중괄호: {{이건 그대로}}"
+print "보간 안의 문자열: {join([1, 2], \", \")}"
+
+print ""
+print "=== 연산자 ==="
+print "문자열 + 수:", "나이: " + 15                            # 연산자
+print "리스트 + 리스트:", [1] + [2]
+print "문자열 * 수:", "*" * 5, "[" + "*" * 0 + "]", "[" + "*" * (0 - 3) + "]"
+print "== 는 모든 타입:", 1 == "1", [1, [2]] == [1, [2]], {"a": 1} == {"a": 1}
+print "우선순위:", 0 - 2 * 3, 2 + 3 * 4, not 0 and 1, 1 or 0 and 0
+print "나머지는 나누는 수의 부호:", (0 - 7) % 3, (0 - 1) % 26, 7 % (0 - 3)   # 명세: 2, 25
+print "마지막 쉼표 허용:", [1, 2,], {"a": 1,}, max(1, 2,)
+
+# and/or 는 단락 평가 — 오른쪽이 에러여도 왼쪽에서 끝나면 안 터진다
+let 목 = []
+if len(목) > 0 and 목[1] > 0 { print "여기 안 옴" }
+print "단락 평가 통과"
+
+print ""
+print "=== 제어문 ==="
+let 점수 = 85
+if 점수 >= 90 then { print "A" } else if 점수 >= 80 { print "B" } else { print "F" }
+let 남은 = 3
+while 남은 > 0 do { 남은 -= 1 }
+print "while 끝:", 남은
+let 모음 = []
+for i = 1 to 3 { push(모음, i) }                              # 양끝 포함
+for i = 10 to 6 step -2 { push(모음, i) }
+for i = 1 to len(빈목록) { push(모음, 99) }                    # step 없으면 안 돈다 (빈 리스트)
+print "for 세 가지:", 모음
+let 글자 = []
+for ch in "안녕" { push(글자, ch) }
+print "문자열 순회 (한글 1글자):", 글자, len("안녕")
+let 키들 = []
+for k in {"나": 1, "가": 2} { push(키들, k) }
+print "딕셔너리는 키를 정렬 순서로:", 키들
+
+print ""
+print "=== 함수 ==="
+print "정의보다 위에서 호출 가능:", 나중에정의(3)              # 호이스팅
+func 나중에정의(n) { return n * 2 }
+func 반환없음() { let 안쓰는것 = 1 }
+print "return 없으면 0:", 반환없음()
+let 전역 = 1
+func 전역에쓰기() { 전역 = 2  return 전역 }                    # 함수 안에서 전역 쓰기
+func 지역으로() { let 전역 = 99  return 전역 }                 # let 이면 지역 (바깥은 그대로)
+print "전역 쓰기:", 전역에쓰기(), 전역
+print "let 이면 지역:", 지역으로(), 전역
+# (한 함수에서 둘을 섞으면 — 대입 먼저, let 나중 — 파서가 거절한다: tests/diag/전역을_가림.my)
+
+print ""
+print "=== 리스트 ==="
+let xs = [10, 20, 30]
+print "첫 원소는 1번:", xs[1], "마지막:", xs[len(xs)]
+xs[2] = 99
+let 격자 = [[1, 2], [3, 4]]
+격자[1][2] = 7
+print "수정·중첩:", xs, 격자
+print "+ 는 새 리스트:", xs + [40], xs
+# for x in xs 는 들어갈 때의 값을 돈다
+let 돈횟수 = 0
+let 늘어나는 = [1, 2]
+for v in 늘어나는 { 돈횟수 += 1  push(늘어나는, v) }
+print "순회 중 push 해도 그 회차는 그대로:", 돈횟수, len(늘어나는)
+
+print ""
+print "=== 딕셔너리 ==="
+let d = {"이름": "미르", "나이": 15}
+d["학교"] = "중학교"                                          # 새 키는 대입으로 생긴다
+d["나이"] += 1
+print d["이름"], d["나이"], has(d, "학교"), has(d, "없음")
+try { print d["없는키"] } catch e { print "없는 키 읽기는 에러" }
+try { d[1] = 9  print "수 키 허용됨(명세 위반)" } catch e { print "딕셔너리 키는 문자열만" }
+
+print ""
+print "=== 클래스 ==="
+class 사람 {
+    func init(이름) { self.이름 = 이름  self.나이 = 0 }
+    func 인사() { return "안녕, " + self.이름 }
+    func 생일() { self.나이 += 1  return self.인사() }
+}
+let p = 사람("미르")
+p.나이 = 15
+print p.인사(), p.생일(), p.나이
+print "객체 출력 모양:", p                                    # 사람{"나이": ..., "이름": ...}
+try { print p["이름"]  print "대괄호 허용됨(명세 위반)" } catch e { print "객체에는 [\"키\"] 를 못 쓴다" }
+
+print ""
+print "=== 내장 함수 ==="
+print floor(3.7), ceil(3.2), round(3.5), round(3.14159, 2), abs(0 - 3), sqrt(9), min(2, 5), max(2, 5)
+print num("15") + 1, str(3) + "!", len("안녕"), len([1, 2]), len({"a": 1})
+print reverse("hi"), split("a,b", ","), join([1, 2], "-"), upper("abc"), lower("ABC")
+print find("abcd", "cd"), find("abcd", "zz"), replace("aXa", "X", "-"), substr("abcdef", 2, 3)
+let 정렬할것 = [3, 1, 2]
+sort(정렬할것)
+print "sort 는 제자리:", 정렬할것
+reverse(정렬할것)
+print "reverse(리스트)도 제자리:", 정렬할것
+print "reverse(문자열)은 새 문자열:", reverse("안녕"), find([7, 8], 8), has([7, 8], 9)
+let 뺄것 = [1, 2, 3]
+print "remove 는 뺀 값을 준다:", remove(뺄것, 2), 뺄것, pop(뺄것)
+
+print ""
+print "=== 한계 ==="
+# 숫자 표기는 123 과 1.5 뿐 — 지수는 num() 으로만
+print "num 은 지수를 받는다:", num("1e3")
+try { print num("0x10")  print "0x10 허용됨(명세 위반)" } catch e { print "num 은 0x10 을 거절" }
+try { print num("1_000")  print "1_000 허용됨(명세 위반)" } catch e { print "num 은 1_000 을 거절" }
+try { print num("inf")  print "inf 허용됨(명세 위반)" } catch e { print "num 은 inf 를 거절" }
+# (min("a","b") 은 topython 이 일부러 거절하는 줄이라 여기 없다 —
+#  tests/nopython/min_리스트.my 와 builtin_edges.my 가 그 자리를 지킨다)
