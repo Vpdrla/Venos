@@ -52,4 +52,6 @@ let 딕 = {"b": 1, "a": 2}
 print "키 순서:", keys(딕)
 for k in 딕 { print " -", k, 딕[k] }
 try { print "딕 안의 리스트:", {"x": [1, 2]}["x"] } catch e { print "딕 리스트: 에러" }
-try { push(빈목록, 빈목록)  print "자기 자신 push: 성공", len(빈목록) } catch e { print "자기 자신 push: 에러" }
+# (리스트를 자기 안에 push 하는 줄은 cycles.my 로 옮겼다 — 순환을 만들면
+#  tools/sanitize.sh 가 이 케이스의 누수 검출을 통째로 꺼야 하고,
+#  그러면 여기서 생길 **진짜 누수**까지 같이 가려진다)
