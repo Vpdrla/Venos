@@ -1,3 +1,4 @@
 === running: tests/diag/파이썬_fstring.my ===
 !! 에러: [줄 3] Venos 는 모든 문자열에서 {이름} 이 그대로 값으로 바뀝니다 (앞의 f 를 지우세요)
     줄 3 | print f"안녕 {이름}"
+                 ^

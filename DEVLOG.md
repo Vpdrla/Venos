@@ -510,9 +510,50 @@ which is the result worth having and not one to assume. The two that did not:
 Ninety-three agreements are now cases in the suite. That is the part that looks like nothing and is
 not: an agreement that is only remembered is an agreement that will break quietly.
 
+## 14. A check that compared pixels instead of strings
+
+Venos has told you **which line** for a long time. It had never told you **where in the
+line**. rustc does it, elm does it, so does any clang built this decade:
+
+    !! 에러: [줄 6] if 조건에서 값을 견줄 때는 == 를 씁니다 (= 는 값을 넣을 때)
+        줄 6 | if 학생수 = abc { print "같다" }
+                        ^
+
+All three backends share one parser, so fixing it in one place fixed all three — the
+interpreter, `build` and `topython` mark the same character. (The last two didn't at first:
+both `catch` blocks passed `e.what()` and dropped the column on the floor. Same shape as a
+check that exists in only one backend, except this time it was the information, not the
+check.)
+
+There was a new kind of mistake hiding in it. Aligning `^` by **character count** goes
+wrong on every Korean line, because a Hangul syllable takes two terminal columns. I knew
+that and handled it, then verified all twenty-eight cases against Python's
+`east_asian_width` — an independent implementation. Zero mismatches.
+
+But the playground is not a terminal.
+
+`Cascadia Code` has no Hangul. The browser draws the Latin characters in it and hands the
+Hangul to a fallback font, and **nothing guarantees that font's Hangul is exactly twice a
+Latin advance.** The output string is identical to the native one, character for character.
+It even looks plausible. So no string comparison anywhere could see this.
+
+I wrote the check against **coordinates** instead. In the browser, measure
+`getBoundingClientRect().left` of the character the caret should point at, and of the caret
+itself. First run:
+
+    ✗ 에러의 ^ 가 어긋남  (가리킬 자리 820.1px, 캐럿 831.5px)
+
+About a character and a half. To a student it is pointing at the wrong thing. The fix lived
+in the same place: undo the column count with the same rule to recover the character index,
+then place the caret at **that character's measured x**. Correct in any font.
+
+The twelfth instrument does not read the screen. It measures it. The other eleven all
+compared text, and every one of them was blind to a place where the text is right and the
+picture is wrong.
+
 ## What the list adds up to
 
-Eleven instruments, and each one found the class of bug only it could find:
+Twelve instruments, and each one found the class of bug only it could find:
 
 | instrument | what it found |
 |---|---|
@@ -528,6 +569,7 @@ Eleven instruments, and each one found the class of bug only it could find:
 | a generator of valid programs | two answers that differed with no error in sight |
 | a file written the way students get one | four correct-looking lines that could not run |
 | an invariant shipped with the feature | the trace killing the program it was watching |
+| a check that measures what was drawn | the right characters pointing at the wrong place |
 
 The pattern is not "test more." It is that each instrument sees one kind of thing and is
 blind to the rest, and you cannot reason your way to the blind spots — you can only build

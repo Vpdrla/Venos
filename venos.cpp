@@ -438,9 +438,9 @@ static size_t editDistance(const std::vector<string>& a, const std::vector<strin
 }
 // 후보 중 가장 가까운 이름을 "  (혹시 'X'?)" 로. 마땅한 게 없으면 빈 문자열.
 static string foreignHint(const string& name);
-static string suggestName(const string& typo, std::vector<string> cands) {
-    string foreign = foreignHint(typo);
-    if (!foreign.empty()) return foreign;            // 오타가 아니라 다른 언어의 이름이다
+// 후보만 보는 쪽. **딕셔너리 키**는 이걸 쓴다 — 키는 이름이 아니라 자료라서
+// foreignNames() 를 태우면 d["size"] 가 "길이는 len(x) 입니다" 라는 헛소리를 듣는다.
+static string suggestFrom(const string& typo, std::vector<string> cands) {
     auto t = utf8Chars(typo);
     if (t.size() < 2) return "";                       // 한 글자짜리는 아무거나 다 가까워진다
     size_t maxD = t.size() <= 4 ? 1 : 2;
@@ -456,6 +456,11 @@ static string suggestName(const string& typo, std::vector<string> cands) {
         if (d < bestD) { bestD = d; best = c; }
     }
     return best.empty() ? "" : "  (혹시 '" + best + "'?)";
+}
+static string suggestName(const string& typo, std::vector<string> cands) {
+    string foreign = foreignHint(typo);
+    if (!foreign.empty()) return foreign;            // 오타가 아니라 다른 언어의 이름이다
+    return suggestFrom(typo, std::move(cands));
 }
 
 // "abc".upper() 처럼 원시값에 메서드를 부른 경우의 안내. 인터프리터와 생성 코드가
@@ -500,10 +505,64 @@ static const std::map<string, string>& foreignNames() {
     };
     return M;
 }
+// 한국어로 쓴 키워드 — **다른 언어의 버릇이 아니라 이 언어가 스스로 부른 짐작이다.**
+// Venos 는 이름에 한글을 허용하고 그걸 자랑으로 내세운다. 그러니 학생이 키워드도 한글일
+// 거라고 짐작하는 건 자연스럽고, 실제로 가장 흔한 첫 실수다. 그런데 `만약 1 > 0 {` 은
+// "= 기호가 필요합니다" 로 죽었다 — 진짜 문제와 아무 상관 없는 말이다.
+// 키워드를 한국어로 바꾸지 않는 이유는 `STRATEGY.md` §6 (구조가 파이썬으로 안 넘어간다).
+// 바꾸지 않을 거라면 **이름을 불러 주고 규칙까지 같이 말해야** 한다 — 무엇이 되는지도.
+// 여기 넣을 말은 **변수 이름으로 쓸 법하지 않은 것**만 고른다. `길이`·`개수` 처럼 학생이
+// 변수로 지을 만한 이름을 넣으면, 그 변수를 깜빡한 학생에게 엉뚱한 안내가 나간다.
+static const std::map<string, string>& koreanKeywords() {
+    static const std::map<string, string> M = {
+        {"만약",        "조건은 if 로 씁니다"},
+        {"만일",        "조건은 if 로 씁니다"},
+        {"아니면",      "else 로 씁니다"},
+        {"그렇지않으면", "else 로 씁니다"},
+        {"그러면",      "조건 뒤에는 then 없이 { } 를 씁니다"},
+        {"반복",        "while 또는 for 로 씁니다"},
+        {"동안",        "while 로 씁니다"},
+        {"각각",        "하나씩 훑는 것은 for x in xs 입니다"},
+        {"함수",        "func 로 만듭니다"},
+        {"변수",        "let 으로 만듭니다"},
+        {"상수",        "let 으로 만듭니다 — 상수는 따로 없습니다"},
+        {"참",          "true 입니다"},
+        {"거짓",        "false 입니다"},
+        {"반환",        "return 으로 값을 돌려줍니다"},
+        {"돌려주기",    "return 으로 값을 돌려줍니다"},
+        {"출력",        "print 로 출력합니다"},
+        {"말하기",      "print 로 출력합니다"},
+        {"입력받기",    "input 으로 입력받습니다"},
+        {"클래스",      "class 로 만듭니다"},
+        {"멈춤",        "break 로 반복을 빠져나갑니다"},
+        {"그만",        "break 로 반복을 빠져나갑니다"},
+        {"계속하기",    "continue 로 다음 회차로 넘어갑니다"},
+        {"자기",        "객체 자신은 self 입니다"},
+        {"자신",        "객체 자신은 self 입니다"},
+    };
+    return M;
+}
+// 이름 → 괄호 안에 넣을 **완성된 문구**. 두 표를 하나로 본다.
+// (`CodeGen` 이 이 함수에서 RUNTIME 쪽 표를 찍어 내므로, 표를 늘리면 빌드본도 같이 는다)
+static const std::map<string, string>& allForeignHints() {
+    static const std::map<string, string> M = [] {
+        std::map<string, string> m = foreignNames();
+        for (auto& [k, v] : koreanKeywords())
+            m[k] = k + josa(k, "은", "는") + " 키워드가 아닙니다 — " + v
+                     + ". 한글은 이름에만 쓸 수 있어요";
+        return m;
+    }();
+    return M;
+}
+// 괄호 없는 원문 — 그 이름 자체가 **에러의 원인일 때**는 곁다리가 아니라 본문이어야 한다.
+static string foreignSay(const string& name) {
+    auto it = allForeignHints().find(name);
+    return it == allForeignHints().end() ? "" : it->second;
+}
 // 위 목록에 있으면 "  (설명)" 을, 없으면 빈 문자열을 준다.
 static string foreignHint(const string& name) {
-    auto it = foreignNames().find(name);
-    return it == foreignNames().end() ? "" : "  (" + it->second + ")";
+    string say = foreignSay(name);
+    return say.empty() ? "" : "  (" + say + ")";
 }
 // 내장 함수 이름 — 오타 제안 후보로 쓴다 (인터프리터·트랜스파일러가 같이 본다)
 // random() 의 씨앗. 평소에는 진짜 무작위지만, 환경변수 VENOS_SEED 가 있으면 그 값으로
@@ -558,6 +617,10 @@ struct Token {
     string text;
     double num = 0;
     int line = 0;
+    // 줄머리부터 이 토큰까지의 **글자 수** + 1 (바이트가 아니다 — 한글 한 글자가 3바이트다).
+    // 0 이면 모름: 문자열 보간 `{...}` 안은 하위 Parser 가 따로 렉싱해서 바깥 줄의 좌표를
+    // 만들 수 없다. 에러의 `^` 표시는 0 이면 그냥 생략한다.
+    int col = 0;
 };
 
 // ---- 호출 경로 ----
@@ -573,7 +636,9 @@ static string callPath();
 // 가장 긴 것이 100자 남짓이라, 한 군데서 넉넉히 잘라 두면 모든 자리가 같이 안전하다.
 struct LangError : std::runtime_error {
     string path;                       // "바깥(줄 10) → 가운데(줄 8)" — 없으면 빈 문자열
-    LangError(const string& msg) : std::runtime_error(ellipsize(msg, 300)), path(callPath()) {}
+    int col = 0;                       // 줄 안에서 몇 번째 글자인가 (0 = 모름)
+    LangError(const string& msg, int col = 0)
+        : std::runtime_error(ellipsize(msg, 300)), path(callPath()), col(col) {}
 };
 
 // import 로 파일이 병합되면, 병합된 줄번호 → "원본파일 줄 N" 매핑을 채운다.
@@ -609,10 +674,36 @@ static string callPath() {
 // 마지막으로 실행/빌드한 소스 (에러 시 해당 줄을 보여주기 위해 보관)
 static std::vector<string> g_srcLines;
 
-// 에러 메시지 출력 + 문제의 코드 줄 표시
+// 화면에서 차지하는 칸 수. 한글·한자·전각 기호는 한 글자가 **두 칸**이라,
+// 글자 수로 세면 `^` 가 왼쪽으로 밀린다. 터미널과 플레이그라운드(고정폭)가 같은 규칙이다.
+static size_t dispWidth(const string& s) {
+    size_t w = 0;
+    for (const string& ch : utf8Chars(s)) {
+        if (ch.size() < 3) { w += 1; continue; }        // ASCII·라틴·키릴 등
+        unsigned cp = 0;
+        if (ch.size() == 3)
+            cp = ((unsigned char)ch[0] & 0x0Fu) << 12 | ((unsigned char)ch[1] & 0x3Fu) << 6
+               | ((unsigned char)ch[2] & 0x3Fu);
+        else if (ch.size() == 4)
+            cp = ((unsigned char)ch[0] & 0x07u) << 18 | ((unsigned char)ch[1] & 0x3Fu) << 12
+               | ((unsigned char)ch[2] & 0x3Fu) << 6  | ((unsigned char)ch[3] & 0x3Fu);
+        bool wide = (cp >= 0x1100 && cp <= 0x115F)      // 한글 자모
+                 || (cp >= 0x2E80 && cp <= 0xA4CF)      // 한중일 부수·기호·한자
+                 || (cp >= 0xAC00 && cp <= 0xD7A3)      // 한글 음절
+                 || (cp >= 0xF900 && cp <= 0xFAFF)      // 한자 호환
+                 || (cp >= 0xFF00 && cp <= 0xFF60)      // 전각 영숫자·기호
+                 || (cp >= 0xFFE0 && cp <= 0xFFE6)
+                 || (cp >= 0x1F300 && cp <= 0x1FAFF);   // 이모지
+        w += wide ? 2 : 1;
+    }
+    return w;
+}
+
+// 에러 메시지 출력 + 문제의 코드 줄 표시 (+ 아는 경우 그 줄 안의 자리)
 //   !! 에러: [줄 12] 키가 없습니다: "점수"
 //       줄 12 | print d["점수"]
-static void printError(const string& msg, const string& prefix = "!! 에러: ") {
+//                      ^
+static void printError(const string& msg, const string& prefix = "!! 에러: ", int col = 0) {
     std::cout << prefix << msg << "\n";
     size_t a = msg.find('[');
     size_t b = msg.find(']');
@@ -627,16 +718,38 @@ static void printError(const string& msg, const string& prefix = "!! 에러: ") 
         merged = atoi(tag.c_str() + string("줄 ").size());
     }
     if (merged >= 1 && merged <= (int)g_srcLines.size()) {
-        string src = trim(g_srcLines[merged - 1]);
+        const string& raw = g_srcLines[merged - 1];
+        string src = trim(raw);
         const size_t LIMIT = 120;
         string shown = ellipsize(src, LIMIT);
-        if (shown != src) shown += " (" + std::to_string(utf8Length(src)) + "글자)";
+        bool cut = shown != src;
+        if (cut) shown += " (" + std::to_string(utf8Length(src)) + "글자)";
         std::cout << "    " << tag << " | " << shown << "\n";
+        // 줄 안의 자리까지 아는 경우에만 `^`. 줄이 잘렸으면 가리킬 수 없으니 생략한다.
+        // trim 이 앞을 떼어냈으므로 그만큼 당긴다.
+        if (col > 0 && !cut) {
+            auto rawChars = utf8Chars(raw);
+            size_t lead = 0;
+            // trim() 이 떼어내는 글자와 **같은 집합**이어야 한다 (" \t\r") —
+            // 다르면 캐럿이 그만큼 어긋난다
+            while (lead < rawChars.size() && rawChars[lead].size() == 1
+                   && strchr(" \t\r", rawChars[lead][0]) != nullptr) lead++;
+            size_t at = (size_t)col - 1;
+            if (at >= lead && at < rawChars.size()) {
+                string before;
+                for (size_t k = lead; k < at; k++) before += rawChars[k];
+                // 줄 중간의 탭은 터미널마다 몇 칸인지 다르다 — 가리킬 자리를 모르면
+                // 엉뚱한 곳을 가리키느니 아무 데도 가리키지 않는다
+                if (before.find('\t') == string::npos)
+                    std::cout << string(dispWidth("    " + tag + " | ") + dispWidth(before), ' ')
+                              << "^\n";
+            }
+        }
     }
 }
 // 에러 + 그 에러가 난 자리까지 오게 된 호출 경로
-static void printError(const LangError& e) {
-    printError(e.what());
+static void printError(const LangError& e, const string& prefix = "!! 에러: ") {
+    printError(e.what(), prefix, e.col);
     if (!e.path.empty()) std::cout << "    부른 순서: " << e.path << "\n";
 }
 
@@ -830,22 +943,33 @@ std::vector<Token> lex(const string& src) {
     std::vector<Token> toks;
     int line = 1;
     size_t i = 0;
+    // 토큰이 줄 안에서 몇 번째 글자에서 시작했는가 — 에러의 `^` 가 이걸로 정렬된다.
+    // lineStart 는 이 줄의 첫 바이트, tokStart 는 지금 읽는 토큰의 첫 바이트다.
+    size_t lineStart = 0, tokStart = 0;
+    auto colAt = [&](size_t at) {
+        return (int)utf8Length(src.substr(lineStart, at - lineStart)) + 1;
+    };
     auto push = [&](Tok t, const string& s = "", double n = 0) {
-        toks.push_back({t, s, n, line});
+        toks.push_back({t, s, n, line, colAt(tokStart)});
     };
     auto err = [&](const string& m) {
-        return LangError(lineTag(line) + "" + m);
+        return LangError(lineTag(line) + "" + m, colAt(tokStart));
+    };
+    // 문제의 글자가 토큰 첫 글자가 아닐 때 (숫자 뒤에 붙은 글자 등)
+    auto errAt = [&](const string& m, size_t at) {
+        return LangError(lineTag(line) + "" + m, colAt(at));
     };
 
     // 메모장이 UTF-8 로 저장하면 파일 앞에 BOM 이 붙는다. 삼키면 `let x = 1` 이
     // "= 기호가 필요합니다" 로 죽는데, 학생 화면에는 고칠 데가 없다.
-    if (src.compare(0, 3, "\xef\xbb\xbf") == 0) i = 3;
+    if (src.compare(0, 3, "\xef\xbb\xbf") == 0) { i = 3; lineStart = 3; }
 
     while (i < src.size()) {
         char c = src[i];
-        if (c == '\n') { line++; i++; continue; }
+        if (c == '\n') { line++; i++; lineStart = i; continue; }
         if (isspace((unsigned char)c)) { i++; continue; }
         if (c == '#') { while (i < src.size() && src[i] != '\n') i++; continue; }
+        tokStart = i;
         if (const char* bad = lookalike(src, i)) throw err(bad);
 
         // 숫자 — 소수점은 최대 1개, 숫자 바로 뒤에 글자 금지
@@ -862,7 +986,7 @@ std::vector<Token> lex(const string& src) {
             if (numStr.back() == '.')
                 throw err("잘못된 숫자: " + numStr + " (소수점 뒤에 숫자가 필요)");
             if (i < src.size() && lookalike(src, i))
-                throw err(lookalike(src, i));
+                throw errAt(lookalike(src, i), i);       // 숫자가 아니라 뒤에 붙은 글자를 가리킨다
             if (i < src.size() && isIdentStart(src[i])) {
                 // 다른 언어의 숫자 표기는 이름을 불러 준다 (foreignNames 와 같은 뜻).
                 // 특히 지수는 num("1e10") 으로는 되는데 리터럴로만 안 되므로,
@@ -888,8 +1012,8 @@ std::vector<Token> lex(const string& src) {
                     hint = "  (16진수 표기는 없습니다 — 10진수로 적으세요)";
                 else if (nx == '_')
                     hint = "  (숫자에 밑줄을 넣을 수 없습니다 — 1000 처럼 붙여 쓰세요)";
-                throw err("숫자 바로 뒤에 글자가 올 수 없습니다: "
-                          + numStr + utf8At(src, i) + hint);
+                throw errAt("숫자 바로 뒤에 글자가 올 수 없습니다: "
+                            + numStr + utf8At(src, i) + hint, i);
             }
             push(Tok::NUMBER, "", std::stod(numStr));
             continue;
@@ -910,7 +1034,9 @@ std::vector<Token> lex(const string& src) {
                     i += 2;
                     continue;
                 }
-                if (src[i] == '\n') line++;
+                // 여러 줄에 걸친 문자열 — 줄이 바뀌면 줄머리도 옮긴다.
+                // (안 옮기면 그 줄의 다음 토큰들이 전부 오른쪽으로 밀려 `^` 가 엉뚱한 곳을 가리킨다)
+                if (src[i] == '\n') { line++; lineStart = i + 1; }
                 s += src[i++];
             }
             if (i >= src.size())
@@ -1217,6 +1343,21 @@ static string notAValue(const string& name, bool isFunc, bool isClass) {
 }
 static Env* g_global = nullptr;
 
+// 없는 키를 읽었을 때 뒤에 붙일 말. **키를 글자로 적었을 때만** 오타를 짚는다
+// (d["수학"] 은 학생이 친 이름이지만 d[낱말] 의 낱말은 자료다 — 없는 게 당연할 수 있고,
+//  거기에 "혹시?" 를 붙이면 멀쩡한 프로그램의 정상적인 분기를 오타로 몰아간다).
+// CPython 은 KeyError 에 제안을 아예 안 붙인다(키는 자료라서). 리터럴만 짚으면
+// 그 이유가 사라지므로 여기서는 붙인다 — 대신 foreignNames() 는 태우지 않는다.
+static string keyHint(const std::map<string, Value>& m, const string& key, bool literal) {
+    if (literal) {
+        std::vector<string> names;
+        for (auto& kv : m) names.push_back(kv.first);
+        string s = suggestFrom(key, names);
+        if (!s.empty()) return s;
+    }
+    return "  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)";
+}
+
 // ---- 표현식 ----
 struct NumExpr : Expr {
     double v;
@@ -1302,8 +1443,8 @@ struct IndexExpr : Expr {
                 throw LangError(lineTag(line) + "딕셔너리 키는 문자열이어야 합니다 (지금: " + k.kindName() + ")");
             auto it = t.map->find(k.str);
             if (it == t.map->end())
-                throw LangError(lineTag(line) + "키가 없습니다: \"" + k.str
-                                + "\"  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)");
+                throw LangError(lineTag(line) + "키가 없습니다: \"" + k.str + "\""
+                                + keyHint(*t.map, k.str, dynamic_cast<StrExpr*>(index.get()) != nullptr));
             return it->second;
         }
         if (t.kind != Value::LIST)
@@ -2304,10 +2445,18 @@ struct Parser {
     Token advance() { return toks[pos++]; }
     bool check(Tok t) { return peek().type == t; }
     bool match(Tok t) { if (check(t)) { pos++; return true; } return false; }
+    // 파서의 에러는 **지금 보고 있는 토큰**이 문제다 — 줄뿐 아니라 그 안의 자리까지
+    // 안다는 뜻이라, 에러 밑에 `^` 를 찍을 수 있다. 세 백엔드가 이 파서를 공유하므로
+    // 한 곳만 고치면 인터프리터·build·topython 이 같이 좋아진다.
+    LangError perr(const string& msg) {
+        return LangError(lineTag(peek().line) + msg, peek().col);
+    }
+    LangError perrAt(const Token& t, const string& msg) {
+        return LangError(lineTag(t.line) + msg, t.col);
+    }
     Token expect(Tok t, const string& what) {
         if (!check(t))
-            throw LangError(lineTag(peek().line) + "문법 오류: " + what
-                            + josa(what, "이", "가") + " 필요합니다");
+            throw perr("문법 오류: " + what + josa(what, "이", "가") + " 필요합니다");
         return advance();
     }
     // 다음 토큰이 표현식의 시작이 될 수 있는가? (값 없는 return 판별용)
@@ -2330,12 +2479,13 @@ struct Parser {
 
     StmtP parseStatement() {
         int line = peek().line;
+        int col0 = peek().col;          // 이 문장이 시작한 자리 (에러의 `^` 용)
         if (match(Tok::LET)) {
             Token name = expect(Tok::IDENT, "변수 이름");
             if (!fnAssigned.empty() && fnAssigned.back().count(name.text)
                 && !fnLet.back().count(name.text))
-                throw LangError(lineTag(name.line)
-                                + "이 함수에서 이미 대입한 이름을 뒤에서 다시 선언합니다: "
+                throw perrAt(name,
+                                  "이 함수에서 이미 대입한 이름을 뒤에서 다시 선언합니다: "
                                 + name.text + "  (앞의 대입은 바깥 변수를, 뒤의 " + KW_LET
                                 + " 은 새 지역 변수를 가리켜 헷갈립니다 — 이름을 다르게 하거나 "
                                 + KW_LET + " 을 먼저 쓰세요)");
@@ -2417,14 +2567,14 @@ struct Parser {
             Token nameTok = expect(Tok::IDENT, "클래스 이름");
             node->name = nameTok.text;
             if (isBuiltinName(node->name))
-                throw LangError(lineTag(nameTok.line) + "클래스 이름 '" + node->name
+                throw perrAt(nameTok, "클래스 이름 '" + node->name
                                 + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요)");
             expect(Tok::LBRACE, "{");
             bool wasInClass = inClassBody;
             inClassBody = true;                 // 메서드 이름은 내장과 겹쳐도 된다 (obj.len() 로 부른다)
             while (!check(Tok::RBRACE) && !check(Tok::END)) {
                 if (!check(Tok::FUNC))
-                    throw LangError(lineTag(peek().line) + "클래스 안에는 " + KW_FUNC + " (메서드)만 쓸 수 있습니다");
+                    throw perr("클래스 안에는 " + KW_FUNC + " (메서드)만 쓸 수 있습니다");
                 StmtP m = parseStatement();
                 auto* fp = static_cast<FuncStmt*>(m.release());
                 node->methods[fp->name] = fp;
@@ -2439,7 +2589,7 @@ struct Parser {
             Token nameTok = expect(Tok::IDENT, "함수 이름");
             node->name = nameTok.text;
             if (!inClassBody && isBuiltinName(node->name))
-                throw LangError(lineTag(nameTok.line) + "함수 이름 '" + node->name
+                throw perrAt(nameTok, "함수 이름 '" + node->name
                                 + "' 은 내장 함수와 겹칩니다 (다른 이름을 쓰세요 — 내장 함수는 가릴 수 없습니다)");
             expect(Tok::LPAREN, "(");
             if (!check(Tok::RPAREN)) {
@@ -2510,7 +2660,7 @@ struct Parser {
             };
             if (isAssignTok()) {
                 if (!assignable)
-                    throw LangError(lineTag(line) + "여기에는 대입할 수 없습니다");
+                    throw LangError(lineTag(line) + "여기에는 대입할 수 없습니다", col0);
                 string rootName = root->name;
                 if (!fnAssigned.empty()) fnAssigned.back().insert(rootName);
                 if (path.empty()) {                       // 단순 변수 대입/복합대입
@@ -2550,40 +2700,44 @@ struct Parser {
             }
             // 대입이 아니면: 호출 문장만 허용 (경로가 있으면 원래 표현식으로 복원 불가하므로 검사 먼저)
             if (!path.empty())
-                throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다");
+                throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다", col0);
             if (dynamic_cast<CallExpr*>(e.get()) || dynamic_cast<MethodCallExpr*>(e.get()))
                 return std::make_unique<ExprStmt>(std::move(e));
             // "elif x == 2 {" 나 "def f():" 는 여기로 떨어진다 — 그냥 "= 기호가 필요합니다"
             // 라고 하면 학생은 자기가 어느 언어의 버릇을 썼는지 모른다.
-            throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다"
-                            + (root ? foreignHint(root->name) : string()));
+            // "elif x == 2 {" 나 "만약 x > 1 {" 은 = 를 빠뜨린 게 아니다 — 그 이름이 원인이다.
+            // 곁다리 괄호에 넣어 두면 학생은 상관없는 문장을 먼저 읽는다.
+            string say = root ? foreignSay(root->name) : string();
+            if (!say.empty()) throw LangError(lineTag(line) + say, col0);
+            throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다", col0);
         }
         if (check(Tok::INKW))
-            throw LangError(lineTag(peek().line) + KW_IN + " 은 for 반복에서만 씁니다"
+            throw perr(KW_IN + " 은 for 반복에서만 씁니다"
                             " (리스트에 있는지 보려면 has(리스트, 값))");
-        throw LangError(lineTag(line) + "문법 오류: 문장이 될 수 없는 토큰입니다");
+        throw LangError(lineTag(line) + "문법 오류: 문장이 될 수 없는 토큰입니다", col0);
     }
 
     StmtP parseBlock() {
         int openLine = peek().line;
+        int openCol = peek().col;       // 닫히지 않은 { 는 **연 자리**를 가리켜야 찾을 수 있다
         NestGuard g(openLine);          // if 안에 if 안에 if ... 로 깊어지는 쪽
         if (check(Tok::COLON))
             throw LangError(lineTag(openLine) + "Venos 는 들여쓰기가 아니라 { } 로 묶습니다"
-                            " (: 를 지우고 { 로 열어서 } 로 닫으세요)");
+                            " (: 를 지우고 { 로 열어서 } 로 닫으세요)", openCol);
         expect(Tok::LBRACE, "{");
         auto block = std::make_unique<BlockStmt>();
         while (!check(Tok::RBRACE) && !check(Tok::END))
             block->stmts.push_back(parseStatement());
         // 파일 끝까지 } 가 안 나왔다 — 끝 줄이 아니라 열린 자리를 가리켜야 찾을 수 있다
         if (!check(Tok::RBRACE))
-            throw LangError(lineTag(openLine) + "여기서 연 { 를 닫는 } 가 없습니다");
+            throw LangError(lineTag(openLine) + "여기서 연 { 를 닫는 } 가 없습니다", openCol);
         advance();
         return block;
     }
     // if/while 조건 뒤에 = 가 오면 == 를 잘못 쓴 것이다 (초보자 최빈 실수)
     void checkCompareTypo(const string& kw) {
         if (check(Tok::ASSIGN))
-            throw LangError(lineTag(peek().line) + kw + " 조건에서 값을 견줄 때는 == 를 씁니다"
+            throw perr(kw + " 조건에서 값을 견줄 때는 == 를 씁니다"
                                                        " (= 는 값을 넣을 때)");
     }
 
@@ -2614,12 +2768,11 @@ struct Parser {
         // 파이썬의 `in`·`is` 가 여기로 온다. 여기서 안 잡으면 조건이 그냥 끝난 걸로 보여
         // "{ 이(가) 필요합니다" 라는, 진짜 문제와 상관없는 말이 나온다.
         if (check(Tok::INKW) || (check(Tok::NOT) && peek(1).type == Tok::INKW))
-            throw LangError(lineTag(peek().line) + KW_IN + " 은 " + KW_FOR
+            throw perr(KW_IN + " 은 " + KW_FOR
                             + " 반복에서만 씁니다 (안에 있는지 보려면 has(리스트, 값),"
                               " 없는지는 not has(리스트, 값))");
         if (check(Tok::IDENT) && (peek().text == "is" || peek().text == "isnt"))
-            throw LangError(lineTag(peek().line)
-                            + "같은지 보려면 is 가 아니라 == 입니다 (다른지는 !=)");
+            throw perr("같은지 보려면 is 가 아니라 == 입니다 (다른지는 !=)");
         if (check(Tok::EQ) || check(Tok::NEQ) || check(Tok::LT)
          || check(Tok::GT) || check(Tok::LE)  || check(Tok::GE)) {
             Token op = advance();
@@ -2627,8 +2780,7 @@ struct Parser {
             // a < b < c 는 (a<b)<c 로 조용히 오작동하므로 명시적으로 막는다
             if (check(Tok::EQ) || check(Tok::NEQ) || check(Tok::LT)
              || check(Tok::GT) || check(Tok::LE)  || check(Tok::GE))
-                throw LangError(lineTag(peek().line)
-                    + "비교 연산은 연결해서 쓸 수 없습니다 (a < b < c 대신 a < b and b < c)");
+                throw perr("비교 연산은 연결해서 쓸 수 없습니다 (a < b < c 대신 a < b and b < c)");
         }
         return left;
     }
@@ -2667,7 +2819,7 @@ struct Parser {
                 advance();
                 ExprP idx = parseExpr();
                 if (check(Tok::COLON))
-                    throw LangError(lineTag(peek().line) + "Venos 에는 xs[1:3] 같은 슬라이스가 없습니다"
+                    throw perr("Venos 에는 xs[1:3] 같은 슬라이스가 없습니다"
                                     " (문자열은 substr(s, 시작, 개수), 리스트는 반복문으로)");
                 expect(Tok::RBRACKET, "]");
                 e = std::make_unique<IndexExpr>(std::move(e), std::move(idx), line);
@@ -2827,7 +2979,7 @@ struct Parser {
             expect(Tok::RPAREN, ")");
             return e;
         }
-        throw LangError(lineTag(t.line) + "문법 오류: 값이 와야 할 자리입니다");
+        throw perrAt(t, "문법 오류: 값이 와야 할 자리입니다");
     }
 };
 
@@ -3052,6 +3204,54 @@ static string josa(const string& word, const char* withJong, const char* without
     }
     return " " + string(withJong) + "(" + without + ")";   // 기호·영어는 띄어서 둘 다
 }
+// ---- 오타 제안 (본체의 editDistance/suggestName 과 **같은 규칙**) ----
+// 필드 이름은 실행할 때에야 알 수 있어서 (객체가 들고 있는 map 이 후보다) 컴파일 시점의
+// CodeGen 검사로는 못 잡는다 — 그래서 여기 런타임에 있어야 한다. 없던 동안 같은 오타에
+// 인터프리터는 "(혹시 '나이'?)" 를, 빌드본은 아무 말도 안 했다.
+// 표(rt_foreignHint)는 CodeGen 이 foreignNames() 에서 **생성해 붙인다** — 손으로 옮겨 두면
+// 한쪽에만 항목이 늘어도 조용하다.
+static string rt_foreignHint(const string& name);
+static size_t rt_editDistance(const std::vector<string>& a, const std::vector<string>& b) {
+    std::vector<size_t> prev(b.size() + 1), cur(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); j++) prev[j] = j;
+    for (size_t i = 1; i <= a.size(); i++) {
+        cur[0] = i;
+        for (size_t j = 1; j <= b.size(); j++)
+            cur[j] = std::min({ prev[j] + 1, cur[j - 1] + 1,
+                                prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1) });
+        prev = cur;
+    }
+    return prev[b.size()];
+}
+// 후보만 보는 쪽 — 딕셔너리 키는 이걸 쓴다 (키는 이름이 아니라 자료다)
+static string rt_suggestFrom(const string& typo, std::vector<string> cands) {
+    auto t = u8chars(typo);
+    if (t.size() < 2) return "";
+    size_t maxD = t.size() <= 4 ? 1 : 2;
+    std::sort(cands.begin(), cands.end());
+    cands.erase(std::unique(cands.begin(), cands.end()), cands.end());
+    string best;
+    size_t bestD = maxD + 1;
+    for (const string& c : cands) {
+        if (c == typo) continue;
+        auto cc = u8chars(c);
+        if (cc.size() + maxD < t.size() || t.size() + maxD < cc.size()) continue;
+        size_t d = rt_editDistance(t, cc);
+        if (d < bestD) { bestD = d; best = c; }
+    }
+    return best.empty() ? "" : "  (혹시 '" + best + "'?)";
+}
+static string rt_suggest(const string& typo, std::vector<string> cands) {
+    string foreign = rt_foreignHint(typo);
+    if (!foreign.empty()) return foreign;
+    return rt_suggestFrom(typo, std::move(cands));
+}
+// 객체가 실제로 들고 있는 필드 이름들 — 오타 제안의 후보
+static std::vector<string> fld_names(const Value& t) {
+    std::vector<string> out;
+    for (auto& kv : *t.map) out.push_back(kv.first);
+    return out;
+}
 static List iter_items(const Value& v) {
     if (v.kind == Value::LIST) return *v.list;
     if (v.kind == Value::STR) { List o; for (auto& c : u8chars(v.str)) o.push_back(Value(c)); return o; }
@@ -3192,7 +3392,18 @@ static const string& mapKey(const Value& i) {
     if (i.kind != Value::STR) throw RunErr("딕셔너리 키는 문자열이어야 합니다 (지금: " + i.kindName() + ")");
     return i.str;
 }
-static Value idx_get(const Value& t, const Value& i) {
+// 인터프리터의 keyHint 와 **같은 규칙** — 키를 글자로 적었을 때만 오타를 짚는다.
+// literal 은 CodeGen 이 정해 준다 (그쪽은 식을 보고 알 수 있다).
+static string rt_keyHint(const Value& t, const string& key, bool literal) {
+    if (literal) {
+        std::vector<string> names;
+        for (auto& kv : *t.map) names.push_back(kv.first);
+        string s = rt_suggestFrom(key, names);
+        if (!s.empty()) return s;
+    }
+    return "  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)";
+}
+static Value idx_get2(const Value& t, const Value& i, bool lit) {
     if (t.kind == Value::STR) {
         auto chars = u8chars(t.str);
         return Value(chars[chkIdx(i, chars.size())]);
@@ -3200,13 +3411,14 @@ static Value idx_get(const Value& t, const Value& i) {
     if (t.kind == Value::MAP) {
         auto it = t.map->find(mapKey(i));
         if (it == t.map->end())
-            throw RunErr("키가 없습니다: \"" + i.str + "\"  (has(딕셔너리, 키) 로 먼저 확인할 수 있어요)");
+            throw RunErr("키가 없습니다: \"" + i.str + "\"" + rt_keyHint(t, i.str, lit));
         return it->second;
     }
     if (t.kind != Value::LIST) throw RunErr(t.kindName() + "에는 [ ] 를 쓸 수 없습니다"
                                            + (t.kind == Value::OBJ ? "  (객체의 필드는 obj.이름 으로 씁니다)" : ""));
     return (*t.list)[chkIdx(i, t.list->size())];
 }
+static Value idx_get(const Value& t, const Value& i) { return idx_get2(t, i, false); }
 // 인덱스 체인 중간 (반드시 존재해야 함) — 복합 대입의 마지막에도 사용
 static Value& idx_mid(Value& t, const Value& i) {
     if (t.kind == Value::MAP) {
@@ -3223,14 +3435,14 @@ static Value fld_get(const Value& t, const string& f) {
     if (t.kind != Value::OBJ)
         throw RunErr(t.kindName() + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
     auto it = t.map->find(f);
-    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f);
+    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f + rt_suggest(f, fld_names(t)));
     return it->second;
 }
 static Value& fld_mid(Value& t, const string& f) {
     if (t.kind != Value::OBJ)
         throw RunErr(t.kindName() + "에는 . 필드를 쓸 수 없습니다 (딕셔너리는 [\"키\"] 를 쓰세요)");
     auto it = t.map->find(f);
-    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f);
+    if (it == t.map->end()) throw RunErr("필드가 없습니다: ." + f + rt_suggest(f, fld_names(t)));
     return it->second;
 }
 static Value& fld_put(Value& t, const string& f) {
@@ -3751,8 +3963,13 @@ struct CodeGen {
             }
             return o + "})";
         }
-        if (auto* ix = dynamic_cast<IndexExpr*>(e))
-            return "idx_get(" + genExpr(ix->target.get()) + ", " + genExpr(ix->index.get()) + ")";
+        if (auto* ix = dynamic_cast<IndexExpr*>(e)) {
+            // 키를 글자로 적었는지는 여기서만 알 수 있다 — 런타임에 넘겨 준다
+            // (없는 키의 오타 제안을 리터럴에만 붙이기 위해. 인터프리터의 keyHint 와 같은 규칙)
+            bool lit = dynamic_cast<StrExpr*>(ix->index.get()) != nullptr;
+            return "idx_get2(" + genExpr(ix->target.get()) + ", " + genExpr(ix->index.get())
+                 + (lit ? ", true)" : ", false)");
+        }
         if (auto* f = dynamic_cast<FieldExpr*>(e))
             return "fld_get(" + genExpr(f->target.get()) + ", " + cppStr(f->field) + ")";
         if (auto* mc = dynamic_cast<MethodCallExpr*>(e)) {
@@ -4139,6 +4356,16 @@ struct CodeGen {
         // ---- 최종 조립 ----
         std::ostringstream out;
         out << RUNTIME << "\n";
+        // 런타임의 오타 제안이 쓰는 표 — 본체의 foreignNames() 에서 그대로 찍어 낸다.
+        // (손으로 옮겨 적으면 한쪽에만 항목이 늘어도 아무도 모른다)
+        out << "static string rt_foreignHint(const string& name) {\n"
+               "    static const std::map<string, string> M = {\n";
+        for (auto& [k, v] : allForeignHints())
+            out << "        {" << cppStr(k) << ", " << cppStr(v) << "},\n";
+        out << "    };\n"
+               "    auto it = M.find(name);\n"
+               "    return it == M.end() ? \"\" : \"  (\" + it->second + \")\";\n"
+               "}\n\n";
         for (auto& [name, fn] : funcs) out << sig(funcName(name), fn, false);
         for (auto& [cname, cls] : classes)
             for (auto& m : cls->methodList)
@@ -5826,7 +6053,7 @@ bool cmdBuild(const string& arg) {
         CodeGen gen;
         cppCode = gen.generate(program);
     } catch (const LangError& e) {
-        printError(e.what(), "!! codegen error: ");
+        printError(e, "!! codegen error: ");
         return false;
     }
     {
@@ -5919,7 +6146,7 @@ bool cmdTopython() {
         PyGen gen;
         pyCode = gen.generate(program);
     } catch (const LangError& e) {
-        printError(e.what(), "!! python conversion failed: ");
+        printError(e, "!! python conversion failed: ");
         return false;
     }
     {
@@ -6018,7 +6245,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_topython(const char* code) {
         PyGen gen;
         std::cout << gen.generate(program);
     } catch (const LangError& e) {
-        printError(e.what(), "!! python conversion failed: ");
+        printError(e, "!! python conversion failed: ");
     } catch (const std::exception& e) {
         std::cout << "!! 내부 에러: " << e.what() << "\n";
     }

@@ -72,6 +72,8 @@ ODD_INDEX = ['0', '(0 - 1)', '(0 - 99)', '1.5', '"2"', '"a"', 'len(xs)', 'len(xs
 
 class Gen:
     def __init__(self, rng):
+        self.wc = 0          # while 카운터 이름을 겹치지 않게 (아래 k == 9 설명 참고)
+        self.infn = False    # 함수 몸통을 만드는 중인가 (그때만 return 을 낸다)
         self.r = rng
         self.depth = 0
 
@@ -80,7 +82,7 @@ class Gen:
         r = self.r
         if d > 2:
             return r.choice([str(r.randint(-20, 20)), r.choice(INT_VARS)])
-        k = r.randint(0, 9)
+        k = r.randint(0, 10)     # 10 = 재귀 호출 (아래)
         if k <= 2:
             return str(r.randint(-20, 20))
         if k == 3:
@@ -95,6 +97,8 @@ class Gen:
             return 'abs(%s)' % self.int_expr(d + 1)
         if k == 8:
             return '%s(%s, %s)' % (r.choice(FUNCS), self.int_expr(d + 1), self.int_expr(d + 1))
+        if k == 10 and d == 0:                       # 재귀 호출 (깊이는 5 미만)
+            return '되풀이((abs(%s) %% 5))' % self.int_expr(d + 1)
         if k == 9 and d == 0:                        # 객체의 필드와 메서드
             o = r.choice(OBJ_VARS)
             return r.choice(['%s.값' % o, '%s.더하기(%s)' % (o, self.int_expr(d + 1)),
@@ -189,8 +193,14 @@ class Gen:
         r = self.r
         pad = '    ' * ind
         k = r.randint(0, 14)
-        if k == 14 and d == 0:
+        if k == 14 and d == 0 and not self.infn:
             return self.odd_call(pad)
+        # 함수 몸통 안에서만: 중첩된 블록 **안쪽**에서 튀어나오는 return.
+        # 인터프리터는 Flow{RETURN} 을 블록·조건·try 가 그대로 올려 보내야 하고
+        # (반복문만 BREAK/CONTINUE 를 삼킨다), C++·파이썬은 진짜 return 이라
+        # 어긋나면 중첩된 자리에서만 드러난다.
+        if self.infn and k == 14:
+            return ['%sif %s { return %s }' % (pad, self.cond(d + 1), self.int_expr(d + 1))]
         if d > 2:
             k = r.choice([0, 1, 2, 3])
         if k == 0:
@@ -243,7 +253,10 @@ class Gen:
             return (['%sfor %s in %s {' % (pad, v, c)]
                     + self.body(ind + 1, d + 1, loop=True) + ['%s}' % pad])
         if k == 9:                                   # 반드시 끝나는 while
-            v = r.choice(['n', 'm'])
+            # 이름을 매번 새로 짓는다 — 한 함수 안에서 `let n` 이 두 번 나오면
+            # (앞 루프의 `n -= 1` 뒤에) 파서가 거절한다: 대입해 놓고 다시 선언하는 모양이다
+            self.wc += 1
+            v = '반복%d' % self.wc
             return (['%slet %s = %d' % (pad, v, r.randint(1, 4)),
                      '%swhile %s > 0 {' % (pad, v)]
                     + self.body(ind + 1, d + 1, loop=True)
@@ -294,6 +307,9 @@ class Gen:
         L.append('func 더하기(p, q) { return p + q }')
         L.append('func 두배(p, q) { return (p + q) * 2 }')
         L.append('func 큰쪽(p, q) { if p > q { return p }  return q }')
+        # 재귀 — 생성 프로그램에 한 번도 없던 모양이다. 세 백엔드가 호출/반환을 다르게
+        # 구현하므로(프레임 스택 vs 진짜 호출) 깊이가 있는 자리도 한 번은 지나가야 한다.
+        L.append('func 되풀이(n) { if n <= 0 { return 0 }  return 1 + 되풀이(n - 1) }')
         L.append('class 그릇 {')
         L.append('    func init(시작) { self.값 = 시작  self.담은것 = [] }')
         L.append('    func 담기(v) { push(self.담은것, v)  self.값 += 1  return self }')
@@ -318,8 +334,26 @@ class Gen:
                  % ', '.join(str(r.randint(0, 9)) for _ in range(3)))
         for v in OBJ_VARS:
             L.append('let %s = 그릇(%d)' % (v, r.randint(0, 5)))
+        # **몸통이 무작위인 함수**. return 이 if/for/while/try 안쪽에서 튀어나오는 자리를
+        # 만든다 — 인터프리터는 Flow{RETURN} 을 블록마다 올려 보내고 C++·파이썬은 진짜
+        # return 이라, 중첩된 자리에서 어긋나면 여기서만 드러난다.
+        self.infn = True
+        for fi in (1, 2):
+            L.append('func 보조%d(a, b) {' % fi)
+            body = self.body(1, 0) + self.body(1, 0)     # 2~6 문장
+            # 몸통 어딘가에 조건부 return 을 하나 더 끼운다 (늘 도달하지는 않게)
+            cut = r.randint(0, len(body))
+            body = body[:cut] + ['    if %s { return %s }' % (self.cond(1), self.int_expr(1))] + body[cut:]
+            L += body
+            L.append('    return %s' % self.int_expr(1))
+            L.append('}')
+        self.infn = False
+
         for _ in range(r.randint(4, 10)):
             L += self.stmt(0)
+        for fi in (1, 2):
+            L.append('print "보조%d =", 보조%d(%s, %s)'
+                     % (fi, fi, self.int_expr(1), self.int_expr(1)))
         L.append('print "--- 끝 ---"')
         for v in INT_VARS + STR_VARS + LIST_VARS:
             L.append('print "%s =", %s' % (v, v))

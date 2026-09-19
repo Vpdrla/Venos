@@ -223,6 +223,38 @@ const CHECKS = [
       else { bad++; console.log(`✗ ${name}`); console.log('   ' + out.split('\n').slice(-3).join(' / ')); }
     }
 
+    // 에러의 `^` 는 **화면에서** 맞아야 한다. 네이티브는 한글이 두 칸인 터미널을
+    // 전제로 계산하지만, 브라우저에서는 Cascadia Code 에 한글이 없어 한글만 대체 글꼴로
+    // 그려진다 — 그 글꼴의 한글 폭이 라틴 문자의 정확히 두 배가 아니면 캐럿이 어긋난다.
+    // 글자 수로 세는 계산을 믿지 말고 **그려진 자리를 재서** 확인한다.
+    {
+      await page.fill('#editor', 'let 학생수 = 30\nlet abc = 1\nif 학생수 = abc { print "같다" }\n');
+      const out = (await runAndRead('#runBtn')).out;
+      const geom = await page.evaluate(() => {
+        const spans = [...document.querySelectorAll('#output span')];
+        const src = spans.find(s => /^ {4}줄 \d+ \| /.test(s.textContent));
+        const car = spans.find(s => s.textContent.trim() === '^');
+        if (!src || !car) return null;
+        const xOf = (span, i) => {
+          const r = document.createRange();
+          r.setStart(span.firstChild, i); r.setEnd(span.firstChild, i + 1);
+          return r.getBoundingClientRect().left;
+        };
+        return { want: xOf(src, src.textContent.indexOf(' = ') + 1),
+                 got:  xOf(car, car.textContent.indexOf('^')) };
+      });
+      if (!geom) {
+        bad++; console.log('✗ 에러의 ^ 가 그려진 자리');
+        console.log('   ' + out.split('\n').join(' / '));
+      } else if (Math.abs(geom.want - geom.got) <= 2) {
+        console.log('✓ 에러의 ^ 가 가리킬 글자 밑에 그려짐');
+      } else {
+        bad++;
+        console.log('✗ 에러의 ^ 가 어긋남'
+          + `  (가리킬 자리 ${geom.want.toFixed(1)}px, 캐럿 ${geom.got.toFixed(1)}px)`);
+      }
+    }
+
     // 중단한 다음 실행이 깨끗한가 (Asyncify 가 반쯤 풀린 채 남지 않는지)
     await page.fill('#editor', 'print "다음 실행"\nfor i = 1 to 3 { print i }\n');
     const after = (await runAndRead('#runBtn')).out;

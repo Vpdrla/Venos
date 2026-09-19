@@ -2,7 +2,7 @@
 
 *English | [한국어](README.ko.md)*
 
-Eighteen algorithms from the standard informatics curriculum, each written to sit
+Nineteen algorithms from the standard informatics curriculum, each written to sit
 line-for-line against the pseudocode a textbook prints. Every file starts with that
 pseudocode in a comment, so you can read the two side by side.
 
@@ -33,6 +33,7 @@ install — and press **🐍 Python** to see the Python version.
 | `quick-sort.my` | Quicksort (Lomuto) | One partition, step by step; why a last-element pivot makes sorted input the worst case |
 | `linear-search.my` | Linear search | Best 1, worst n, average (n+1)/2 comparisons |
 | `binary-search.my` | Binary search | The range halving, step by step; 1,000,000 items in 20 comparisons |
+| `graph-search.my` | Depth-first and breadth-first search | The same graph in two orders; a queue vs. a stack; why BFS gives the shortest path |
 | `gcd.my` | Euclid's algorithm | Iterative and recursive, plus LCM; contrasted with trying every divisor |
 | `primes.my` | Primality, sieve of Eratosthenes | Prime factorization; how primes thin out |
 | `fibonacci.my` | Fibonacci, three ways | Naive recursion vs. iteration vs. memoization, with the call counts that explain why |

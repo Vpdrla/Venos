@@ -47,7 +47,7 @@ print "1 + 2 =", 1 + 2
 
 ## 2. Variables
 
-Create a variable with `let`. **Names can be written in Korean** (or any language).
+Create a variable with `let`. **Names can be written in Korean** (or any language). Keywords (`let`, `if`, `while` …) stay English — only names may be Korean.
 
 Once created, assign to it without `let`, and use `+=` to add to it.
 

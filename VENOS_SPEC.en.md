@@ -197,6 +197,15 @@ An uncaught error stops the program and prints **how execution got there** (inte
     부른 순서: 바깥 (줄 10에서) → 가운데 (줄 8에서) → 안쪽 (줄 5에서)
 ```
 
+A syntax error also points at **the spot inside the line** with `^`. All three
+execution paths mark the same spot — they share one parser:
+```
+!! 에러: [줄 6] if 조건에서 값을 견줄 때는 == 를 씁니다 (= 는 값을 넣을 때)
+    줄 6 | if 학생수 = abc { print "같다" }
+                     ^
+```
+Errors raised while running (missing key, index out of range) name the line only.
+
 ## Copying (mind the reference semantics)
 ```
 let b = a           # for lists/dicts/objects this aliases the same value (mutating b mutates a)
@@ -250,3 +259,7 @@ Habits from other languages — `elif`, `!`, `**`, `//` comments, `;`, `:` block
     right on screen, so **the error names the character** and what to type instead —
     invisible ones (`U+00A0`, `U+200B`) included. A BOM at the start of the file, which
     is what Notepad writes, is skipped rather than reported
+14. **Keywords are English — Korean is for names only.** Writing `만약`, `반복`, `함수`,
+    `변수` or `참` gets an error that names the word and says what to write instead.
+    (Names may be Korean, as in `let 학생수 = 30` — which is exactly why students guess
+    the keywords are too.)

@@ -1,3 +1,4 @@
 === running: tests/diag/파이썬_in식.my ===
 !! 에러: [줄 3] in 은 for 반복에서만 씁니다 (안에 있는지 보려면 has(리스트, 값), 없는지는 not has(리스트, 값))
     줄 3 | if 2 in xs { print "있다" }
+                ^
