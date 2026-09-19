@@ -75,3 +75,10 @@ let 그이 = 사람()
 try { print 그이.나의 } catch e { 보("필드 오타", e) }
 try { print 그이.length } catch e { 보("필드가 다른 언어 이름", e) }
 try { print 그이.없는것도아닌것 } catch e { 보("필드 멀리", e) }
+
+# 한국어로 쓴 키워드 — 이 언어가 스스로 부른 짐작이다 (이름에는 한글이 되니까).
+# 표는 `foreignNames()` 와 합쳐져 **CodeGen 이 RUNTIME 으로 찍어 내므로** 두 백엔드가 같다.
+try { print 그이.자기 } catch e { 보("필드가 한국어 키워드", e) }
+# **키에는 안 붙는다** — 키는 이름이 아니라 자료다 (suggestFrom 과 suggestName 이 갈린 이유).
+# 이 줄은 안 붙는 것을 지킨다: 붙기 시작하면 여기가 먼저 깨진다.
+try { print 성적["만약"] } catch e { 보("키가 한국어 키워드", e) }

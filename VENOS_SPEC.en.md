@@ -259,3 +259,7 @@ Habits from other languages — `elif`, `!`, `**`, `//` comments, `;`, `:` block
     right on screen, so **the error names the character** and what to type instead —
     invisible ones (`U+00A0`, `U+200B`) included. A BOM at the start of the file, which
     is what Notepad writes, is skipped rather than reported
+14. **Keywords are English — Korean is for names only.** Writing `만약`, `반복`, `함수`,
+    `변수` or `참` gets an error that names the word and says what to write instead.
+    (Names may be Korean, as in `let 학생수 = 30` — which is exactly why students guess
+    the keywords are too.)

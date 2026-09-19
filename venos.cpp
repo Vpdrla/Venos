@@ -505,10 +505,64 @@ static const std::map<string, string>& foreignNames() {
     };
     return M;
 }
+// 한국어로 쓴 키워드 — **다른 언어의 버릇이 아니라 이 언어가 스스로 부른 짐작이다.**
+// Venos 는 이름에 한글을 허용하고 그걸 자랑으로 내세운다. 그러니 학생이 키워드도 한글일
+// 거라고 짐작하는 건 자연스럽고, 실제로 가장 흔한 첫 실수다. 그런데 `만약 1 > 0 {` 은
+// "= 기호가 필요합니다" 로 죽었다 — 진짜 문제와 아무 상관 없는 말이다.
+// 키워드를 한국어로 바꾸지 않는 이유는 `STRATEGY.md` §6 (구조가 파이썬으로 안 넘어간다).
+// 바꾸지 않을 거라면 **이름을 불러 주고 규칙까지 같이 말해야** 한다 — 무엇이 되는지도.
+// 여기 넣을 말은 **변수 이름으로 쓸 법하지 않은 것**만 고른다. `길이`·`개수` 처럼 학생이
+// 변수로 지을 만한 이름을 넣으면, 그 변수를 깜빡한 학생에게 엉뚱한 안내가 나간다.
+static const std::map<string, string>& koreanKeywords() {
+    static const std::map<string, string> M = {
+        {"만약",        "조건은 if 로 씁니다"},
+        {"만일",        "조건은 if 로 씁니다"},
+        {"아니면",      "else 로 씁니다"},
+        {"그렇지않으면", "else 로 씁니다"},
+        {"그러면",      "조건 뒤에는 then 없이 { } 를 씁니다"},
+        {"반복",        "while 또는 for 로 씁니다"},
+        {"동안",        "while 로 씁니다"},
+        {"각각",        "하나씩 훑는 것은 for x in xs 입니다"},
+        {"함수",        "func 로 만듭니다"},
+        {"변수",        "let 으로 만듭니다"},
+        {"상수",        "let 으로 만듭니다 — 상수는 따로 없습니다"},
+        {"참",          "true 입니다"},
+        {"거짓",        "false 입니다"},
+        {"반환",        "return 으로 값을 돌려줍니다"},
+        {"돌려주기",    "return 으로 값을 돌려줍니다"},
+        {"출력",        "print 로 출력합니다"},
+        {"말하기",      "print 로 출력합니다"},
+        {"입력받기",    "input 으로 입력받습니다"},
+        {"클래스",      "class 로 만듭니다"},
+        {"멈춤",        "break 로 반복을 빠져나갑니다"},
+        {"그만",        "break 로 반복을 빠져나갑니다"},
+        {"계속하기",    "continue 로 다음 회차로 넘어갑니다"},
+        {"자기",        "객체 자신은 self 입니다"},
+        {"자신",        "객체 자신은 self 입니다"},
+    };
+    return M;
+}
+// 이름 → 괄호 안에 넣을 **완성된 문구**. 두 표를 하나로 본다.
+// (`CodeGen` 이 이 함수에서 RUNTIME 쪽 표를 찍어 내므로, 표를 늘리면 빌드본도 같이 는다)
+static const std::map<string, string>& allForeignHints() {
+    static const std::map<string, string> M = [] {
+        std::map<string, string> m = foreignNames();
+        for (auto& [k, v] : koreanKeywords())
+            m[k] = k + josa(k, "은", "는") + " 키워드가 아닙니다 — " + v
+                     + ". 한글은 이름에만 쓸 수 있어요";
+        return m;
+    }();
+    return M;
+}
+// 괄호 없는 원문 — 그 이름 자체가 **에러의 원인일 때**는 곁다리가 아니라 본문이어야 한다.
+static string foreignSay(const string& name) {
+    auto it = allForeignHints().find(name);
+    return it == allForeignHints().end() ? "" : it->second;
+}
 // 위 목록에 있으면 "  (설명)" 을, 없으면 빈 문자열을 준다.
 static string foreignHint(const string& name) {
-    auto it = foreignNames().find(name);
-    return it == foreignNames().end() ? "" : "  (" + it->second + ")";
+    string say = foreignSay(name);
+    return say.empty() ? "" : "  (" + say + ")";
 }
 // 내장 함수 이름 — 오타 제안 후보로 쓴다 (인터프리터·트랜스파일러가 같이 본다)
 // random() 의 씨앗. 평소에는 진짜 무작위지만, 환경변수 VENOS_SEED 가 있으면 그 값으로
@@ -2651,8 +2705,11 @@ struct Parser {
                 return std::make_unique<ExprStmt>(std::move(e));
             // "elif x == 2 {" 나 "def f():" 는 여기로 떨어진다 — 그냥 "= 기호가 필요합니다"
             // 라고 하면 학생은 자기가 어느 언어의 버릇을 썼는지 모른다.
-            throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다"
-                            + (root ? foreignHint(root->name) : string()), col0);
+            // "elif x == 2 {" 나 "만약 x > 1 {" 은 = 를 빠뜨린 게 아니다 — 그 이름이 원인이다.
+            // 곁다리 괄호에 넣어 두면 학생은 상관없는 문장을 먼저 읽는다.
+            string say = root ? foreignSay(root->name) : string();
+            if (!say.empty()) throw LangError(lineTag(line) + say, col0);
+            throw LangError(lineTag(line) + "문법 오류: = 기호가 필요합니다", col0);
         }
         if (check(Tok::INKW))
             throw perr(KW_IN + " 은 for 반복에서만 씁니다"
@@ -4303,7 +4360,7 @@ struct CodeGen {
         // (손으로 옮겨 적으면 한쪽에만 항목이 늘어도 아무도 모른다)
         out << "static string rt_foreignHint(const string& name) {\n"
                "    static const std::map<string, string> M = {\n";
-        for (auto& [k, v] : foreignNames())
+        for (auto& [k, v] : allForeignHints())
             out << "        {" << cppStr(k) << ", " << cppStr(v) << "},\n";
         out << "    };\n"
                "    auto it = M.find(name);\n"
