@@ -49,7 +49,13 @@ PY=$(command -v python3 || true)
 # 배너·호출 경로·[줄 N] 제거. 소수는 손대지 않는다 (위 설명 참고).
 normalize() {
     # 윈도우는 리디렉션된 stdout 에 CRLF 를 쓴다 — 비교 전에 걷어낸다
-    tr -d '\r' < "$1" | grep -v '^=== ' | grep -v '^    부른 순서: ' | sed 's/\[[^]]*줄 [0-9]\{1,\}\] //g' 
+    tr -d '\r' < "$1" | grep -v '^=== ' | grep -v '^    부른 순서: ' | sed 's/\[[^]]*줄 [0-9]\{1,\}\] //g'
+}
+# 위에 더해 **에러 밑의 소스 줄 표시**까지 걷어낸다 (`    줄 5 | print p.나의`).
+# 그건 인터프리터만 낼 수 있는 것이다 — 빌드본에는 소스가 없다. 진단 케이스를 빌드본과
+# 나란히 놓고 **문구까지** 비교할 때 쓴다.
+normalize_err() {
+    normalize "$1" | grep -v '^    줄 [0-9]\{1,\} | '
 }
 
 pass=0; fail=0; pytested=0; pyskipped=0; traced=0
@@ -187,6 +193,15 @@ for case_file in tests/diag/*.my; do
         if ! grep -qE '에러|Error' "$TMP/dbrun.txt"; then
             echo "FAIL  진단/$name  (빌드본이 통과시켰고 에러 없이 끝났습니다)"
             head -3 "$TMP/dbrun.txt"
+            dfail=$((dfail+1)); rm -f "tests/diag/$name$EXE" "tests/diag/$name.cpp"; continue
+        fi
+        # 에러가 **났다**는 것만 보면 모자라다 — 같은 실수에 두 백엔드가 다른 말을 해도
+        # 조용했다. 실제로 하나 있었다: 필드 오타 제안("혹시 '나이'?")이 인터프리터에만
+        # 있었다 (필드 이름은 실행할 때에야 알 수 있어서 CodeGen 의 정적 검사로는 못 잡는데,
+        # RUNTIME 에는 제안 기계가 아예 없었다). 지금은 문구까지 나란히 본다.
+        if ! diff <(normalize_err "$TMP/diag.txt") <(normalize_err "$TMP/dbrun.txt") > "$TMP/diff.txt" 2>&1; then
+            echo "FAIL  진단/$name  (빌드본의 문구가 인터프리터와 다릅니다)"
+            head -8 "$TMP/diff.txt"
             dfail=$((dfail+1)); rm -f "tests/diag/$name$EXE" "tests/diag/$name.cpp"; continue
         fi
     fi
@@ -336,6 +351,30 @@ check_says "topython 도 같은 안내" ".txt 는 있습니다" "$VENOS" topytho
 # import 를 쓰면 줄 번호가 병합된 글 기준이라 학생의 파일과 안 맞는다 — 에러처럼
 # 추적도 원본 좌표(파일 이름 + 그 파일의 줄)로 말해야 한다
 check_says "추적이 원본 파일 좌표로" "lib/도우미.my 줄" "$VENOS" trace tests/cases/imports.my
+
+# 학생의 .my 가 늘 LF 로 오지는 않는다 — **메모장이 저장하면 CRLF** 다. 여태 렉서에
+# CRLF 소스를 한 번도 안 넣어 봤다 (스위트의 케이스는 전부 LF 고, 윈도우 CI 도
+# core.autocrlf false 로 체크아웃한다 — 그래서 이 입력은 어디에도 없었다).
+# 세 방식이 다 같은 답을 내야 하고, 에러 밑의 소스 줄에 ^M 이 남으면 안 된다.
+# 파일은 **여기서 만든다** — 저장소에 두면 .gitattributes 가 풀리는 날 조용히 LF 가 된다.
+printf 'let x = 1\r\nprint "값: {x}"\r\nfor i = 1 to 2 { print i }\r\nprint 없는이름\r\n' > "$TMP/crlf.my"
+crlf_ok="통과"
+"$VENOS" "$TMP/crlf.my" > "$TMP/crlf.int" 2>&1
+if ! grep -q '값: 1' "$TMP/crlf.int"; then crlf_ok="실패 (인터프리터가 CRLF 를 못 읽음)"; fi
+if grep -q $'\r' "$TMP/crlf.int"; then crlf_ok="실패 (에러 밑의 소스 줄에 CR 이 남았다)"; fi
+if [ -n "$PY" ]; then
+    (cd "$TMP" && "$OLDPWD/$VENOS" topython crlf.my) > /dev/null 2>&1 || true
+    if [ -f "$TMP/crlf.py" ]; then
+        "$PY" "$TMP/crlf.py" > "$TMP/crlf.py.out" 2>&1 || true
+        diff <(normalize_err "$TMP/crlf.int") <(normalize_err "$TMP/crlf.py.out") > /dev/null 2>&1 \
+            || crlf_ok="실패 (파이썬 변환본의 답이 다름)"
+    fi
+fi
+if [ "$crlf_ok" = "통과" ]; then
+    echo "PASS  안내/CRLF 소스 (메모장 저장본)"; exitpass=$((exitpass+1))
+else
+    echo "FAIL  안내/CRLF 소스  $crlf_ok"; exitfail=$((exitfail+1)); dfail=$((dfail+1))
+fi
 
 # ---- 내장 함수·키워드가 모든 곳에 있는가 (tools/check-builtins.js) ----
 # 내장 함수 하나를 인터프리터에만 더하고 마는 실수는 조용하다 —

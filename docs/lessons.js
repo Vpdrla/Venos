@@ -34,8 +34,8 @@ print "1 + 2 =", 1 + 2`
     id: 'variables',
     title: { ko: '변수 — 값에 이름 붙이기', en: 'Variables' },
     desc: {
-      ko: '`let` 으로 변수를 만듭니다. **변수 이름은 한국어로 지어도 됩니다.**\n\n한 번 만든 뒤에는 `let` 없이 값을 바꿀 수 있고, `+=` 로 더할 수도 있어요.\n\n▶ `나이` 를 바꿔서 실행해 보세요.',
-      en: 'Create a variable with `let`. **Names can be written in Korean** (or any language).\n\nOnce created, assign to it without `let`, and use `+=` to add to it.\n\n`이름` means "name" and `나이` means "age" — the identifiers stay Korean here on purpose. Try changing `나이` and running it again.'
+      ko: '`let` 으로 변수를 만듭니다. **변수 이름은 한국어로 지어도 됩니다.** 다만 키워드(`let`·`if`·`while` …)는 영어로 씁니다 — 한글은 이름에만 써요.\n\n한 번 만든 뒤에는 `let` 없이 값을 바꿀 수 있고, `+=` 로 더할 수도 있어요.\n\n▶ `나이` 를 바꿔서 실행해 보세요.',
+      en: 'Create a variable with `let`. **Names can be written in Korean** (or any language). Keywords (`let`, `if`, `while` …) stay English — only names may be Korean.\n\nOnce created, assign to it without `let`, and use `+=` to add to it.\n\n`이름` means "name" and `나이` means "age" — the identifiers stay Korean here on purpose. Try changing `나이` and running it again.'
     },
     code: {
       ko: `let 이름 = "미르"
