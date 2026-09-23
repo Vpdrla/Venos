@@ -388,6 +388,32 @@ check_says "topython 도 같은 안내" ".txt 는 있습니다" "$VENOS" topytho
 # 추적도 원본 좌표(파일 이름 + 그 파일의 줄)로 말해야 한다
 check_says "추적이 원본 파일 좌표로" "lib/도우미.my 줄" "$VENOS" trace tests/cases/imports.my
 
+# ---- 공백이 든 경로 ----
+# 스위트의 경로에는 공백이 한 번도 없었다 — 학생의 경로는 "내 문서/수업 자료" 다.
+# 셋 다 돌아야 하고, **찍어 주는 명령이 붙여 넣어 쓸 수 있어야** 한다 (실행할 때는
+# 이미 따옴표로 감쌌는데 화면에 보여 주는 줄은 그대로였다 — 같은 증상, 다른 경로).
+space_ok="통과"
+SPACED="$TMP/내 문서/수업 자료"
+mkdir -p "$SPACED"
+printf 'let xs = [3, 1, 2]\nsort(xs)\nprint "정렬:", xs\n' > "$SPACED/정렬 연습.my"
+"$VENOS" "$SPACED/정렬 연습.my" > "$TMP/sp1.txt" 2>&1
+grep -q '정렬: \[1, 2, 3\]' "$TMP/sp1.txt" || space_ok="실패 (인터프리터)"
+"$VENOS" build "$SPACED/정렬 연습.my" run > "$TMP/sp2.txt" 2>&1
+grep -q '정렬: \[1, 2, 3\]' "$TMP/sp2.txt" || space_ok="실패 (build run)"
+# 붙여 넣어 쓸 수 있는가 — 공백이 있으면 따옴표가 있어야 한다
+grep -q '(run: "' "$TMP/sp2.txt" || space_ok="실패 (보여 주는 명령에 따옴표가 없습니다)"
+if [ -n "$PY" ]; then
+    "$VENOS" topython "$SPACED/정렬 연습.my" > "$TMP/sp3.txt" 2>&1
+    grep -q '(run: python3 "' "$TMP/sp3.txt" || space_ok="실패 (topython 의 명령에 따옴표가 없습니다)"
+    [ -f "$SPACED/정렬 연습.py" ] && { "$PY" "$SPACED/정렬 연습.py" > "$TMP/sp4.txt" 2>&1
+        grep -q '정렬: \[1, 2, 3\]' "$TMP/sp4.txt" || space_ok="실패 (생성 파이썬)"; }
+fi
+if [ "$space_ok" = "통과" ]; then
+    echo "PASS  안내/공백이 든 경로"; exitpass=$((exitpass+1))
+else
+    echo "FAIL  안내/공백이 든 경로  $space_ok"; exitfail=$((exitfail+1)); dfail=$((dfail+1))
+fi
+
 # 학생의 .my 가 늘 LF 로 오지는 않는다 — **메모장이 저장하면 CRLF** 다. 여태 렉서에
 # CRLF 소스를 한 번도 안 넣어 봤다 (스위트의 케이스는 전부 LF 고, 윈도우 CI 도
 # core.autocrlf false 로 체크아웃한다 — 그래서 이 입력은 어디에도 없었다).

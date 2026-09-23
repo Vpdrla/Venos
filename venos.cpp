@@ -797,6 +797,15 @@ static string dirOf(const string& p) {
     size_t i = p.find_last_of("/\\");
     return i == string::npos ? "" : p.substr(0, i);
 }
+// 화면에 **붙여 넣어 쓸 수 있는** 명령으로 찍기 위한 따옴표.
+// 실행할 때는 이미 감싸고 있었는데(`runShell("\"" + runCmd + "\"")`), 학생에게
+// 보여 주는 `(run: ...)` 줄은 그대로였다 — "내 문서/정렬 연습" 을 복사해 붙이면
+// 셸이 두 낱말로 읽어 안 돌아간다. **같은 증상에 경로가 둘**이었던 셈이다.
+// 흔한 ASCII 경로는 그대로 두고, 셸이 다르게 읽을 글자가 있을 때만 감싼다.
+static string shellShow(const string& p) {
+    if (p.find_first_of(" \t&|;<>()$`*?[]#~!'\"") == string::npos) return p;
+    return "\"" + p + "\"";
+}
 static bool isAbsPath(const string& p) {
     return !p.empty() && (p[0] == '/' || p[0] == '\\'
                           || (p.size() > 1 && p[1] == ':'));   // 윈도우 C:\...
@@ -6158,7 +6167,7 @@ bool cmdBuild(const string& arg) {
         std::cout << "   the generated C++ is still there, you can compile it yourself: " << cppName << "\n";
         return false;
     }
-    std::cout << "build OK: " << exeName << "  (run: " << runCmd << ")\n";
+    std::cout << "build OK: " << exeName << "  (run: " << shellShow(runCmd) << ")\n";
     if (arg == "run") {
         std::cout << "----- run -----\n" << std::flush;
         // 경로에 공백이 있으면 셸이 두 낱말로 읽는다 ("내 과제/정렬.my")
@@ -6199,7 +6208,7 @@ bool cmdTopython() {
         std::ofstream out(toPath(pyName));
         out << pyCode;
     }
-    std::cout << "Python generated: " << pyName << "  (run: python3 " << pyName << ")\n";
+    std::cout << "Python generated: " << pyName << "  (run: python3 " << shellShow(pyName) << ")\n";
     return true;
 }
 
