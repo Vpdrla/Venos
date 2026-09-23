@@ -261,6 +261,36 @@ if [ -f "$TMP/shell/없는폴더/x.my" ] || ! grep -q '만들지 못했습니다
     dfail=$((dfail+1))
 fi
 
+# ---- g++ 가 없을 때 ----
+# 스위트에는 **늘 g++ 가 있다** — 그래서 없는 학생이 보는 화면은 한 번도 안 나왔다.
+# 여기서 중요한 건 셋이다: 알아볼 수 있는 안내, **만든 .cpp 를 남겨 두는 것**
+# (그거라도 있으면 다른 데서 컴파일할 수 있다), 그리고 **종료 코드 1**.
+# 마지막이 특히 — `venos build` 가 실패해도 0 을 돌려주던 시절에 윈도우 버그가
+# CI 에서 오래 조용했다 (지뢰밭에 적혀 있다).
+# 윈도우에서는 건너뛴다: PATH 를 비우면 셸 자체가 안 돈다.
+gpp_ok="통과"
+if [ -z "$EXE" ]; then
+    mkdir -p "$TMP/nogpp/빈경로"
+    printf 'print "안녕"\n' > "$TMP/nogpp/x.my"
+    ( PATH="$TMP/nogpp/빈경로"; export PATH
+      "$VENOS_ABS" build "$TMP/nogpp/x.my" > "$TMP/nogpp/out.txt" 2>&1 )
+    gpp_rc=$?
+    [ "$gpp_rc" = "1" ] || gpp_ok="실패 (종료 코드가 $gpp_rc 입니다 — 1 이어야 합니다)"
+    grep -q 'g++' "$TMP/nogpp/out.txt" 2>/dev/null \
+        || gpp_ok="실패 (g++ 가 없다는 안내가 없습니다)"
+    [ -f "$TMP/nogpp/x.cpp" ] \
+        || gpp_ok="실패 (만든 .cpp 를 남겨 두지 않았습니다)"
+    # exitpass/exitfail 은 아래 "종료 코드" 구역에서야 만들어진다 — set -u 라
+    # 여기서 건드리면 죽는다. 세는 건 dfail 하나로 족하다.
+    if [ "$gpp_ok" = "통과" ]; then
+        echo "PASS  셸/g++ 가 없을 때"
+    else
+        echo "FAIL  셸/g++ 가 없을 때  $gpp_ok"
+        cat "$TMP/nogpp/out.txt" 2>/dev/null
+        dfail=$((dfail+1))
+    fi
+fi
+
 # 아래 두 검사는 **끝나지 않는 것**부터 잡아야 하므로 timeout 으로 감싼다.
 # macOS 에는 기본으로 없다 — 없으면 그냥 돌리고 CI 의 잡 타임아웃에 맡긴다.
 TMO=""
