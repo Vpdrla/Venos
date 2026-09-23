@@ -6697,10 +6697,10 @@ void cmdHelp() {
         "  let xs = [10, 20, 30]   print xs[1]   xs[2] += 5   print \"코딩\"[1]\n"
         "  let d = {\"이름\": \"미르\"}   d[\"나이\"] = 15   print d[\"이름\"]\n"
         "  딕셔너리: keys(d) has(d,키) remove(d,키) len(d)  for k in d { }\n"
-        "  리스트: push(xs,v) pop(xs) sort(xs) len(xs)\n"
+        "  리스트: push(xs,v) pop(xs) sort(xs) reverse(xs) len(xs) has(xs,v) find(xs,v)\n"
         "  수학: random(1,6) round floor ceil abs sqrt min max\n"
         "  변환: num(\"15\") str(3)      true/false = 1/0\n"
-        "  문자열: split join upper lower find replace substr\n"
+        "  문자열: split join upper lower find replace substr reverse\n"
         "  기타: readfile writefile appendfile exists(경로) time() exit()\n"
         "  import \"utils.my\"   try { } catch 오류 { }   error(\"메시지\")   copy(값)\n"
         "  CLI: venos 파일.my (바로 실행) / venos build 파일.my run\n";

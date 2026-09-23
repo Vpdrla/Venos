@@ -78,7 +78,7 @@ python3 tools/genfuzz.py --rounds 100         # 올바른 프로그램을 만들
 5. **REPL** — 셸의 `repl` 에 몇 줄을 흘려 넣어 값이 바로 찍히는지, **에러 뒤에도 이어지는지**, 나갈 수 있는지를 본다 (오래 스위트에 없던 자리다). 화면 문구는 보지 않는다. **열린 블록에서 빠져나가는 것도 본다** — 아래 지뢰밭
 6. **추적표가 무엇을 찍는가** — `tests/trace/*.my` 의 **stderr** 가 `.expected` 와 글자까지 같아야 한다. ①-b 는 "추적이 답을 바꾸지 않는가" 만 보므로 **추적 줄 자체는 오래 어디와도 비교된 적이 없었다**. stdout 과 섞지 않는 이유는 버퍼링 때문에 순서가 플랫폼마다 달라져서다. 문구를 고쳤으면 `./venos trace tests/trace/X.my 2> tests/trace/X.expected >/dev/null` 로 다시 만들 것
 7. **종료 코드** — 정상 0, 잡히지 않은 에러·입력 끊김·`topython` 거절·모르는 인자·없는 파일은 1. **실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다**
-8. **이름 대조** — `node tools/check-builtins.js` (내장 함수는 BUILTIN_NAMES·인터프리터·CodeGen·PyGen·`vscode-venos` 다섯 곳, 키워드는 `KW_*` 상수와 `vscode-venos` 양쪽에서 뽑아 비교. 한 곳만 빠뜨리는 실수가 전부 조용해서 정적 대조로 잡는다)
+8. **이름 대조** — `node tools/check-builtins.js` (내장 함수는 BUILTIN_NAMES·인터프리터·CodeGen·PyGen·`vscode-venos` 다섯 곳 **+ 셸 `help` 문자열**, 키워드는 `KW_*` 상수와 `vscode-venos` 양쪽에서 뽑아 비교. 한 곳만 빠뜨리는 실수가 전부 조용해서 정적 대조로 잡는다). **셸 `help` 는 오래 이 대조 밖에 있었고, 그래서 `reverse` 가 조용히 빠져 있었다** — 학생이 제일 먼저 보는 화면이라 도움말이 낡으면 그 기능은 없는 것과 같다. 체커는 바이너리를 돌리지 않고 소스에서 문자열을 긁는다
 9. **레슨 트랙 + 플레이그라운드 예제** — `node tools/check-lessons.js` (레슨 코드가 ko·en 둘 다 에러 없이 돌고, **세 방식에서 같은 답을 내고**, 설명이 백틱으로 가리키는 이름이 코드에 있고, TUTORIAL 2종이 최신인지). **`docs/index.html` 의 `EXAMPLES` 6개도 같이 본다** — 방문자가 제일 먼저 돌리는 코드인데 아무 검사도 받지 않고 있었다. 레슨 26벌(13×ko/en)은 학생이 실제로 돌리는 코드인데 오래 3중 비교 밖에 있었다 — 마지막 레슨이 `topython` 으로 건너가는 것인데도. 파이썬 비교를 건너뛰는 둘은 체커의 `PY_SKIP` 에 이유가 적혀 있다 (`errors` 는 catch 문구, `project` 는 난수)
 
 ## 릴리스 내는 법
