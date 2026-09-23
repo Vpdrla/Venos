@@ -261,6 +261,109 @@ if [ -f "$TMP/shell/없는폴더/x.my" ] || ! grep -q '만들지 못했습니다
     dfail=$((dfail+1))
 fi
 
+# ---- g++ 가 없을 때 ----
+# 스위트에는 **늘 g++ 가 있다** — 그래서 없는 학생이 보는 화면은 한 번도 안 나왔다.
+# 여기서 중요한 건 셋이다: 알아볼 수 있는 안내, **만든 .cpp 를 남겨 두는 것**
+# (그거라도 있으면 다른 데서 컴파일할 수 있다), 그리고 **종료 코드 1**.
+# 마지막이 특히 — `venos build` 가 실패해도 0 을 돌려주던 시절에 윈도우 버그가
+# CI 에서 오래 조용했다 (지뢰밭에 적혀 있다).
+# 윈도우에서는 건너뛴다: PATH 를 비우면 셸 자체가 안 돈다.
+gpp_ok="통과"
+if [ -z "$EXE" ]; then
+    mkdir -p "$TMP/nogpp/빈경로"
+    printf 'print "안녕"\n' > "$TMP/nogpp/x.my"
+    ( PATH="$TMP/nogpp/빈경로"; export PATH
+      "$VENOS_ABS" build "$TMP/nogpp/x.my" > "$TMP/nogpp/out.txt" 2>&1 )
+    gpp_rc=$?
+    [ "$gpp_rc" = "1" ] || gpp_ok="실패 (종료 코드가 $gpp_rc 입니다 — 1 이어야 합니다)"
+    grep -q 'g++' "$TMP/nogpp/out.txt" 2>/dev/null \
+        || gpp_ok="실패 (g++ 가 없다는 안내가 없습니다)"
+    [ -f "$TMP/nogpp/x.cpp" ] \
+        || gpp_ok="실패 (만든 .cpp 를 남겨 두지 않았습니다)"
+    # exitpass/exitfail 은 아래 "종료 코드" 구역에서야 만들어진다 — set -u 라
+    # 여기서 건드리면 죽는다. 세는 건 dfail 하나로 족하다.
+    if [ "$gpp_ok" = "통과" ]; then
+        echo "PASS  셸/g++ 가 없을 때"
+    else
+        echo "FAIL  셸/g++ 가 없을 때  $gpp_ok"
+        cat "$TMP/nogpp/out.txt" 2>/dev/null
+        dfail=$((dfail+1))
+    fi
+fi
+
+# 아래 두 검사는 **끝나지 않는 것**부터 잡아야 하므로 timeout 으로 감싼다.
+# macOS 에는 기본으로 없다 — 없으면 그냥 돌리고 CI 의 잡 타임아웃에 맡긴다.
+TMO=""
+command -v timeout >/dev/null 2>&1 && TMO="timeout 20"
+
+# ---- 에디터의 나머지 명령 (:paste / :line / :c) ----
+# 위 검사는 create/code/:d/:q 만 지난다. `:paste`·`:line N`·`:c` 는 **학생의 파일을
+# 고치는** 명령인데 한 번도 안 돌아 봤다 — 여기가 틀리면 잃는 게 화면이 아니라 작업이다.
+# 화면 문구가 아니라 **저장된 파일**로 확인한다 (셸 검사의 원칙 그대로).
+editor_ok="통과"
+(
+    mkdir -p "$TMP/editor" && cd "$TMP/editor" || exit 0
+    printf 'create 편집.my\n:q\ncode\nprint "하나"\nprint "둘"\n:paste\nprint "셋"\nprint "넷"\n:end\n:line 2\nprint "둘 고침"\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > ed.txt 2>&1
+    # 잘못된 :line 은 파일을 건드리면 안 된다. 그 뒤 :c 로 비우고 한 줄만 남긴다.
+    printf 'choose 편집.my\ncode\n:line 0\n:line 99\n:line abc\n:line\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > ed_bad.txt 2>&1
+    cp 편집.my 편집_보존.my 2>/dev/null
+    printf 'choose 편집.my\ncode\n:c\n:d\nprint "새로 시작"\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > ed_clear.txt 2>&1
+) || true
+# :paste 가 두 줄을 붙였고 :line 2 가 그 줄만 고쳤는가
+want=$'print "하나"\nprint "둘 고침"\nprint "셋"\nprint "넷"'
+[ "$(tr -d '\r' < "$TMP/editor/편집_보존.my" 2>/dev/null)" = "$want" ] \
+    || editor_ok="실패 (:paste / :line 의 결과가 다릅니다)"
+# 잘못된 :line 넷이 파일을 안 건드렸는가 (위 비교가 그것도 같이 본다) + 안내가 나왔는가
+grep -q '줄 번호가 잘못됨' "$TMP/editor/ed_bad.txt" 2>/dev/null \
+    || editor_ok="실패 (범위 밖 :line 을 그냥 넘어갑니다)"
+# :c 로 비우고 빈 파일에 :d 를 해도 죽지 않고, 그 뒤 저장이 되는가
+[ "$(tr -d '\r' < "$TMP/editor/편집.my" 2>/dev/null)" = 'print "새로 시작"' ] \
+    || editor_ok="실패 (:c 뒤의 저장이 틀립니다)"
+grep -q '삭제할 줄이 없음' "$TMP/editor/ed_clear.txt" 2>/dev/null \
+    || editor_ok="실패 (빈 파일의 :d 가 조용합니다)"
+if [ "$editor_ok" = "통과" ]; then
+    echo "PASS  셸/에디터 명령 (:paste :line :c)"
+else
+    echo "FAIL  셸/에디터 명령  $editor_ok"
+    cat "$TMP/editor/편집.my" 2>/dev/null
+    dfail=$((dfail+1)); shell_ok="$shell_ok · 에디터 명령 실패"
+fi
+
+# ---- 에디터의 스크롤 뷰어 (:v) ----
+# `scrollViewer` 는 **어떤 검사도 한 번도 들어간 적이 없는 코드**다. `readKey()` 에
+# 파이프 대비책(u/d/U/D, EOF 는 나가기)이 이미 있는데도 그 길로 들어가 본 적이 없었다 —
+# 화면을 그리는 자리라 "돌려 볼 생각"이 안 드는 쪽이다. 여기서 무한 루프가 되면
+# 학생의 셸이 멈추고, 스크롤 산술이 틀리면 파일의 일부를 영영 못 본다.
+# 이 검사가 잡아야 할 **첫 번째 것이 "안 끝남"** 이라, 있으면 timeout 으로 감싼다
+# (macOS 에는 기본으로 없다 — 없으면 그냥 돌리고 CI 의 잡 타임아웃에 맡긴다).
+viewer_ok="통과"
+(
+    mkdir -p "$TMP/viewer" && cd "$TMP/viewer" || exit 0
+    awk 'BEGIN { for (i = 1; i <= 40; i++) print "print " i }' > 긴파일.my
+    # d d D 로 내려갔다가 q 로 나오고, 그래도 :q 가 정상 저장하는지
+    printf 'choose 긴파일.my\ncode\n:v\nd\nd\nD\nq\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > view.txt 2>&1
+    # 빈 파일에서도 죽지 않아야 한다 (maxOff 가 0 이 되는 갈래)
+    printf 'create 빈것.my\n:q\ncode\n:v\nd\nD\nq\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > view_empty.txt 2>&1
+) || true
+# 스크롤이 실제로 내려갔는가 — 첫 화면(1~18줄)에 없던 줄이 보여야 한다
+grep -q 'print 40' "$TMP/viewer/view.txt" 2>/dev/null \
+    || viewer_ok="실패 (스크롤해도 뒷부분이 안 보입니다)"
+grep -q '빈 파일' "$TMP/viewer/view_empty.txt" 2>/dev/null \
+    || viewer_ok="실패 (빈 파일에서 뷰어가 이상합니다)"
+if [ "$viewer_ok" = "통과" ]; then
+    echo "PASS  셸/스크롤 뷰어 (:v)"
+else
+    echo "FAIL  셸/스크롤 뷰어  $viewer_ok"
+    tail -5 "$TMP/viewer/view.txt" 2>/dev/null
+    dfail=$((dfail+1))
+    shell_ok="$shell_ok · 뷰어 실패"
+fi
+
 # ---- topython 이 거절해야 하는 것들 (tests/nopython) ----
 # 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다.
 # 파이썬이 Venos 와 다르게 답하는 자리에서 줄 번호를 대고 거절하는지 본다.
@@ -296,7 +399,43 @@ done
 # 에러 뒤에도 이어지는가 — 다음 줄의 x + 1 이 4 를 내야 한다 (여기 말고 4 가 나올 데는 없다)
 grep -qE '(^|[^0-9])4([^0-9]|$)' "$TMP/repl.txt" \
     || { repl_ok="실패 (에러 뒤에 이어지지 않습니다)"; dfail=$((dfail+1)); }
-[ "$repl_ok" = "통과" ] || cat "$TMP/repl.txt"
+
+# **열린 블록에서 빠져나갈 수 있는가.** `{` 를 하나 잘못 열면 연속 입력이 quit 까지
+# 삼켜서, 진짜 터미널에서는 Ctrl+C 말고 나갈 길이 없었다 (파이프는 EOF 로 끝나 버려
+# 이 검사가 없던 동안 아무도 못 봤다 — 위의 검사도 전부 EOF 로 끝난다).
+# 둘을 본다: 빈 줄 두 번으로 **취소하고 이어서 쓸 수 있는가**, quit 으로 **나갈 수 있는가**.
+printf 'repl\nlet 합 = 0\nfor i = 1 to 9 {\n\n\n합 = 12345\n합\n:q\nexit\n' \
+    | "$VENOS" > "$TMP/repl_esc.txt" 2>&1
+grep -q '12345' "$TMP/repl_esc.txt" \
+    || { repl_ok="실패 (빈 줄 두 번으로 열린 블록을 취소하지 못합니다)"; dfail=$((dfail+1)); }
+# quit 은 연속 입력 중에도 나가야 한다. 안 나가면 뒤의 print 가 REPL 안에서 돌아
+# "안나감" 이 찍힌다 — 셸로 떨어졌다면 셸이 모르는 명령이라 그 글자가 안 나온다.
+printf 'repl\nfor i = 1 to 9 {\nquit\nprint "안나감"\nexit\n' \
+    | "$VENOS" > "$TMP/repl_quit.txt" 2>&1
+grep -q '안나감' "$TMP/repl_quit.txt" \
+    && { repl_ok="실패 (연속 입력 중 quit 이 먹히지 않습니다)"; dfail=$((dfail+1)); }
+[ "$repl_ok" = "통과" ] || { cat "$TMP/repl.txt"; cat "$TMP/repl_esc.txt"; cat "$TMP/repl_quit.txt"; }
+
+# ---- 추적표가 무엇을 찍는가 (tests/trace) ----
+# ①-b 는 "추적이 프로그램의 답을 바꾸지 않는가" 만 본다. **추적 줄 자체는 여태 어디와도
+# 비교된 적이 없었다** — traceValue 가 망가지거나 줄 번호가 어긋나도 조용했다는 뜻이다.
+# stderr 만 비교한다: stdout 과 섞으면 버퍼링 때문에 순서가 플랫폼마다 달라진다.
+trpass=0
+for case_file in tests/trace/*.my; do
+    [ -e "$case_file" ] || break
+    name=$(basename "$case_file" .my)
+    want="tests/trace/$name.expected"
+    if [ ! -f "$want" ]; then
+        echo "FAIL  추적/$name  (.expected 가 없습니다)"; dfail=$((dfail+1)); continue
+    fi
+    "$VENOS" trace "$case_file" 2> "$TMP/trace_out.txt" > /dev/null
+    if diff <(tr -d '\r' < "$want") <(tr -d '\r' < "$TMP/trace_out.txt") > "$TMP/diff.txt" 2>&1; then
+        echo "PASS  추적/$name"; trpass=$((trpass+1))
+    else
+        echo "FAIL  추적/$name  (추적 줄이 바뀌었습니다)"
+        head -12 "$TMP/diff.txt"; dfail=$((dfail+1))
+    fi
+done
 
 # ---- 종료 코드 ----
 # 실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다.
@@ -351,6 +490,32 @@ check_says "topython 도 같은 안내" ".txt 는 있습니다" "$VENOS" topytho
 # import 를 쓰면 줄 번호가 병합된 글 기준이라 학생의 파일과 안 맞는다 — 에러처럼
 # 추적도 원본 좌표(파일 이름 + 그 파일의 줄)로 말해야 한다
 check_says "추적이 원본 파일 좌표로" "lib/도우미.my 줄" "$VENOS" trace tests/cases/imports.my
+
+# ---- 공백이 든 경로 ----
+# 스위트의 경로에는 공백이 한 번도 없었다 — 학생의 경로는 "내 문서/수업 자료" 다.
+# 셋 다 돌아야 하고, **찍어 주는 명령이 붙여 넣어 쓸 수 있어야** 한다 (실행할 때는
+# 이미 따옴표로 감쌌는데 화면에 보여 주는 줄은 그대로였다 — 같은 증상, 다른 경로).
+space_ok="통과"
+SPACED="$TMP/내 문서/수업 자료"
+mkdir -p "$SPACED"
+printf 'let xs = [3, 1, 2]\nsort(xs)\nprint "정렬:", xs\n' > "$SPACED/정렬 연습.my"
+"$VENOS" "$SPACED/정렬 연습.my" > "$TMP/sp1.txt" 2>&1
+grep -q '정렬: \[1, 2, 3\]' "$TMP/sp1.txt" || space_ok="실패 (인터프리터)"
+"$VENOS" build "$SPACED/정렬 연습.my" run > "$TMP/sp2.txt" 2>&1
+grep -q '정렬: \[1, 2, 3\]' "$TMP/sp2.txt" || space_ok="실패 (build run)"
+# 붙여 넣어 쓸 수 있는가 — 공백이 있으면 따옴표가 있어야 한다
+grep -q '(run: "' "$TMP/sp2.txt" || space_ok="실패 (보여 주는 명령에 따옴표가 없습니다)"
+if [ -n "$PY" ]; then
+    "$VENOS" topython "$SPACED/정렬 연습.my" > "$TMP/sp3.txt" 2>&1
+    grep -q '(run: python3 "' "$TMP/sp3.txt" || space_ok="실패 (topython 의 명령에 따옴표가 없습니다)"
+    [ -f "$SPACED/정렬 연습.py" ] && { "$PY" "$SPACED/정렬 연습.py" > "$TMP/sp4.txt" 2>&1
+        grep -q '정렬: \[1, 2, 3\]' "$TMP/sp4.txt" || space_ok="실패 (생성 파이썬)"; }
+fi
+if [ "$space_ok" = "통과" ]; then
+    echo "PASS  안내/공백이 든 경로"; exitpass=$((exitpass+1))
+else
+    echo "FAIL  안내/공백이 든 경로  $space_ok"; exitfail=$((exitfail+1)); dfail=$((dfail+1))
+fi
 
 # 학생의 .my 가 늘 LF 로 오지는 않는다 — **메모장이 저장하면 CRLF** 다. 여태 렉서에
 # CRLF 소스를 한 번도 안 넣어 봤다 (스위트의 케이스는 전부 LF 고, 윈도우 CI 도
@@ -425,7 +590,7 @@ echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
 # ${} 로 감쌀 것 — macOS 의 bash 3.2 는 "$traced개" 를 변수 이름 `traced개` 로 읽고
 # set -u 아래에서 "unbound variable" 로 죽는다 (리눅스 bash 5 에서는 멀쩡해서 안 보였다)
-echo "추적표: ${traced}개 케이스에서 run 과 같은 답 (추적 줄은 stderr)"
+echo "추적표: ${traced}개 케이스에서 run 과 같은 답 (추적 줄은 stderr) · 추적 줄 자체 ${trpass}개 고정"
 echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
 echo "REPL: $repl_ok"
 echo "이름 대조: $builtins"

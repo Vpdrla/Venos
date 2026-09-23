@@ -676,17 +676,24 @@ static std::vector<string> g_srcLines;
 
 // 화면에서 차지하는 칸 수. 한글·한자·전각 기호는 한 글자가 **두 칸**이라,
 // 글자 수로 세면 `^` 가 왼쪽으로 밀린다. 터미널과 플레이그라운드(고정폭)가 같은 규칙이다.
+// UTF-8 한 글자 → 코드포인트
+static unsigned codepoint(const string& ch) {
+    if (ch.size() == 1) return (unsigned char)ch[0];
+    if (ch.size() == 2)
+        return ((unsigned char)ch[0] & 0x1Fu) << 6 | ((unsigned char)ch[1] & 0x3Fu);
+    if (ch.size() == 3)
+        return ((unsigned char)ch[0] & 0x0Fu) << 12 | ((unsigned char)ch[1] & 0x3Fu) << 6
+             | ((unsigned char)ch[2] & 0x3Fu);
+    if (ch.size() == 4)
+        return ((unsigned char)ch[0] & 0x07u) << 18 | ((unsigned char)ch[1] & 0x3Fu) << 12
+             | ((unsigned char)ch[2] & 0x3Fu) << 6  | ((unsigned char)ch[3] & 0x3Fu);
+    return 0;
+}
 static size_t dispWidth(const string& s) {
     size_t w = 0;
     for (const string& ch : utf8Chars(s)) {
         if (ch.size() < 3) { w += 1; continue; }        // ASCII·라틴·키릴 등
-        unsigned cp = 0;
-        if (ch.size() == 3)
-            cp = ((unsigned char)ch[0] & 0x0Fu) << 12 | ((unsigned char)ch[1] & 0x3Fu) << 6
-               | ((unsigned char)ch[2] & 0x3Fu);
-        else if (ch.size() == 4)
-            cp = ((unsigned char)ch[0] & 0x07u) << 18 | ((unsigned char)ch[1] & 0x3Fu) << 12
-               | ((unsigned char)ch[2] & 0x3Fu) << 6  | ((unsigned char)ch[3] & 0x3Fu);
+        unsigned cp = codepoint(ch);
         bool wide = (cp >= 0x1100 && cp <= 0x115F)      // 한글 자모
                  || (cp >= 0x2E80 && cp <= 0xA4CF)      // 한중일 부수·기호·한자
                  || (cp >= 0xAC00 && cp <= 0xD7A3)      // 한글 음절
@@ -789,6 +796,15 @@ static fs::path importToPath(const string& utf8) { return toPath(utf8); }
 static string dirOf(const string& p) {
     size_t i = p.find_last_of("/\\");
     return i == string::npos ? "" : p.substr(0, i);
+}
+// 화면에 **붙여 넣어 쓸 수 있는** 명령으로 찍기 위한 따옴표.
+// 실행할 때는 이미 감싸고 있었는데(`runShell("\"" + runCmd + "\"")`), 학생에게
+// 보여 주는 `(run: ...)` 줄은 그대로였다 — "내 문서/정렬 연습" 을 복사해 붙이면
+// 셸이 두 낱말로 읽어 안 돌아간다. **같은 증상에 경로가 둘**이었던 셈이다.
+// 흔한 ASCII 경로는 그대로 두고, 셸이 다르게 읽을 글자가 있을 때만 감싼다.
+static string shellShow(const string& p) {
+    if (p.find_first_of(" \t&|;<>()$`*?[]#~!'\"") == string::npos) return p;
+    return "\"" + p + "\"";
 }
 static bool isAbsPath(const string& p) {
     return !p.empty() && (p[0] == '/' || p[0] == '\\'
@@ -4413,6 +4429,44 @@ struct CodeGen {
 //  파이썬 3 식별자는 한글을 그대로 받으므로 변수/함수 이름이 살아남는다.
 //  Venos 와 파이썬이 다른 지점은 숨기지 않고 파일 머리말에 적어 둔다.
 // ============================================================
+// ---- 파이썬이 이름으로 받아 주는 글자인가 ----
+// Venos 의 `isIdentChar` 는 0x80 이상을 전부 이름으로 삼킨다. 그래서 `let 🍎 = 3` 이
+// 인터프리터에서도 `build` 에서도 멀쩡히 돌았는데, `topython` 이 `🍎 = 3` 을 그대로 내고
+// 파이썬은 **파일을 파싱조차 못 했다** (SyntaxError: invalid character). 틀린 답보다 나쁜
+// 자리다 — 학생이 받은 .py 는 한 줄도 안 돈다.
+//
+// 파이썬의 규칙은 유니코드 XID_Start/XID_Continue 인데, 그 표를 통째로 들이는 건
+// `upper()` 때와 같은 함정이다 (표준 라이브러리를 옆문으로 들이는 일). 그래서 반대로
+// **Venos 가 실제로 쓰일 글자만 통과시키는** 좁은 흰 목록으로 갔다. 여기서 빠뜨려 새는 쪽이
+// 잘못 거절하는 쪽보다 나쁘다 — 새면 안 도는 파일이 나간다.
+// 넓히려면 한 줄만 더하면 된다 (데바나가리·타이 등은 파이썬이 받지만 여기선 거절한다).
+static bool pyIdentCp(unsigned cp) {
+    if (cp < 0x80) return (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z')
+                       || (cp >= '0' && cp <= '9') || cp == '_';
+    return (cp >= 0x00C0 && cp <= 0x024F && cp != 0x00D7 && cp != 0x00F7)  // 라틴 확장
+        || (cp >= 0x0370 && cp <= 0x03FF)      // 그리스
+        || (cp >= 0x0400 && cp <= 0x04FF)      // 키릴
+        || (cp >= 0x1100 && cp <= 0x11FF)      // 한글 자모
+        || (cp >= 0x3040 && cp <= 0x30FF)      // 가나
+        || (cp >= 0x3130 && cp <= 0x318F)      // 한글 호환 자모
+        || (cp >= 0x3400 && cp <= 0x4DBF)      // 한자 확장 A
+        || (cp >= 0x4E00 && cp <= 0x9FFF)      // 한자
+        || (cp >= 0xAC00 && cp <= 0xD7A3)      // 한글 음절
+        || (cp >= 0xF900 && cp <= 0xFAFF);     // 한자 호환
+}
+// 파싱 전에 토큰을 훑어 거절한다 — **토큰이라야 줄과 열을 같이 댈 수 있다** (AST 는 열이 없다).
+// 문자열 리터럴은 건드리지 않는다: `"🍎"` 는 자료지 이름이 아니고 파이썬에서도 멀쩡하다.
+static void checkPyIdents(const std::vector<Token>& toks) {
+    for (const Token& t : toks) {
+        if (t.type != Tok::IDENT) continue;
+        for (const string& ch : utf8Chars(t.text))
+            if (!pyIdentCp(codepoint(ch)))
+                throw LangError(lineTag(t.line) + "이 이름은 파이썬으로 옮길 수 없습니다: "
+                                + t.text + "  ('" + ch + "' 은(는) 파이썬에서 이름에 쓸 수 없는"
+                                " 글자입니다 — 한글이나 영문으로 지어 주세요)", t.col);
+    }
+}
+
 struct PyGen {
     std::set<string> imports;                // math, random, time, os, sys, copy
     std::set<string> helpers;                // 실제로 쓴 도우미만 앞에 붙인다
@@ -6113,7 +6167,7 @@ bool cmdBuild(const string& arg) {
         std::cout << "   the generated C++ is still there, you can compile it yourself: " << cppName << "\n";
         return false;
     }
-    std::cout << "build OK: " << exeName << "  (run: " << runCmd << ")\n";
+    std::cout << "build OK: " << exeName << "  (run: " << shellShow(runCmd) << ")\n";
     if (arg == "run") {
         std::cout << "----- run -----\n" << std::flush;
         // 경로에 공백이 있으면 셸이 두 낱말로 읽는다 ("내 과제/정렬.my")
@@ -6141,6 +6195,7 @@ bool cmdTopython() {
     string pyCode;
     try {
         auto tokens = lex(expandImports(fname));
+        checkPyIdents(tokens);
         Parser parser(std::move(tokens));
         auto program = parser.parseProgram();
         PyGen gen;
@@ -6153,7 +6208,7 @@ bool cmdTopython() {
         std::ofstream out(toPath(pyName));
         out << pyCode;
     }
-    std::cout << "Python generated: " << pyName << "  (run: python3 " << pyName << ")\n";
+    std::cout << "Python generated: " << pyName << "  (run: python3 " << shellShow(pyName) << ")\n";
     return true;
 }
 
@@ -6240,6 +6295,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE void venos_topython(const char* code) {
     }
     try {
         auto tokens = lex(src);
+        checkPyIdents(tokens);
         Parser parser(std::move(tokens));
         auto program = parser.parseProgram();
         PyGen gen;
@@ -6302,18 +6358,41 @@ void cmdRepl() {
         if (!readLine(line)) break;
         string t = trim(line);
         // 나가는 말은 여러 가지로 받아 준다 — 못 나가서 창을 닫는 학생이 없도록
-        if (t == ":q" || t == "q" || t == "exit" || t == "quit" || t == "나가기") break;
+        auto isQuitWord = [](const string& w) {
+            return w == ":q" || w == "q" || w == "exit" || w == "quit" || w == "나가기";
+        };
+        if (isQuitWord(t)) break;
         if (t.empty()) continue;
 
-        // 블록이 열려 있으면 닫힐 때까지 이어서 입력
+        // 블록이 열려 있으면 닫힐 때까지 이어서 입력.
+        // **여기에도 빠져나갈 길이 있어야 한다** — `{` 를 하나 잘못 열면 이 루프가
+        // quit·:q·나가기 까지 전부 삼켜서, 진짜 터미널에서는 Ctrl+C 말고 나갈 방법이
+        // 없었다 (파이프는 EOF 로 끝나니 스위트에서는 안 보였다). 웹 실행에 적어 둔
+        // "빠져나갈 길이 있어야 한다" 와 같은 갈래인데 REPL 에만 없었다.
         string src = line;
         int depth = braceDelta(line);
-        while (depth > 0) {
+        bool quitNow = false, abandoned = false;
+        int blanks = 0;
+        for (bool firstCont = true; depth > 0; firstCont = false) {
+            if (firstCont)
+                std::cout << "   (닫는 } 를 기다리는 중 — 그만두려면 빈 줄 두 번, 나가려면 quit)\n";
             std::cout << ".. " << std::flush;
             string more;
             if (!readLine(more)) { depth = 0; break; }
+            string mt = trim(more);
+            if (isQuitWord(mt)) { quitNow = true; break; }
+            // 빈 줄 하나는 그냥 여백이다 (블록 안에 줄을 띄우는 학생이 있다).
+            // 두 번 이어지면 "그만두겠다"는 뜻으로 읽는다.
+            if (mt.empty()) {
+                if (++blanks >= 2) { abandoned = true; break; }
+            } else blanks = 0;
             src += "\n" + more;
             depth += braceDelta(more);
+        }
+        if (quitNow) break;
+        if (abandoned) {
+            std::cout << "(입력을 취소했습니다)\n";
+            continue;
         }
 
         if (containsImport(src)) {
@@ -6627,10 +6706,10 @@ void cmdHelp() {
         "  let xs = [10, 20, 30]   print xs[1]   xs[2] += 5   print \"코딩\"[1]\n"
         "  let d = {\"이름\": \"미르\"}   d[\"나이\"] = 15   print d[\"이름\"]\n"
         "  딕셔너리: keys(d) has(d,키) remove(d,키) len(d)  for k in d { }\n"
-        "  리스트: push(xs,v) pop(xs) sort(xs) len(xs)\n"
+        "  리스트: push(xs,v) pop(xs) sort(xs) reverse(xs) len(xs) has(xs,v) find(xs,v)\n"
         "  수학: random(1,6) round floor ceil abs sqrt min max\n"
         "  변환: num(\"15\") str(3)      true/false = 1/0\n"
-        "  문자열: split join upper lower find replace substr\n"
+        "  문자열: split join upper lower find replace substr reverse\n"
         "  기타: readfile writefile appendfile exists(경로) time() exit()\n"
         "  import \"utils.my\"   try { } catch 오류 { }   error(\"메시지\")   copy(값)\n"
         "  CLI: venos 파일.my (바로 실행) / venos build 파일.my run\n";

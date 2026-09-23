@@ -310,12 +310,32 @@ class Gen:
         # 재귀 — 생성 프로그램에 한 번도 없던 모양이다. 세 백엔드가 호출/반환을 다르게
         # 구현하므로(프레임 스택 vs 진짜 호출) 깊이가 있는 자리도 한 번은 지나가야 한다.
         L.append('func 되풀이(n) { if n <= 0 { return 0 }  return 1 + 되풀이(n - 1) }')
-        L.append('class 그릇 {')
-        L.append('    func init(시작) { self.값 = 시작  self.담은것 = [] }')
-        L.append('    func 담기(v) { push(self.담은것, v)  self.값 += 1  return self }')
-        L.append('    func 센것() { return len(self.담은것) }')
-        L.append('    func 더하기(n) { return self.값 + n }')
-        L.append('}')
+        # **이름이 겹치는 메서드를 가진 클래스 둘.** 코드젠의 메서드 호출은 클래스별 정적
+        # 함수 + (이름, 인자수)별 수제 vtable 을 지나는데, **클래스가 하나뿐이면 그
+        # 디스패처가 한 번도 갈래를 고르지 않는다** — vtable 이 존재하는 이유가 통째로
+        # 검사 밖에 있었다. 두 클래스가 같은 이름의 메서드를 **다른 답을 내도록** 들고
+        # 있어야, 잘못 고른 것이 출력으로 드러난다.
+        for cname, off in (('그릇', 0), ('바구니', 100)):
+            L.append('class %s {' % cname)
+            L.append('    func init(시작) { self.값 = 시작 + %d  self.담은것 = [] }' % off)
+            L.append('    func 담기(v) { push(self.담은것, v)  self.값 += 1  return self }')
+            L.append('    func 센것() { return len(self.담은것) + %d }' % off)
+            L.append('    func 더하기(n) { return self.값 + n + %d }' % off)
+            # self 로 다른 메서드를 부르는 자리 (디스패처를 한 겹 더 지난다)
+            L.append('    func 둘레() { return self.센것() + self.더하기(1) }')
+            # 몸통이 무작위인 메서드 — 함수 쪽에서 이미 return 의 중첩을 잡아 준 모양을
+            # 메서드에도 쓴다. 메서드는 CodeGen 에서 **다른 경로**로 나간다 (정적 함수 +
+            # self 인자), 그래서 함수에서 통과했다는 게 여기서도 통과한다는 뜻이 아니다.
+            self.infn = True
+            L.append('    func 굴리기(a, b) {')
+            body = self.body(2, 0)
+            cut = r.randint(0, len(body))
+            body = body[:cut] + ['        if %s { return %s }' % (self.cond(1), self.int_expr(1))] + body[cut:]
+            L += body
+            L.append('        return %s + %d' % (self.int_expr(1), off))
+            L.append('    }')
+            self.infn = False
+            L.append('}')
         for v in INT_VARS:
             L.append('let %s = %d' % (v, r.randint(-9, 9)))
         for v in STR_VARS:
@@ -332,8 +352,15 @@ class Gen:
                     ', '.join(str(r.randint(0, 9)) for _ in range(3))))
         L.append('let 묶음 = {"k1": [%s]}'
                  % ', '.join(str(r.randint(0, 9)) for _ in range(3)))
+        # 두 클래스를 섞어서 만든다 — 같은 이름의 메서드를 부르는 자리가
+        # **실행할 때에야** 어느 클래스인지 정해진다 (디스패처가 진짜 일을 한다)
+        objClass = {}
         for v in OBJ_VARS:
-            L.append('let %s = 그릇(%d)' % (v, r.randint(0, 5)))
+            cn = r.choice(('그릇', '바구니'))
+            objClass[v] = cn
+            L.append('let %s = %s(%d)' % (v, cn, r.randint(0, 5)))
+        # 리스트에 담아 두고 원소로 부른다 — 정적으로는 어느 클래스인지 알 수 없는 자리
+        L.append('let 모둠 = [%s]' % ', '.join(OBJ_VARS))
         # **몸통이 무작위인 함수**. return 이 if/for/while/try 안쪽에서 튀어나오는 자리를
         # 만든다 — 인터프리터는 Flow{RETURN} 을 블록마다 올려 보내고 C++·파이썬은 진짜
         # return 이라, 중첩된 자리에서 어긋나면 여기서만 드러난다.
@@ -362,7 +389,12 @@ class Gen:
         L.append('print "격자 =", 격자')
         L.append('print "묶음 =", 묶음["k1"]')
         for v in OBJ_VARS:
-            L.append('print "%s =", %s.값, %s.센것(), %s.담은것' % (v, v, v, v))
+            L.append('print "%s =", %s.값, %s.센것(), %s.담은것, %s.둘레()' % (v, v, v, v, v))
+        for fi in (1, 2):
+            L.append('print "굴리기%d =", %s.굴리기(%s, %s)'
+                     % (fi, OBJ_VARS[fi - 1], self.int_expr(1), self.int_expr(1)))
+        # 리스트 원소로 부르기 — 여기서 잘못 고르면 답이 100 만큼 어긋난다
+        L.append('for 하나 in 모둠 { print "모둠:", 하나.센것(), 하나.더하기(2) }')
         return '\n'.join(L) + '\n'
 
 

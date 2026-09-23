@@ -2,6 +2,9 @@
 # 러너는 저장소 최상위에서 "venos tests/cases/imports.my" 로 부르므로,
 # 현재 작업 폴더 기준이면 lib/도우미.my 를 못 찾고 여기서 깨진다.
 import "lib/도우미.my"
+# 두 단계 — lib/중간.my 가 다시 "깊은/또.my" 를 부른다.
+# 그 경로는 main 이 아니라 **lib/중간.my 옆**을 기준으로 풀려야 한다.
+import "lib/중간.my"
 
 print 두배(21)
 print 합([1, 2, 3, 4])
@@ -12,3 +15,4 @@ print c.올리기(), c.올리기(), c.값
 # 같은 파일을 두 번 불러도 한 번만 들어온다
 import "lib/도우미.my"
 print 두배(3)
+print "두 단계 import:", 중간계산(3)

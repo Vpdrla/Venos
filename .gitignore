@@ -23,6 +23,10 @@ tests/cases/*
 tests/cases/lib/*
 !tests/cases/lib/*.my
 !tests/cases/lib/crlf.txt
+# 하위 폴더는 **폴더 자체를 먼저 되살려야** 한다 — 무시된 폴더 안은 git 이 아예 안 본다.
+# (두 단계 import 의 lib/깊은/또.my 가 그래서 커밋에서 빠졌고, CI 에서만 깨졌다)
+!tests/cases/lib/*/
+!tests/cases/lib/*/*.my
 tests/nopython/*.py
 tests/.tmp_*
 
