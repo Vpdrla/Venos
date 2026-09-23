@@ -16,6 +16,7 @@ venos                      # interactive shell (create/choose/code/run/build/...
 venos --help               # usage; venos --version prints the version
 ```
 Inside the shell, `repl` starts a line-by-line REPL — type a bare expression to see its value.
+An open block, list or paren continues on `..`; **two blank lines** abandon it, `quit` leaves.
 
 `trace` prints the **trace table** a textbook asks students to fill in by hand: one
 `line| name = value` for every value that changes, with `->` on a call and `<-` on a return,

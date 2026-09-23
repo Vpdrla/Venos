@@ -296,7 +296,22 @@ done
 # 에러 뒤에도 이어지는가 — 다음 줄의 x + 1 이 4 를 내야 한다 (여기 말고 4 가 나올 데는 없다)
 grep -qE '(^|[^0-9])4([^0-9]|$)' "$TMP/repl.txt" \
     || { repl_ok="실패 (에러 뒤에 이어지지 않습니다)"; dfail=$((dfail+1)); }
-[ "$repl_ok" = "통과" ] || cat "$TMP/repl.txt"
+
+# **열린 블록에서 빠져나갈 수 있는가.** `{` 를 하나 잘못 열면 연속 입력이 quit 까지
+# 삼켜서, 진짜 터미널에서는 Ctrl+C 말고 나갈 길이 없었다 (파이프는 EOF 로 끝나 버려
+# 이 검사가 없던 동안 아무도 못 봤다 — 위의 검사도 전부 EOF 로 끝난다).
+# 둘을 본다: 빈 줄 두 번으로 **취소하고 이어서 쓸 수 있는가**, quit 으로 **나갈 수 있는가**.
+printf 'repl\nlet 합 = 0\nfor i = 1 to 9 {\n\n\n합 = 12345\n합\n:q\nexit\n' \
+    | "$VENOS" > "$TMP/repl_esc.txt" 2>&1
+grep -q '12345' "$TMP/repl_esc.txt" \
+    || { repl_ok="실패 (빈 줄 두 번으로 열린 블록을 취소하지 못합니다)"; dfail=$((dfail+1)); }
+# quit 은 연속 입력 중에도 나가야 한다. 안 나가면 뒤의 print 가 REPL 안에서 돌아
+# "안나감" 이 찍힌다 — 셸로 떨어졌다면 셸이 모르는 명령이라 그 글자가 안 나온다.
+printf 'repl\nfor i = 1 to 9 {\nquit\nprint "안나감"\nexit\n' \
+    | "$VENOS" > "$TMP/repl_quit.txt" 2>&1
+grep -q '안나감' "$TMP/repl_quit.txt" \
+    && { repl_ok="실패 (연속 입력 중 quit 이 먹히지 않습니다)"; dfail=$((dfail+1)); }
+[ "$repl_ok" = "통과" ] || { cat "$TMP/repl.txt"; cat "$TMP/repl_esc.txt"; cat "$TMP/repl_quit.txt"; }
 
 # ---- 종료 코드 ----
 # 실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다.

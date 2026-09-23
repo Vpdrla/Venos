@@ -6302,18 +6302,41 @@ void cmdRepl() {
         if (!readLine(line)) break;
         string t = trim(line);
         // 나가는 말은 여러 가지로 받아 준다 — 못 나가서 창을 닫는 학생이 없도록
-        if (t == ":q" || t == "q" || t == "exit" || t == "quit" || t == "나가기") break;
+        auto isQuitWord = [](const string& w) {
+            return w == ":q" || w == "q" || w == "exit" || w == "quit" || w == "나가기";
+        };
+        if (isQuitWord(t)) break;
         if (t.empty()) continue;
 
-        // 블록이 열려 있으면 닫힐 때까지 이어서 입력
+        // 블록이 열려 있으면 닫힐 때까지 이어서 입력.
+        // **여기에도 빠져나갈 길이 있어야 한다** — `{` 를 하나 잘못 열면 이 루프가
+        // quit·:q·나가기 까지 전부 삼켜서, 진짜 터미널에서는 Ctrl+C 말고 나갈 방법이
+        // 없었다 (파이프는 EOF 로 끝나니 스위트에서는 안 보였다). 웹 실행에 적어 둔
+        // "빠져나갈 길이 있어야 한다" 와 같은 갈래인데 REPL 에만 없었다.
         string src = line;
         int depth = braceDelta(line);
-        while (depth > 0) {
+        bool quitNow = false, abandoned = false;
+        int blanks = 0;
+        for (bool firstCont = true; depth > 0; firstCont = false) {
+            if (firstCont)
+                std::cout << "   (닫는 } 를 기다리는 중 — 그만두려면 빈 줄 두 번, 나가려면 quit)\n";
             std::cout << ".. " << std::flush;
             string more;
             if (!readLine(more)) { depth = 0; break; }
+            string mt = trim(more);
+            if (isQuitWord(mt)) { quitNow = true; break; }
+            // 빈 줄 하나는 그냥 여백이다 (블록 안에 줄을 띄우는 학생이 있다).
+            // 두 번 이어지면 "그만두겠다"는 뜻으로 읽는다.
+            if (mt.empty()) {
+                if (++blanks >= 2) { abandoned = true; break; }
+            } else blanks = 0;
             src += "\n" + more;
             depth += braceDelta(more);
+        }
+        if (quitNow) break;
+        if (abandoned) {
+            std::cout << "(입력을 취소했습니다)\n";
+            continue;
         }
 
         if (containsImport(src)) {
