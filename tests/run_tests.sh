@@ -261,6 +261,47 @@ if [ -f "$TMP/shell/없는폴더/x.my" ] || ! grep -q '만들지 못했습니다
     dfail=$((dfail+1))
 fi
 
+# 아래 두 검사는 **끝나지 않는 것**부터 잡아야 하므로 timeout 으로 감싼다.
+# macOS 에는 기본으로 없다 — 없으면 그냥 돌리고 CI 의 잡 타임아웃에 맡긴다.
+TMO=""
+command -v timeout >/dev/null 2>&1 && TMO="timeout 20"
+
+# ---- 에디터의 나머지 명령 (:paste / :line / :c) ----
+# 위 검사는 create/code/:d/:q 만 지난다. `:paste`·`:line N`·`:c` 는 **학생의 파일을
+# 고치는** 명령인데 한 번도 안 돌아 봤다 — 여기가 틀리면 잃는 게 화면이 아니라 작업이다.
+# 화면 문구가 아니라 **저장된 파일**로 확인한다 (셸 검사의 원칙 그대로).
+editor_ok="통과"
+(
+    mkdir -p "$TMP/editor" && cd "$TMP/editor" || exit 0
+    printf 'create 편집.my\n:q\ncode\nprint "하나"\nprint "둘"\n:paste\nprint "셋"\nprint "넷"\n:end\n:line 2\nprint "둘 고침"\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > ed.txt 2>&1
+    # 잘못된 :line 은 파일을 건드리면 안 된다. 그 뒤 :c 로 비우고 한 줄만 남긴다.
+    printf 'choose 편집.my\ncode\n:line 0\n:line 99\n:line abc\n:line\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > ed_bad.txt 2>&1
+    cp 편집.my 편집_보존.my 2>/dev/null
+    printf 'choose 편집.my\ncode\n:c\n:d\nprint "새로 시작"\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > ed_clear.txt 2>&1
+) || true
+# :paste 가 두 줄을 붙였고 :line 2 가 그 줄만 고쳤는가
+want=$'print "하나"\nprint "둘 고침"\nprint "셋"\nprint "넷"'
+[ "$(tr -d '\r' < "$TMP/editor/편집_보존.my" 2>/dev/null)" = "$want" ] \
+    || editor_ok="실패 (:paste / :line 의 결과가 다릅니다)"
+# 잘못된 :line 넷이 파일을 안 건드렸는가 (위 비교가 그것도 같이 본다) + 안내가 나왔는가
+grep -q '줄 번호가 잘못됨' "$TMP/editor/ed_bad.txt" 2>/dev/null \
+    || editor_ok="실패 (범위 밖 :line 을 그냥 넘어갑니다)"
+# :c 로 비우고 빈 파일에 :d 를 해도 죽지 않고, 그 뒤 저장이 되는가
+[ "$(tr -d '\r' < "$TMP/editor/편집.my" 2>/dev/null)" = 'print "새로 시작"' ] \
+    || editor_ok="실패 (:c 뒤의 저장이 틀립니다)"
+grep -q '삭제할 줄이 없음' "$TMP/editor/ed_clear.txt" 2>/dev/null \
+    || editor_ok="실패 (빈 파일의 :d 가 조용합니다)"
+if [ "$editor_ok" = "통과" ]; then
+    echo "PASS  셸/에디터 명령 (:paste :line :c)"
+else
+    echo "FAIL  셸/에디터 명령  $editor_ok"
+    cat "$TMP/editor/편집.my" 2>/dev/null
+    dfail=$((dfail+1)); shell_ok="$shell_ok · 에디터 명령 실패"
+fi
+
 # ---- 에디터의 스크롤 뷰어 (:v) ----
 # `scrollViewer` 는 **어떤 검사도 한 번도 들어간 적이 없는 코드**다. `readKey()` 에
 # 파이프 대비책(u/d/U/D, EOF 는 나가기)이 이미 있는데도 그 길로 들어가 본 적이 없었다 —
@@ -268,8 +309,6 @@ fi
 # 학생의 셸이 멈추고, 스크롤 산술이 틀리면 파일의 일부를 영영 못 본다.
 # 이 검사가 잡아야 할 **첫 번째 것이 "안 끝남"** 이라, 있으면 timeout 으로 감싼다
 # (macOS 에는 기본으로 없다 — 없으면 그냥 돌리고 CI 의 잡 타임아웃에 맡긴다).
-TMO=""
-command -v timeout >/dev/null 2>&1 && TMO="timeout 20"
 viewer_ok="통과"
 (
     mkdir -p "$TMP/viewer" && cd "$TMP/viewer" || exit 0
