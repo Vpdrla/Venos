@@ -313,6 +313,27 @@ grep -q '안나감' "$TMP/repl_quit.txt" \
     && { repl_ok="실패 (연속 입력 중 quit 이 먹히지 않습니다)"; dfail=$((dfail+1)); }
 [ "$repl_ok" = "통과" ] || { cat "$TMP/repl.txt"; cat "$TMP/repl_esc.txt"; cat "$TMP/repl_quit.txt"; }
 
+# ---- 추적표가 무엇을 찍는가 (tests/trace) ----
+# ①-b 는 "추적이 프로그램의 답을 바꾸지 않는가" 만 본다. **추적 줄 자체는 여태 어디와도
+# 비교된 적이 없었다** — traceValue 가 망가지거나 줄 번호가 어긋나도 조용했다는 뜻이다.
+# stderr 만 비교한다: stdout 과 섞으면 버퍼링 때문에 순서가 플랫폼마다 달라진다.
+trpass=0
+for case_file in tests/trace/*.my; do
+    [ -e "$case_file" ] || break
+    name=$(basename "$case_file" .my)
+    want="tests/trace/$name.expected"
+    if [ ! -f "$want" ]; then
+        echo "FAIL  추적/$name  (.expected 가 없습니다)"; dfail=$((dfail+1)); continue
+    fi
+    "$VENOS" trace "$case_file" 2> "$TMP/trace_out.txt" > /dev/null
+    if diff <(tr -d '\r' < "$want") <(tr -d '\r' < "$TMP/trace_out.txt") > "$TMP/diff.txt" 2>&1; then
+        echo "PASS  추적/$name"; trpass=$((trpass+1))
+    else
+        echo "FAIL  추적/$name  (추적 줄이 바뀌었습니다)"
+        head -12 "$TMP/diff.txt"; dfail=$((dfail+1))
+    fi
+done
+
 # ---- 종료 코드 ----
 # 실패를 0 으로 알리면 채점 스크립트와 Makefile 이 죽은 프로그램을 성공으로 읽는다.
 # 인터프리터가 오래 0 만 돌려줬다 — 빌드본은 1 을 돌려주는데 (백엔드가 어긋나 있었다).
@@ -440,7 +461,7 @@ echo "셸 편집 모드: $shell_ok"
 echo "topython 거절: 통과 $npass"
 # ${} 로 감쌀 것 — macOS 의 bash 3.2 는 "$traced개" 를 변수 이름 `traced개` 로 읽고
 # set -u 아래에서 "unbound variable" 로 죽는다 (리눅스 bash 5 에서는 멀쩡해서 안 보였다)
-echo "추적표: ${traced}개 케이스에서 run 과 같은 답 (추적 줄은 stderr)"
+echo "추적표: ${traced}개 케이스에서 run 과 같은 답 (추적 줄은 stderr) · 추적 줄 자체 ${trpass}개 고정"
 echo "종료 코드: 통과 $exitpass / 실패 $exitfail"
 echo "REPL: $repl_ok"
 echo "이름 대조: $builtins"
