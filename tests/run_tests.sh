@@ -261,6 +261,40 @@ if [ -f "$TMP/shell/없는폴더/x.my" ] || ! grep -q '만들지 못했습니다
     dfail=$((dfail+1))
 fi
 
+# ---- 에디터의 스크롤 뷰어 (:v) ----
+# `scrollViewer` 는 **어떤 검사도 한 번도 들어간 적이 없는 코드**다. `readKey()` 에
+# 파이프 대비책(u/d/U/D, EOF 는 나가기)이 이미 있는데도 그 길로 들어가 본 적이 없었다 —
+# 화면을 그리는 자리라 "돌려 볼 생각"이 안 드는 쪽이다. 여기서 무한 루프가 되면
+# 학생의 셸이 멈추고, 스크롤 산술이 틀리면 파일의 일부를 영영 못 본다.
+# 이 검사가 잡아야 할 **첫 번째 것이 "안 끝남"** 이라, 있으면 timeout 으로 감싼다
+# (macOS 에는 기본으로 없다 — 없으면 그냥 돌리고 CI 의 잡 타임아웃에 맡긴다).
+TMO=""
+command -v timeout >/dev/null 2>&1 && TMO="timeout 20"
+viewer_ok="통과"
+(
+    mkdir -p "$TMP/viewer" && cd "$TMP/viewer" || exit 0
+    awk 'BEGIN { for (i = 1; i <= 40; i++) print "print " i }' > 긴파일.my
+    # d d D 로 내려갔다가 q 로 나오고, 그래도 :q 가 정상 저장하는지
+    printf 'choose 긴파일.my\ncode\n:v\nd\nd\nD\nq\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > view.txt 2>&1
+    # 빈 파일에서도 죽지 않아야 한다 (maxOff 가 0 이 되는 갈래)
+    printf 'create 빈것.my\n:q\ncode\n:v\nd\nD\nq\n:q\nexit\n' \
+        | $TMO "$VENOS_ABS" > view_empty.txt 2>&1
+) || true
+# 스크롤이 실제로 내려갔는가 — 첫 화면(1~18줄)에 없던 줄이 보여야 한다
+grep -q 'print 40' "$TMP/viewer/view.txt" 2>/dev/null \
+    || viewer_ok="실패 (스크롤해도 뒷부분이 안 보입니다)"
+grep -q '빈 파일' "$TMP/viewer/view_empty.txt" 2>/dev/null \
+    || viewer_ok="실패 (빈 파일에서 뷰어가 이상합니다)"
+if [ "$viewer_ok" = "통과" ]; then
+    echo "PASS  셸/스크롤 뷰어 (:v)"
+else
+    echo "FAIL  셸/스크롤 뷰어  $viewer_ok"
+    tail -5 "$TMP/viewer/view.txt" 2>/dev/null
+    dfail=$((dfail+1))
+    shell_ok="$shell_ok · 뷰어 실패"
+fi
+
 # ---- topython 이 거절해야 하는 것들 (tests/nopython) ----
 # 틀린 파이썬을 내는 건 거절보다 나쁘다 — 학생은 틀린 줄 알 길이 없다.
 # 파이썬이 Venos 와 다르게 답하는 자리에서 줄 번호를 대고 거절하는지 본다.
