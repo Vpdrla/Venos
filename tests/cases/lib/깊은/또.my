@@ -1,0 +1,3 @@
+# lib/중간.my 가 "깊은/또.my" 로 부르는 파일. **그 import 를 쓴 파일(lib/중간.my) 옆**을
+# 기준으로 풀어야 여기 닿는다 — main 기준이면 tests/cases/깊은/또.my 를 찾다 실패한다.
+func 세제곱(n) { return n * n * n }
