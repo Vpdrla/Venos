@@ -16,6 +16,7 @@ venos                      # interactive shell (create/choose/code/run/build/...
 venos --help               # usage; venos --version prints the version
 ```
 Inside the shell, `repl` starts a line-by-line REPL — type a bare expression to see its value.
+An open block, list or paren continues on `..`; **two blank lines** abandon it, `quit` leaves.
 
 `trace` prints the **trace table** a textbook asks students to fill in by hand: one
 `line| name = value` for every value that changes, with `->` on a call and `<-` on a return,
@@ -259,7 +260,10 @@ Habits from other languages — `elif`, `!`, `**`, `//` comments, `;`, `:` block
     right on screen, so **the error names the character** and what to type instead —
     invisible ones (`U+00A0`, `U+200B`) included. A BOM at the start of the file, which
     is what Notepad writes, is skipped rather than reported
-14. **Keywords are English — Korean is for names only.** Writing `만약`, `반복`, `함수`,
+14. **Names take Korean, Chinese characters and Latin letters — an emoji name is
+    refused by `topython`.** Python cannot use one as a name, so emitting it would
+    produce a .py that does not parse. The interpreter and `build` still run it.
+15. **Keywords are English — Korean is for names only.** Writing `만약`, `반복`, `함수`,
     `변수` or `참` gets an error that names the word and says what to write instead.
     (Names may be Korean, as in `let 학생수 = 30` — which is exactly why students guess
     the keywords are too.)

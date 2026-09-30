@@ -1,0 +1,25 @@
+# 추적표가 **무엇을 찍는지**는 여태 아무것도 검사하지 않았다.
+# 러너 ①-b 는 "추적이 프로그램의 답을 바꾸지 않는가" 만 본다 — 추적 줄 자체(stderr)는
+# 어디와도 비교된 적이 없어서, traceValue 나 줄 번호가 망가져도 조용했다.
+# 값이 바뀌는 자리 여섯 곳과 호출/반환 두 곳을 한 번씩 지나간다.
+func 팩토리얼(n) {
+    if n <= 1 { return 1 }
+    return n * 팩토리얼(n - 1)
+}
+class 칸 {
+    func init(v) { self.값 = v }
+    func 올리기(d) { self.값 += d  return self.값 }
+}
+
+let 답 = 팩토리얼(3)          # LetStmt + CallExpr + 반환 (재귀 들여쓰기)
+답 = 답 + 1                   # AssignStmt
+let 목록 = [10, 20]
+목록[1] = 99                  # PathAssignStmt
+목록[2] += 5                  # PathCompoundStmt
+let 칸하나 = 칸(7)
+칸하나.값 = 8                 # 필드 대입도 PathAssignStmt
+print 칸하나.올리기(2)        # runMethod (메서드 호출/반환)
+let 합 = 0
+for i = 1 to 2 { 합 += i }    # ForStmt (루프 변수 + 몸통 대입)
+for 하나 in 목록 { 합 += 하나 }  # ForEachStmt
+print 답, 합

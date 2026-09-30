@@ -551,6 +551,39 @@ The twelfth instrument does not read the screen. It measures it. The other eleve
 compared text, and every one of them was blind to a place where the text is right and the
 picture is wrong.
 
+## 15. The instrument's own shape is the blind spot
+
+Two defects turned up the same day for the same reason.
+
+Open one stray `{` in the REPL and the continuation prompt swallows everything
+after it — `quit`, `:q`, `나가기`, all of it. At a real terminal the only way out is
+Ctrl+C, which takes the shell with it.
+
+The suite **could not see this**. Every REPL check feeds stdin from a pipe, and a
+pipe ends in EOF, and EOF breaks that loop on its own. Not a weak check — a bug
+that does not exist under the input the check uses. It exists only where a human
+is typing.
+
+Second one, same day. `tests/cases/utf8.my` puts emoji in strings and dictionary
+keys and compares three ways. An earlier round — "hand the UTF-8 path emoji and
+combining characters" — came back **zero**, and that was true, for the places it
+handed them to. One place had never been tried: **a name**.
+
+    let 🍎 = 3
+
+Runs in the interpreter. Runs in the compiled binary. `topython` emitted `🍎 = 3`
+and Python could not **parse the file at all**. Worse than a wrong answer — the
+.py the student receives does not run a single line.
+
+Chapter 11's question — what input has this instrument never been handed? — only
+counts inputs the instrument *can* be handed. These two sit outside it. The REPL
+check cannot impersonate a terminal, and the UTF-8 case thought of the character
+as **data** and never as a **name**. It is not that the instrument missed
+something. Its *shape* could not contain it.
+
+So the question changes: what situation can this check **structurally never
+produce**?
+
 ## What the list adds up to
 
 Twelve instruments, and each one found the class of bug only it could find:
@@ -570,6 +603,7 @@ Twelve instruments, and each one found the class of bug only it could find:
 | a file written the way students get one | four correct-looking lines that could not run |
 | an invariant shipped with the feature | the trace killing the program it was watching |
 | a check that measures what was drawn | the right characters pointing at the wrong place |
+| asking what the instrument cannot produce | a state no pipe can reach, a place never tried |
 
 The pattern is not "test more." It is that each instrument sees one kind of thing and is
 blind to the rest, and you cannot reason your way to the blind spots — you can only build

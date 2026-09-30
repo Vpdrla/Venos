@@ -116,6 +116,24 @@ if (kwExtraFound.length) {
     bad++;
 }
 
+// ---- 셸 `help` 에 다 적혀 있는가 ----
+// 학생이 **제일 먼저 보는 화면**이고, 내장 함수 이름이 적히는 여섯 번째 자리다.
+// 여태 이 검사 밖에 있어서 `reverse` 가 조용히 빠져 있었다 (태그 뒤에 더해진 함수다).
+// 도움말이 낡으면 "없는 기능"이 되므로 구현이 빠진 것과 학생에게는 같다.
+// 소스에서 문자열을 그대로 긁는다 — 바이너리를 돌리지 않으므로 어디서나 같은 답이 나온다.
+const helpText = (() => {
+    const m = src.match(/언어 문법 예시:[\s\S]*?;\n/);
+    if (!m) { console.log('✗ 셸 help 문자열을 못 찾았습니다'); process.exit(1); }
+    return m[0];
+})();
+const helpMissing = [...all]
+    .filter((n) => !new RegExp('(?<![A-Za-z_])' + n + '(?![A-Za-z_])').test(helpText))
+    .sort();
+if (helpMissing.length) {
+    console.log(`✗ 셸 help 에 없음: ${helpMissing.join(', ')}`);
+    bad++;
+}
+
 // ---- 명세에 다 적혀 있는가 ----
 // VENOS_SPEC 은 "AI 에게 그대로 건네 주면 Venos 를 쓸 수 있다" 를 노린 문서다.
 // 내장 함수나 키워드가 거기 없으면, 그걸 쓰는 법을 알 방법이 없다.
@@ -133,7 +151,7 @@ for (const [doc, miss] of Object.entries(specMissing)) {
 }
 
 if (bad) {
-    console.log('\n내장 함수는 구현 다섯 곳(venos.cpp 넷 + vscode-venos)에, 키워드는 venos.cpp 와\nvscode-venos 양쪽에, 그리고 둘 다 VENOS_SPEC 두 벌에 적혀 있어야 합니다.');
+    console.log('\n내장 함수는 구현 다섯 곳(venos.cpp 넷 + vscode-venos)과 셸 help 에, 키워드는\nvenos.cpp 와 vscode-venos 양쪽에, 그리고 둘 다 VENOS_SPEC 두 벌에 적혀 있어야 합니다.');
     process.exit(1);
 }
-console.log(`내장 함수 ${all.size}개 · 키워드 ${kwWanted.length}개 — 구현 다섯 곳과 명세 두 벌 모두 일치`);
+console.log(`내장 함수 ${all.size}개 · 키워드 ${kwWanted.length}개 — 구현 다섯 곳과 셸 help, 명세 두 벌 모두 일치`);
